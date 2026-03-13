@@ -10,11 +10,20 @@ export function calculateEstimate(project: Project, catalog: CatalogItem[]): Est
 
   const calculatedLines: CalculatedLine[] = lines.map(line => {
     const item = line.catalogItemId ? catalogMap.get(line.catalogItemId) : null;
+    const scope = scopeMap.get(line.scopeId);
     const description = line.manualDescription || item?.description || 'Unknown Item';
     
     // Base costs
     let unitMat = line.materialUnitCostOverride ?? item?.baseMaterialCost ?? 0;
     let unitLabMins = line.laborMinutesOverride ?? item?.baseLaborMinutes ?? 0;
+
+    // Pricing mode compatibility: support material-only, labor-only, and combined modes.
+    const pricingMode = String((scope as any)?.pricingMode || 'material_and_labor').toLowerCase();
+    if (pricingMode === 'material_only') {
+      unitLabMins = 0;
+    } else if (pricingMode === 'labor_only') {
+      unitMat = 0;
+    }
 
     // Apply multipliers
     let labMultiplier = 1.0;

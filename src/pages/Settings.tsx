@@ -1,188 +1,252 @@
-
 import React, { useEffect, useState } from 'react';
-import { Save, Building2, Mail, MapPin, Percent, DollarSign, Clock, Users, Layers, FileText } from 'lucide-react';
 import { api } from '../services/api';
-import { UserProfile } from '../types';
+import { CatalogSyncStatusRecord, SettingsRecord } from '../shared/types/estimator';
+import { ensureProposalDefaults } from '../shared/utils/proposalDefaults';
 
 export function Settings() {
-  const [settings, setSettings] = useState<UserProfile | null>(null);
+  const [settings, setSettings] = useState<SettingsRecord | null>(null);
+  const [syncStatus, setSyncStatus] = useState<CatalogSyncStatusRecord | null>(null);
+  const [syncRuns, setSyncRuns] = useState<Array<{
+    id: string;
+    attemptedAt: string;
+    status: 'success' | 'failed';
+    message: string | null;
+    itemsSynced: number;
+    modifiersSynced: number;
+    bundlesSynced: number;
+    bundleItemsSynced: number;
+    warnings: string[];
+  }>>([]);
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
-    api.getSettings().then(setSettings);
+    void Promise.all([api.getV1Settings(), api.getCatalogSyncStatus(), api.getCatalogSyncRuns(8)]).then(([data, status, runs]) => {
+      const next = ensureProposalDefaults({ ...data });
+      if (!next.companyName) next.companyName = 'Brighten Builders, LLC';
+      if (!next.companyAddress) next.companyAddress = '512 S. 70th Street, Kansas City, KS 66611';
+      if (!next.logoUrl) next.logoUrl = 'https://static.wixstatic.com/media/18d091_be2178f095264ea0a1d2c8d78520b2ce%7Emv2.png/v1/fit/w_2500,h_1330,al_c/18d091_be2178f095264ea0a1d2c8d78520b2ce%7Emv2.png';
+      setSettings(next);
+      setSyncStatus(status);
+      setSyncRuns(runs);
+    });
   }, []);
 
-  const handleSave = async () => {
+  async function saveSettings() {
     if (!settings) return;
     setSaving(true);
     try {
-      await api.updateSettings(settings);
-    } catch (err) {
-      console.error('Failed to save settings', err);
+      const saved = await api.updateV1Settings(settings);
+      setSettings(saved);
+      alert('Settings saved.');
+    } catch (error: any) {
+      alert(`Failed to save settings: ${error.message}`);
     } finally {
       setSaving(false);
     }
-  };
+  }
 
-  if (!settings) return <div className="p-12 text-center text-gray-500">Loading settings...</div>;
+  async function syncSheets() {
+    setSyncing(true);
+    try {
+      const result = await api.syncV1Catalog();
+      const [refreshedStatus, refreshedRuns] = await Promise.all([api.getCatalogSyncStatus(), api.getCatalogSyncRuns(8)]);
+      setSyncStatus(refreshedStatus);
+      setSyncRuns(refreshedRuns);
+      alert(`Google Sheets sync complete: ${result.itemsSynced} items, ${result.modifiersSynced} modifiers, ${result.bundlesSynced} bundles.`);
+    } catch (error: any) {
+      alert(`Google Sheets sync failed: ${error.message}`);
+      try {
+        const [refreshedStatus, refreshedRuns] = await Promise.all([api.getCatalogSyncStatus(), api.getCatalogSyncRuns(8)]);
+        setSyncStatus(refreshedStatus);
+        setSyncRuns(refreshedRuns);
+      } catch (_e) {
+        // Best effort status refresh.
+      }
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  function formatDate(value: string | null) {
+    if (!value) return 'Never';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Never';
+    return date.toLocaleString();
+  }
+
+  function onLogoFileSelected(file: File | undefined) {
+    if (!file || !settings) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = typeof reader.result === 'string' ? reader.result : '';
+      setSettings({ ...settings, logoUrl: value });
+    };
+    reader.readAsDataURL(file);
+  }
+
+  if (!settings) return <div className="p-6 text-sm text-slate-500">Loading settings...</div>;
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
-      <div className="flex justify-between items-center mb-8">
+    <div className="ui-page-narrow space-y-4">
+      <div className="ui-surface p-4 md:p-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Settings</h1>
-          <p className="text-gray-500 mt-1">Configure your company profile and default estimation rules.</p>
+          <p className="ui-label">System Configuration</p>
+          <h1 className="text-2xl font-semibold mt-1">Settings</h1>
+          <p className="ui-subtitle mt-1">Company profile, proposal defaults, and catalog sync administration.</p>
         </div>
-        <button 
-          onClick={handleSave}
-          disabled={saving}
-          className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white px-8 py-3 rounded-xl font-semibold flex items-center space-x-2 shadow-lg shadow-blue-200 transition-all active:scale-95"
-        >
-          <Save className={`w-5 h-5 ${saving ? 'animate-spin' : ''}`} />
-          <span>{saving ? 'Saving...' : 'Save Settings'}</span>
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => void syncSheets()} disabled={syncing} className="ui-btn-secondary disabled:opacity-50">
+            {syncing ? 'Syncing...' : 'Sync Google Sheets'}
+          </button>
+          <button onClick={() => void saveSettings()} disabled={saving} className="ui-btn-primary disabled:opacity-60">
+            {saving ? 'Saving...' : 'Save Settings'}
+          </button>
+        </div>
       </div>
 
-      <div className="space-y-8">
-        {/* Company Profile */}
-        <section className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-900 mb-6 flex items-center">
-            <Building2 className="w-5 h-5 text-blue-600 mr-3" />
-            Company Profile
-          </h2>
-          <div className="grid grid-cols-2 gap-6">
-            <div className="col-span-2">
-              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Company Name</label>
-              <input
-                type="text"
-                className="w-full px-4 py-3 bg-gray-50 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all"
-                value={settings.companyName}
-                onChange={(e) => setSettings({ ...settings, companyName: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Email Address</label>
-              <input
-                type="email"
-                className="w-full px-4 py-3 bg-gray-50 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all"
-                value={settings.email}
-                onChange={(e) => setSettings({ ...settings, email: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Phone Number</label>
-              <input
-                type="text"
-                className="w-full px-4 py-3 bg-gray-50 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all"
-                value={settings.id} // Reusing id as placeholder for phone
-                onChange={(e) => setSettings({ ...settings, id: e.target.value })}
-              />
-            </div>
-            <div className="col-span-2">
-              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Address Line 1</label>
-              <input
-                type="text"
-                className="w-full px-4 py-3 bg-gray-50 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all"
-                value={settings.companyAddress1}
-                onChange={(e) => setSettings({ ...settings, companyAddress1: e.target.value })}
-              />
-            </div>
-            <div className="col-span-2">
-              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Address Line 2</label>
-              <input
-                type="text"
-                className="w-full px-4 py-3 bg-gray-50 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all"
-                value={settings.companyAddress2}
-                onChange={(e) => setSettings({ ...settings, companyAddress2: e.target.value })}
-              />
-            </div>
+      <section className="ui-surface p-4 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="ui-label">Catalog Sync Status</h2>
+          <span className="ui-chip border-slate-200 bg-slate-50 text-slate-600">
+            Status: {syncStatus?.status || 'never'}
+          </span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2 text-xs text-slate-600">
+          <div className="ui-surface-soft p-2">
+            <p className="text-slate-500">Last Attempt</p>
+            <p className="font-medium text-slate-800">{formatDate(syncStatus?.lastAttemptAt || null)}</p>
           </div>
+          <div className="ui-surface-soft p-2">
+            <p className="text-slate-500">Last Success</p>
+            <p className="font-medium text-slate-800">{formatDate(syncStatus?.lastSuccessAt || null)}</p>
+          </div>
+          <div className="ui-surface-soft p-2">
+            <p className="text-slate-500">Synced Counts</p>
+            <p className="font-medium text-slate-800">{syncStatus?.itemsSynced || 0} items · {syncStatus?.modifiersSynced || 0} modifiers · {syncStatus?.bundlesSynced || 0} bundles</p>
+          </div>
+          <div className="ui-surface-soft p-2">
+            <p className="text-slate-500">Bundle Items</p>
+            <p className="font-medium text-slate-800">{syncStatus?.bundleItemsSynced || 0} linked items</p>
+          </div>
+        </div>
+        {!!syncStatus?.message && (
+          <p className="text-xs text-slate-600 border border-slate-200 rounded p-2 bg-slate-50">{syncStatus.message}</p>
+        )}
+        {!!syncStatus?.warnings?.length && (
+          <div className="border border-amber-200 bg-amber-50/40 rounded p-2">
+            <p className="text-xs font-medium text-amber-800 mb-1">Warnings</p>
+            <ul className="text-xs text-amber-900 list-disc pl-4">
+              {syncStatus.warnings.slice(0, 6).map((warning, idx) => (
+                <li key={`${warning}-${idx}`}>{warning}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </section>
+
+      <section className="ui-surface p-4 space-y-3">
+        <h2 className="ui-label">Recent Sync Runs</h2>
+        {syncRuns.length === 0 ? (
+          <p className="text-xs text-slate-500">No sync runs yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 text-slate-500">
+                  <th className="text-left py-2 pr-2">Attempted</th>
+                  <th className="text-left py-2 pr-2">Status</th>
+                  <th className="text-left py-2 pr-2">Counts</th>
+                  <th className="text-left py-2">Message</th>
+                </tr>
+              </thead>
+              <tbody>
+                {syncRuns.map((run) => (
+                  <tr key={run.id} className="border-b border-slate-100 align-top">
+                    <td className="py-2 pr-2 text-slate-700">{formatDate(run.attemptedAt)}</td>
+                    <td className="py-2 pr-2">
+                      <span className={`px-2 py-0.5 rounded border ${run.status === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'}`}>
+                        {run.status}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-2 text-slate-700">
+                      {run.itemsSynced}I / {run.modifiersSynced}M / {run.bundlesSynced}B / {run.bundleItemsSynced}BI
+                    </td>
+                    <td className="py-2 text-slate-700">
+                      {run.message || 'No message'}
+                      {run.warnings.length > 0 && (
+                        <span className="text-amber-700"> ({run.warnings.length} warning{run.warnings.length === 1 ? '' : 's'})</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <section className="ui-surface p-4 space-y-3">
+          <h2 className="ui-label">Company Profile</h2>
+          <label className="text-xs text-slate-600 block">Company Name
+            <input className="ui-input mt-1" value={settings.companyName} onChange={(e) => setSettings({ ...settings, companyName: e.target.value })} />
+          </label>
+          <label className="text-xs text-slate-600 block">Address
+            <input className="ui-input mt-1" value={settings.companyAddress} onChange={(e) => setSettings({ ...settings, companyAddress: e.target.value })} />
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="text-xs text-slate-600 block">Phone
+              <input className="ui-input mt-1" value={settings.companyPhone} onChange={(e) => setSettings({ ...settings, companyPhone: e.target.value })} />
+            </label>
+            <label className="text-xs text-slate-600 block">Email
+              <input className="ui-input mt-1" value={settings.companyEmail} onChange={(e) => setSettings({ ...settings, companyEmail: e.target.value })} />
+            </label>
+          </div>
+          <label className="text-xs text-slate-600 block">Logo URL
+            <input className="ui-input mt-1" value={settings.logoUrl} onChange={(e) => setSettings({ ...settings, logoUrl: e.target.value })} />
+          </label>
+          <label className="text-xs text-slate-600 block">Upload Logo File
+            <input
+              type="file"
+              accept="image/*"
+              className="mt-1 block w-full text-sm"
+              onChange={(e) => onLogoFileSelected(e.target.files?.[0])}
+            />
+          </label>
         </section>
 
-        {/* Default Rules */}
-        <section className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-900 mb-6 flex items-center">
-            <Percent className="w-5 h-5 text-blue-600 mr-3" />
-            Default Estimation Rules
-          </h2>
-          <div className="grid grid-cols-2 gap-6">
-            <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Default Labor Rate ($/hr)</label>
-              <div className="relative">
-                <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="number"
-                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all"
-                  value={settings.preferences.defaultLaborRate}
-                  onChange={(e) => setSettings({ ...settings, preferences: { ...settings.preferences, defaultLaborRate: parseFloat(e.target.value) || 0 } })}
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Default Overhead (%)</label>
-              <input
-                type="number"
-                className="w-full px-4 py-3 bg-gray-50 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all"
-                value={settings.preferences.defaultOverheadPct * 100}
-                onChange={(e) => setSettings({ ...settings, preferences: { ...settings.preferences, defaultOverheadPct: parseFloat(e.target.value) / 100 || 0 } })}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Default Profit (%)</label>
-              <input
-                type="number"
-                className="w-full px-4 py-3 bg-gray-50 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all"
-                value={settings.preferences.defaultProfitPct * 100}
-                onChange={(e) => setSettings({ ...settings, preferences: { ...settings.preferences, defaultProfitPct: parseFloat(e.target.value) / 100 || 0 } })}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Work Day Hours</label>
-              <div className="relative">
-                <Clock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="number"
-                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all"
-                  value={settings.preferences.defaultWorkDayHours}
-                  onChange={(e) => setSettings({ ...settings, preferences: { ...settings.preferences, defaultWorkDayHours: parseFloat(e.target.value) || 0 } })}
-                />
-              </div>
-            </div>
+        <section className="ui-surface p-4 space-y-3">
+          <h2 className="ui-label">Estimate Defaults</h2>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="text-xs text-slate-600 block">Default Tax %
+              <input type="number" className="ui-input mt-1" value={settings.defaultTaxPercent} onChange={(e) => setSettings({ ...settings, defaultTaxPercent: Number(e.target.value) || 0 })} />
+            </label>
+            <label className="text-xs text-slate-600 block">Default Overhead %
+              <input type="number" className="ui-input mt-1" value={settings.defaultOverheadPercent} onChange={(e) => setSettings({ ...settings, defaultOverheadPercent: Number(e.target.value) || 0 })} />
+            </label>
+            <label className="text-xs text-slate-600 block">Default Profit %
+              <input type="number" className="ui-input mt-1" value={settings.defaultProfitPercent} onChange={(e) => setSettings({ ...settings, defaultProfitPercent: Number(e.target.value) || 0 })} />
+            </label>
+            <label className="text-xs text-slate-600 block">Default Labor Burden %
+              <input type="number" className="ui-input mt-1" value={settings.defaultLaborBurdenPercent} onChange={(e) => setSettings({ ...settings, defaultLaborBurdenPercent: Number(e.target.value) || 0 })} />
+            </label>
           </div>
-        </section>
-        
-        {/* Integrations */}
-        <section className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-900 mb-6 flex items-center">
-            <Layers className="w-5 h-5 text-blue-600 mr-3" />
-            Integrations
-          </h2>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between p-6 bg-gray-50 rounded-2xl border border-gray-100">
-              <div className="flex items-center space-x-4">
-                <div className="bg-green-100 p-3 rounded-xl">
-                  <FileText className="w-6 h-6 text-green-600" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-gray-900">Google Sheets Sync</h3>
-                  <p className="text-sm text-gray-500">Sync your catalog and pricing rules from a master spreadsheet.</p>
-                </div>
-              </div>
-              <button 
-                onClick={async () => {
-                  try {
-                    const res = await api.syncSheets();
-                    alert(`Sync successful: ${res.message}`);
-                  } catch (err: any) {
-                    alert(`Sync failed: ${err.message}`);
-                  }
-                }}
-                className="px-6 py-3 bg-white border border-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-50 transition-all shadow-sm"
-              >
-                Sync Now
-              </button>
-            </div>
-          </div>
+          <label className="text-xs text-slate-600 block">Proposal Intro
+            <textarea rows={4} className="ui-textarea mt-1" value={settings.proposalIntro} onChange={(e) => setSettings({ ...settings, proposalIntro: e.target.value })} />
+          </label>
+          <label className="text-xs text-slate-600 block">Proposal Terms
+            <textarea rows={4} className="ui-textarea mt-1" value={settings.proposalTerms} onChange={(e) => setSettings({ ...settings, proposalTerms: e.target.value })} />
+          </label>
+          <label className="text-xs text-slate-600 block">Proposal Exclusions
+            <textarea rows={3} className="ui-textarea mt-1" value={settings.proposalExclusions} onChange={(e) => setSettings({ ...settings, proposalExclusions: e.target.value })} />
+          </label>
+          <label className="text-xs text-slate-600 block">Proposal Clarifications
+            <textarea rows={3} className="ui-textarea mt-1" value={settings.proposalClarifications} onChange={(e) => setSettings({ ...settings, proposalClarifications: e.target.value })} />
+          </label>
+          <label className="text-xs text-slate-600 block">Signature Label
+            <input className="ui-input mt-1" value={settings.proposalAcceptanceLabel} onChange={(e) => setSettings({ ...settings, proposalAcceptanceLabel: e.target.value })} />
+          </label>
         </section>
       </div>
     </div>

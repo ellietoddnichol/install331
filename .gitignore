@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+estimator.db
+estimator.db-shm
+estimator.db-wal

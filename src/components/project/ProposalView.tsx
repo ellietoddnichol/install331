@@ -2,6 +2,7 @@
 import React from 'react';
 import { Project, EstimateResult } from '../../types';
 import { Printer, Download, Mail, ShieldCheck } from 'lucide-react';
+import { formatCurrencySafe } from '../../utils/numberFormat';
 
 interface Props {
   project: Project;
@@ -73,14 +74,14 @@ export function ProposalView({ project, estimate }: Props) {
               <div key={scope.id} className="space-y-4">
                 <div className="flex justify-between items-end border-b-2 border-gray-900 pb-2">
                   <h4 className="text-lg font-black text-gray-900 uppercase tracking-tight">{scope.name}</h4>
-                  <span className="text-lg font-bold text-gray-900">${scope.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span className="text-lg font-bold text-gray-900">{formatCurrencySafe(scope.total)}</span>
                 </div>
                 <ul className="grid grid-cols-1 gap-2">
                   {scope.lines.map(line => (
                     <li key={line.lineId} className="flex justify-between text-sm text-gray-600">
                       <span>{line.qty}x {line.description}</span>
                       {project.proposalSettings.showLineItems && (
-                        <span className="font-medium text-gray-400">${line.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <span className="font-medium text-gray-400">{formatCurrencySafe(line.total)}</span>
                       )}
                     </li>
                   ))}
@@ -103,7 +104,7 @@ export function ProposalView({ project, estimate }: Props) {
                   </div>
                   <div className="text-right">
                     <span className="text-xs font-bold text-blue-600 uppercase tracking-widest block mb-1">ADD</span>
-                    <span className="text-xl font-black text-gray-900">${alt.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span className="text-xl font-black text-gray-900">{formatCurrencySafe(alt.total)}</span>
                   </div>
                 </div>
               ))}
@@ -119,7 +120,7 @@ export function ProposalView({ project, estimate }: Props) {
           </div>
           <div className="text-right">
             <p className="text-5xl font-black tracking-tighter">
-              ${estimate.baseBidTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {formatCurrencySafe(estimate.baseBidTotal)}
             </p>
           </div>
         </div>

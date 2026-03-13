@@ -1,0 +1,122 @@
+import { randomUUID } from 'crypto';
+import { estimatorDb } from '../db/connection.ts';
+import { BundleItemRecord, BundleRecord, TakeoffLineRecord } from '../../shared/types/estimator.ts';
+import { createTakeoffLine, resolveUnitLaborCostFromMinutes } from './takeoffRepo.ts';
+
+function mapBundle(row: any): BundleRecord {
+  return {
+    id: row.id,
+    bundleName: row.bundle_name,
+    category: row.category,
+    active: !!row.active,
+    updatedAt: row.updated_at
+  };
+}
+
+function mapBundleItem(row: any): BundleItemRecord {
+  return {
+    id: row.id,
+    bundleId: row.bundle_id,
+    catalogItemId: row.catalog_item_id,
+    sku: row.sku,
+    description: row.description,
+    qty: row.qty,
+    materialCost: row.material_cost,
+    laborMinutes: row.labor_minutes,
+    laborCost: row.labor_cost,
+    sortOrder: row.sort_order,
+    notes: row.notes
+  };
+}
+
+export function listBundles(): BundleRecord[] {
+  const rows = estimatorDb.prepare('SELECT * FROM bundles_v1 WHERE active = 1 ORDER BY bundle_name').all();
+  return rows.map(mapBundle);
+}
+
+export function getBundle(bundleId: string): BundleRecord | null {
+  const row = estimatorDb.prepare('SELECT * FROM bundles_v1 WHERE id = ?').get(bundleId);
+  return row ? mapBundle(row) : null;
+}
+
+export function listBundleItems(bundleId: string): BundleItemRecord[] {
+  const rows = estimatorDb.prepare('SELECT * FROM bundle_items_v1 WHERE bundle_id = ? ORDER BY sort_order, id').all(bundleId);
+  return rows.map(mapBundleItem);
+}
+
+export function createBundle(input: { bundleName: string; category?: string | null; items?: Array<Partial<BundleItemRecord>> }): { bundle: BundleRecord; items: BundleItemRecord[] } {
+  const now = new Date().toISOString();
+  const bundle: BundleRecord = {
+    id: randomUUID(),
+    bundleName: input.bundleName,
+    category: input.category ?? null,
+    active: true,
+    updatedAt: now
+  };
+
+  estimatorDb.prepare('INSERT INTO bundles_v1 (id, bundle_name, category, active, updated_at) VALUES (?, ?, ?, ?, ?)')
+    .run(bundle.id, bundle.bundleName, bundle.category, 1, bundle.updatedAt);
+
+  const items: BundleItemRecord[] = [];
+  (input.items ?? []).forEach((item, index) => {
+    const nextItem: BundleItemRecord = {
+      id: randomUUID(),
+      bundleId: bundle.id,
+      catalogItemId: item.catalogItemId ?? null,
+      sku: item.sku ?? null,
+      description: item.description ?? 'Bundle item',
+      qty: item.qty ?? 1,
+      materialCost: item.materialCost ?? 0,
+      laborMinutes: item.laborMinutes ?? 0,
+      laborCost: item.laborCost ?? 0,
+      sortOrder: item.sortOrder ?? index,
+      notes: item.notes ?? null
+    };
+
+    estimatorDb.prepare(`
+      INSERT INTO bundle_items_v1 (
+        id, bundle_id, catalog_item_id, sku, description, qty, material_cost, labor_minutes, labor_cost, sort_order, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      nextItem.id,
+      nextItem.bundleId,
+      nextItem.catalogItemId,
+      nextItem.sku,
+      nextItem.description,
+      nextItem.qty,
+      nextItem.materialCost,
+      nextItem.laborMinutes,
+      nextItem.laborCost,
+      nextItem.sortOrder,
+      nextItem.notes
+    );
+
+    items.push(nextItem);
+  });
+
+  return { bundle, items };
+}
+
+export function applyBundleToRoom(input: { bundleId: string; projectId: string; roomId: string }): TakeoffLineRecord[] | null {
+  const bundle = getBundle(input.bundleId);
+  if (!bundle) return null;
+
+  const items = listBundleItems(input.bundleId);
+
+  return items.map((item) => createTakeoffLine({
+    projectId: input.projectId,
+    roomId: input.roomId,
+    sourceType: 'bundle',
+    sourceRef: bundle.id,
+    description: item.description,
+    sku: item.sku,
+    qty: item.qty,
+    unit: 'EA',
+    materialCost: item.materialCost,
+    laborMinutes: item.laborMinutes,
+    laborCost: item.laborCost || resolveUnitLaborCostFromMinutes(item.laborMinutes || 0),
+    bundleId: bundle.id,
+    catalogItemId: item.catalogItemId,
+    notes: item.notes
+  }));
+}

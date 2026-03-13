@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Project, ProjectSettings } from '../../types';
 import { getDistanceInMiles } from '../../utils/geo';
 import { MapPin } from 'lucide-react';
+import { formatNumberSafe } from '../../utils/numberFormat';
 
 interface Props {
   project: Project;
@@ -150,7 +151,7 @@ export function ProjectSetup({ project, onUpdate }: Props) {
                 {calculatingDistance && <span className="text-blue-500 animate-pulse">Calculating distance...</span>}
                 {distance !== null && !calculatingDistance && (
                   <span className={`text-xs ${distance > 50 ? 'text-orange-600 font-bold' : 'text-green-600'}`}>
-                    {distance.toFixed(1)} miles from office {distance > 50 ? '(Remote Surcharge Applies)' : ''}
+                    {formatNumberSafe(distance, 1)} miles from office {distance > 50 ? '(Remote Surcharge Applies)' : ''}
                   </span>
                 )}
               </label>

@@ -4,6 +4,7 @@ import { Plus, Trash2, Copy, Search, MoreHorizontal, ChevronDown, ChevronRight, 
 import { Project, ProjectLine, EstimateResult, CatalogItem, Room, Scope, Bundle } from '../../types';
 import { api } from '../../services/api';
 import { TakeoffAIParser } from './TakeoffAIParser';
+import { formatCurrencySafe, formatNumberSafe, safeDivide } from '../../utils/numberFormat';
 
 interface Props {
   project: Project;
@@ -342,11 +343,11 @@ export function TakeoffTable({ project, estimate, onUpdate }: Props) {
                           />
                         </div>
                       ) : (
-                        `$${((calcLine?.total || 0) / (line.qty || 1)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        formatCurrencySafe(safeDivide(calcLine?.total, line.qty, 0))
                       )}
                     </td>
                     <td className="px-6 py-4 text-right font-bold text-gray-900">
-                      ${(calcLine?.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {formatCurrencySafe(calcLine?.total)}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <button 
@@ -522,7 +523,7 @@ export function TakeoffTable({ project, estimate, onUpdate }: Props) {
                     <p className="font-bold text-gray-900 group-hover:text-blue-700 transition-colors">{item.description}</p>
                     <div className="mt-3 flex items-center justify-between">
                       <span className="text-sm text-gray-500 font-medium">{item.manufacturer} {item.model}</span>
-                      <span className="text-lg font-black text-gray-900">${item.baseMaterialCost.toFixed(2)}</span>
+                      <span className="text-lg font-black text-gray-900">{formatCurrencySafe(item.baseMaterialCost)}</span>
                     </div>
                   </button>
                 ))}
@@ -536,19 +537,19 @@ export function TakeoffTable({ project, estimate, onUpdate }: Props) {
         <div className="flex items-center space-x-8">
           <div>
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Room Total ({project.rooms.find(r => r.id === selectedRoomId)?.name})</p>
-            <p className="text-2xl font-black text-gray-900">${roomTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            <p className="text-2xl font-black text-gray-900">{formatCurrencySafe(roomTotal)}</p>
           </div>
           <div className="h-10 w-px bg-gray-100"></div>
           <div>
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Project Base Bid</p>
-            <p className="text-2xl font-black text-blue-600">${(estimate?.baseBidTotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            <p className="text-2xl font-black text-blue-600">{formatCurrencySafe(estimate?.baseBidTotal)}</p>
           </div>
         </div>
         
         <div className="flex items-center space-x-4">
           <div className="text-right mr-4">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Labor Hours</p>
-            <p className="text-lg font-bold text-gray-700">{(estimate?.totalLaborHours || 0).toFixed(1)} hrs</p>
+            <p className="text-lg font-bold text-gray-700">{formatNumberSafe(estimate?.totalLaborHours, 1)} hrs</p>
           </div>
           <button 
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
