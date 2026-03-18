@@ -73,6 +73,7 @@ export function initEstimatorSchema() {
       labor_minutes REAL NOT NULL DEFAULT 0,
       labor_cost REAL NOT NULL DEFAULT 0,
       base_labor_cost REAL NOT NULL DEFAULT 0,
+      pricing_source TEXT NOT NULL DEFAULT 'auto',
       unit_sell REAL NOT NULL DEFAULT 0,
       line_total REAL NOT NULL DEFAULT 0,
       notes TEXT,
@@ -268,9 +269,23 @@ export function initEstimatorSchema() {
     estimatorDb.exec("UPDATE takeoff_lines_v1 SET base_labor_cost = labor_cost WHERE base_labor_cost = 0");
   }
 
+  const hasPricingSource = takeoffColumns.some((column) => column.name === 'pricing_source');
+  if (!hasPricingSource) {
+    estimatorDb.exec("ALTER TABLE takeoff_lines_v1 ADD COLUMN pricing_source TEXT NOT NULL DEFAULT 'auto'");
+  }
+
+  estimatorDb.exec(`
+    UPDATE takeoff_lines_v1
+    SET pricing_source = CASE
+      WHEN abs(coalesce(unit_sell, 0) - round(coalesce(material_cost, 0) + coalesce(labor_cost, 0), 2)) > 0.009 THEN 'manual'
+      ELSE 'auto'
+    END
+    WHERE pricing_source IS NULL OR trim(pricing_source) = ''
+  `);
+
   if (Number.isFinite(defaultLaborRatePerHour) && defaultLaborRatePerHour > 0) {
     const rows = estimatorDb.prepare(`
-      SELECT id, qty, material_cost, labor_minutes, labor_cost, base_labor_cost, unit_sell
+      SELECT id, qty, material_cost, labor_minutes, labor_cost, base_labor_cost, pricing_source, unit_sell
       FROM takeoff_lines_v1
       WHERE labor_minutes > 0
         AND (labor_cost <= 0 OR base_labor_cost <= 0)
@@ -281,6 +296,7 @@ export function initEstimatorSchema() {
       labor_minutes: number;
       labor_cost: number;
       base_labor_cost: number;
+      pricing_source: string;
       unit_sell: number;
     }>;
 
@@ -288,6 +304,7 @@ export function initEstimatorSchema() {
       UPDATE takeoff_lines_v1
       SET labor_cost = ?,
           base_labor_cost = ?,
+          pricing_source = ?,
           unit_sell = ?,
           line_total = ?,
           updated_at = ?
@@ -298,12 +315,17 @@ export function initEstimatorSchema() {
       const derivedLaborCost = Number(((row.labor_minutes / 60) * defaultLaborRatePerHour).toFixed(2));
       const resolvedLaborCost = row.labor_cost > 0 ? row.labor_cost : derivedLaborCost;
       const resolvedBaseLaborCost = row.base_labor_cost > 0 ? row.base_labor_cost : derivedLaborCost;
-      const resolvedUnitSell = row.unit_sell > 0 ? row.unit_sell : Number((row.material_cost + resolvedLaborCost).toFixed(2));
+      const resolvedPricingSource = row.pricing_source === 'manual' ? 'manual' : 'auto';
+      const calculatedUnitSell = Number((row.material_cost + resolvedLaborCost).toFixed(2));
+      const resolvedUnitSell = resolvedPricingSource === 'manual' && row.unit_sell > 0
+        ? row.unit_sell
+        : calculatedUnitSell;
       const resolvedLineTotal = Number((resolvedUnitSell * Number(row.qty || 0)).toFixed(2));
 
       updateLine.run(
         resolvedLaborCost,
         resolvedBaseLaborCost,
+        resolvedPricingSource,
         resolvedUnitSell,
         resolvedLineTotal,
         new Date().toISOString(),

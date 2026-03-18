@@ -61,6 +61,7 @@ roomsRouter.post('/:roomId/duplicate', (req, res) => {
       materialCost: line.materialCost,
       laborMinutes: line.laborMinutes,
       laborCost: line.laborCost,
+      pricingSource: line.pricingSource,
       unitSell: line.unitSell,
       notes: line.notes,
       bundleId: line.bundleId,

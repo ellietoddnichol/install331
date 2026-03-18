@@ -261,16 +261,34 @@ export function ProjectWorkspace() {
     });
   }, [catalog, catalogSearch, catalogCategory]);
 
+  function resolveLocalLinePricing(line: TakeoffLineRecord): TakeoffLineRecord {
+    const pricingSource = line.pricingSource === 'manual' ? 'manual' : 'auto';
+    const calculatedUnitSell = Number((line.materialCost + line.laborCost).toFixed(2));
+    const unitSell = pricingSource === 'manual' ? Number(line.unitSell || 0) : calculatedUnitSell;
+    return {
+      ...line,
+      pricingSource,
+      unitSell: Number(unitSell.toFixed(2)),
+      lineTotal: Number((unitSell * line.qty).toFixed(2)),
+    };
+  }
+
   function patchLineLocal(lineId: string, updates: Partial<TakeoffLineRecord>) {
     setLines((prev) =>
       prev.map((line) => {
         if (line.id !== lineId) return line;
-        const next = { ...line, ...updates };
-        const unitSell = updates.unitSell ?? next.unitSell ?? next.materialCost + next.laborCost;
-        const lineTotal = unitSell * next.qty;
-        return { ...next, unitSell, lineTotal };
+        const pricingSource = updates.pricingSource ?? (updates.unitSell !== undefined ? 'manual' : line.pricingSource);
+        return resolveLocalLinePricing({ ...line, ...updates, pricingSource });
       })
     );
+  }
+
+  async function resetLineToCalculatedPrice(lineId: string) {
+    const line = lines.find((entry) => entry.id === lineId);
+    if (!line) return;
+    const calculatedUnitSell = Number((line.materialCost + line.laborCost).toFixed(2));
+    patchLineLocal(lineId, { pricingSource: 'auto', unitSell: calculatedUnitSell });
+    await persistLine(lineId, { pricingSource: 'auto', unitSell: calculatedUnitSell });
   }
 
   function patchJobConditions(updates: Partial<ProjectJobConditions>) {
@@ -1687,7 +1705,24 @@ export function ProjectWorkspace() {
                           </label>
                         ) : null}
                         <label className="text-[11px] font-medium text-slate-700">Unit Sell
-                          <input type="number" className="ui-input mt-1 h-10 rounded-xl" value={selectedLine.unitSell} onChange={(e) => patchLineLocal(selectedLine.id, { unitSell: Number(e.target.value) || 0 })} onBlur={() => void persistLine(selectedLine.id)} />
+                          <div className="mt-1 space-y-2">
+                            <input type="number" className="ui-input h-10 rounded-xl" value={selectedLine.unitSell} onChange={(e) => patchLineLocal(selectedLine.id, { unitSell: Number(e.target.value) || 0, pricingSource: 'manual' })} onBlur={() => void persistLine(selectedLine.id)} />
+                            <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-500">
+                              <span>
+                                {selectedLine.pricingSource === 'manual'
+                                  ? 'Manual override preserved during repricing.'
+                                  : `Calculated from material + labor: ${formatCurrencySafe(selectedLine.materialCost + selectedLine.laborCost)}`}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => void resetLineToCalculatedPrice(selectedLine.id)}
+                                disabled={selectedLine.pricingSource !== 'manual'}
+                                className="rounded-full border border-slate-200 px-2.5 py-1 text-[10px] font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Reset To Calculated
+                              </button>
+                            </div>
+                          </div>
                         </label>
                         <div className="rounded-2xl bg-white px-3 py-3 shadow-sm ring-1 ring-slate-200/80">
                           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Base minutes</p>

@@ -64,7 +64,6 @@ export function recalculateLineFromModifiers(lineId: string) {
     laborCost: Number(laborCost.toFixed(2)),
     baseMaterialCost: line.baseMaterialCost,
     baseLaborCost: Number(baseLaborCost.toFixed(2)),
-    unitSell: Number((materialCost + laborCost).toFixed(2))
   });
 }
 

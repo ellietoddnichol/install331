@@ -35,8 +35,7 @@ export function TakeoffAIParser({ project, catalog, onImport, onClose }: Props) 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      'application/pdf': ['.pdf'],
-      'image/*': ['.png', '.jpg', '.jpeg']
+      'application/pdf': ['.pdf']
     },
     multiple: false
   } as any);
@@ -63,10 +62,10 @@ export function TakeoffAIParser({ project, catalog, onImport, onClose }: Props) 
       reader.readAsDataURL(file);
       const dataBase64 = await base64Promise;
 
-      const sourceType = (file.type || '').toLowerCase().includes('pdf') || file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'document';
+      const sourceType = 'pdf';
       const parsed = await api.parseV1Intake({
         fileName: file.name,
-        mimeType: file.type || (sourceType === 'pdf' ? 'application/pdf' : 'image/png'),
+        mimeType: file.type || 'application/pdf',
         sourceType,
         dataBase64,
         matchCatalog: true,
@@ -162,7 +161,7 @@ export function TakeoffAIParser({ project, catalog, onImport, onClose }: Props) 
                 ) : (
                   <div>
                     <p className="text-xl font-bold text-gray-900">Upload Takeoff Document</p>
-                    <p className="text-gray-500 mt-2">PDF or Images (Schedules, Drawings, Specs)</p>
+                    <p className="text-gray-500 mt-2">PDF only (schedules, drawings, specs)</p>
                   </div>
                 )}
               </div>

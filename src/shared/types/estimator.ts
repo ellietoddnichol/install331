@@ -81,6 +81,8 @@ export interface RoomRecord {
   updatedAt: string;
 }
 
+export type TakeoffPricingSource = 'auto' | 'manual';
+
 export interface TakeoffLineRecord {
   id: string;
   projectId: string;
@@ -99,6 +101,7 @@ export interface TakeoffLineRecord {
   laborMinutes: number;
   laborCost: number;
   baseLaborCost: number;
+  pricingSource: TakeoffPricingSource;
   unitSell: number;
   lineTotal: number;
   notes: string | null;
