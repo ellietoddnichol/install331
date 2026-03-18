@@ -3,6 +3,8 @@ import { formatCurrencySafe, formatNumberSafe, formatPercentSafe } from '../../u
 
 const DEFAULT_JOB_CONDITIONS: ProjectJobConditions = {
   locationLabel: '',
+  travelDistanceMiles: null,
+  installerCount: 1,
   locationTaxPercent: null,
   unionWage: false,
   unionWageMultiplier: 0.18,
@@ -51,6 +53,10 @@ export function normalizeProjectJobConditions(input?: Partial<ProjectJobConditio
   const locationTaxPercent = merged.locationTaxPercent === null || merged.locationTaxPercent === undefined
     ? null
     : Number(merged.locationTaxPercent);
+  const travelDistanceMiles = merged.travelDistanceMiles === null || merged.travelDistanceMiles === undefined
+    ? null
+    : Number(merged.travelDistanceMiles);
+  const installerCount = Number(merged.installerCount);
   const numeric = (value: unknown, fallback: number) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
@@ -60,6 +66,10 @@ export function normalizeProjectJobConditions(input?: Partial<ProjectJobConditio
     ...merged,
     laborRateMultiplier: Number.isFinite(laborRateMultiplier) && laborRateMultiplier > 0 ? laborRateMultiplier : 1,
     floors: Number.isFinite(floors) && floors > 0 ? Math.round(floors) : 1,
+    installerCount: Number.isFinite(installerCount) && installerCount > 0 ? Math.round(installerCount) : 1,
+    travelDistanceMiles: travelDistanceMiles !== null && Number.isFinite(travelDistanceMiles) && travelDistanceMiles >= 0
+      ? Number(travelDistanceMiles.toFixed(1))
+      : null,
     locationTaxPercent: locationTaxPercent !== null && Number.isFinite(locationTaxPercent)
       ? locationTaxPercent
       : null,
@@ -198,6 +208,14 @@ export function computeProjectConditionEffects(
     assumptions.push(`Location condition: ${job.locationLabel.trim()}.`);
   }
 
+  if (job.travelDistanceMiles !== null) {
+    assumptions.push(`Approximate job distance from office: ${formatNumberSafe(job.travelDistanceMiles, 1)} miles.`);
+  }
+
+  if (job.installerCount > 1) {
+    assumptions.push(`Crew planning assumes ${job.installerCount} installers.`);
+  }
+
   const laborAdjustmentAmount = (laborSubtotal * laborMultiplier) - laborSubtotal;
   const percentAdderAmount = baseLineSubtotal * (job.estimateAdderPercent / 100);
   const estimateAdderAmount = percentAdderAmount + job.estimateAdderAmount + directAdjustmentAmount;
@@ -250,6 +268,8 @@ export function buildProjectConditionSummaryLines(jobConditions?: Partial<Projec
   if (job.estimateAdderPercent !== 0) lines.push(`Project-wide pricing adder of ${formatPercentSafe(job.estimateAdderPercent)} was included.`);
   if (job.estimateAdderAmount !== 0) lines.push(`Project-wide lump-sum adder of ${formatCurrencySafe(job.estimateAdderAmount)} was included.`);
   if (job.locationLabel.trim()) lines.push(`Location assumptions: ${job.locationLabel.trim()}.`);
+  if (job.travelDistanceMiles !== null) lines.push(`Approximate travel distance from office: ${formatNumberSafe(job.travelDistanceMiles, 1)} miles.`);
+  if (job.installerCount > 1) lines.push(`Schedule planning assumes a ${job.installerCount}-installer crew.`);
 
   return lines;
 }

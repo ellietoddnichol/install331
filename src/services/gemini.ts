@@ -1,4 +1,8 @@
 
+import { GoogleGenAI, Type } from "@google/genai";
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+
 export interface ParsedTakeoffItem {
   description: string;
   qty: number;
@@ -8,65 +12,62 @@ export interface ParsedTakeoffItem {
   notes?: string;
 }
 
-function asText(value: unknown): string {
-  return String(value ?? '').trim();
-}
-
-function asNumber(value: unknown, fallback = 1): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
 export const gemini = {
-  async parseTakeoffDocument(fileBase64: string, mimeType: string, fileName = 'takeoff-upload'): Promise<ParsedTakeoffItem[]> {
-    const sourceType = mimeType.toLowerCase().startsWith('image/') ? 'image' : 'pdf';
-    const res = await fetch('/api/v1/intake/extract', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        fileName,
-        mimeType: mimeType || (sourceType === 'image' ? 'image/png' : 'application/pdf'),
-        sourceType,
-        dataBase64: fileBase64,
-      }),
+  async parseTakeoffDocument(fileBase64: string, mimeType: string): Promise<ParsedTakeoffItem[]> {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [
+        {
+          parts: [
+            {
+              text: `You are a construction estimation expert. Analyze the attached construction document (takeoff, schedule, or drawing) and extract a list of items to be installed.
+              Focus on Division 10 Specialties (Grab bars, toilet partitions, lockers, mirrors, etc.) if applicable, but extract all relevant architectural specialties.
+              
+              Return a JSON array of items with the following fields:
+              - description: A clear description of the item.
+              - qty: The numerical quantity.
+              - uom: Unit of measure (EA, LF, SF, etc.).
+              - roomName: The room or location name if specified.
+              - scopeName: The division or scope name if specified.
+              - notes: Any relevant notes or specifications.
+              
+              If you cannot find specific quantities, estimate based on the document or leave as 1.
+              Only return the JSON array, no other text.`
+            },
+            {
+              inlineData: {
+                data: fileBase64,
+                mimeType: mimeType
+              }
+            }
+          ]
+        }
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              description: { type: Type.STRING },
+              qty: { type: Type.NUMBER },
+              uom: { type: Type.STRING },
+              roomName: { type: Type.STRING },
+              scopeName: { type: Type.STRING },
+              notes: { type: Type.STRING }
+            },
+            required: ["description", "qty", "uom"]
+          }
+        }
+      }
     });
 
-    if (!res.ok) {
-      let message = `Request failed with status ${res.status}`;
-      try {
-        const payload = await res.json();
-        message = payload.error || payload.message || message;
-      } catch (_error) {
-        // ignore json parse failures
-      }
-      throw new Error(message);
+    try {
+      return JSON.parse(response.text || '[]');
+    } catch (err) {
+      console.error("Failed to parse Gemini response", err);
+      return [];
     }
-
-    const payload = await res.json() as {
-      data?: {
-        parsedLines?: Array<{
-          roomArea?: string;
-          category?: string;
-          itemName?: string;
-          description?: string;
-          quantity?: number;
-          unit?: string;
-          notes?: string;
-        }>;
-      };
-    };
-
-    return Array.isArray(payload.data?.parsedLines)
-      ? payload.data!.parsedLines!
-          .map((line) => ({
-            description: asText(line.itemName) || asText(line.description),
-            qty: asNumber(line.quantity, 1),
-            uom: asText(line.unit) || 'EA',
-            roomName: asText(line.roomArea) || undefined,
-            scopeName: asText(line.category) || undefined,
-            notes: asText(line.notes) || undefined,
-          }))
-          .filter((line) => line.description)
-      : [];
   }
 };

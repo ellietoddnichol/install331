@@ -2,7 +2,13 @@ import { randomUUID } from 'crypto';
 import { estimatorDb } from '../db/connection.ts';
 import { TakeoffLineRecord } from '../../shared/types/estimator.ts';
 
-const DEFAULT_LABOR_RATE_PER_HOUR = Number(process.env.DEFAULT_LABOR_RATE_PER_HOUR || 30);
+const DEFAULT_LABOR_RATE_PER_HOUR = Number(process.env.DEFAULT_LABOR_RATE_PER_HOUR || 85);
+
+export function getConfiguredLaborRatePerHour(): number {
+  const row = estimatorDb.prepare('SELECT default_labor_rate_per_hour FROM settings_v1 WHERE id = ?').get('global') as { default_labor_rate_per_hour?: number } | undefined;
+  const rate = Number(row?.default_labor_rate_per_hour);
+  return Number.isFinite(rate) && rate > 0 ? rate : DEFAULT_LABOR_RATE_PER_HOUR;
+}
 
 export function resolveUnitLaborCostFromMinutes(laborMinutes: number, laborRatePerHour = DEFAULT_LABOR_RATE_PER_HOUR): number {
   const minutes = Number.isFinite(Number(laborMinutes)) ? Number(laborMinutes) : 0;
@@ -11,8 +17,8 @@ export function resolveUnitLaborCostFromMinutes(laborMinutes: number, laborRateP
   return Number(((minutes / 60) * rate).toFixed(2));
 }
 
-function resolveLaborCostFromInput(laborMinutes: number, laborCost?: number, fallbackLaborCost?: number): number {
-  const derivedLaborCost = resolveUnitLaborCostFromMinutes(laborMinutes);
+function resolveLaborCostFromInput(laborMinutes: number, laborCost: number | undefined, fallbackLaborCost: number | undefined, laborRatePerHour: number): number {
+  const derivedLaborCost = resolveUnitLaborCostFromMinutes(laborMinutes, laborRatePerHour);
   const providedLaborCost = laborCost ?? fallbackLaborCost;
 
   // Treat zero/negative provided values as unset when labor minutes indicate real labor.
@@ -107,12 +113,15 @@ function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): {
 export function createTakeoffLine(input: Partial<TakeoffLineRecord> & { projectId: string; roomId: string; description: string }): TakeoffLineRecord {
   const now = new Date().toISOString();
   const catalogDefaults = resolveCatalogDefaults(input);
+  const laborRatePerHour = getConfiguredLaborRatePerHour();
   const qty = input.qty ?? 1;
   const materialCost = input.materialCost ?? catalogDefaults.materialCost ?? 0;
   const laborMinutes = input.laborMinutes ?? catalogDefaults.laborMinutes ?? 0;
-  const laborCost = resolveLaborCostFromInput(laborMinutes, input.laborCost, input.baseLaborCost);
   const baseMaterialCost = input.baseMaterialCost ?? materialCost;
-  const baseLaborCost = resolveLaborCostFromInput(laborMinutes, input.baseLaborCost, laborCost);
+  const baseLaborCost = input.baseLaborCost !== undefined
+    ? Number(input.baseLaborCost) || 0
+    : resolveUnitLaborCostFromMinutes(laborMinutes, laborRatePerHour);
+  const laborCost = resolveLaborCostFromInput(laborMinutes, input.laborCost, input.baseLaborCost ?? baseLaborCost, laborRatePerHour);
   const totals = computeLineTotal(qty, materialCost, laborCost, input.unitSell);
 
   const line: TakeoffLineRecord = {
@@ -184,12 +193,17 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
   const existing = getTakeoffLine(lineId);
   if (!existing) return null;
 
+  const laborRatePerHour = getConfiguredLaborRatePerHour();
   const qty = input.qty ?? existing.qty;
   const materialCost = input.materialCost ?? existing.materialCost;
   const laborMinutes = input.laborMinutes ?? existing.laborMinutes;
-  const laborCost = resolveLaborCostFromInput(laborMinutes, input.laborCost, existing.laborCost);
   const baseMaterialCost = input.baseMaterialCost ?? (input.materialCost !== undefined ? materialCost : existing.baseMaterialCost);
-  const baseLaborCost = resolveLaborCostFromInput(laborMinutes, input.baseLaborCost, input.laborMinutes !== undefined ? laborCost : existing.baseLaborCost);
+  const baseLaborCost = input.baseLaborCost !== undefined
+    ? Number(input.baseLaborCost) || 0
+    : input.laborMinutes !== undefined
+      ? resolveUnitLaborCostFromMinutes(laborMinutes, laborRatePerHour)
+      : existing.baseLaborCost;
+  const laborCost = resolveLaborCostFromInput(laborMinutes, input.laborCost, input.baseLaborCost ?? (input.laborMinutes !== undefined ? baseLaborCost : existing.laborCost), laborRatePerHour);
   const totals = computeLineTotal(qty, materialCost, laborCost, input.unitSell ?? existing.unitSell);
 
   const next: TakeoffLineRecord = {

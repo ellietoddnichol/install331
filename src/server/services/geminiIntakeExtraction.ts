@@ -1,7 +1,9 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { IntakeProjectAssumption, IntakeProposalAssist } from '../../shared/types/intake.ts';
+import { intakeGeminiResponseSchema, INTAKE_GEMINI_MODEL } from './structuredExtractionSchemas.ts';
 
 export interface GeminiExtractionLine {
   roomArea: string;
@@ -18,8 +20,14 @@ export interface GeminiExtractionResult {
   projectName: string;
   projectNumber: string;
   client: string;
+  generalContractor: string;
   address: string;
   bidDate: string;
+  proposalDate: string;
+  estimator: string;
+  pricingBasis: '' | 'material_only' | 'labor_only' | 'labor_and_material';
+  assumptions: IntakeProjectAssumption[];
+  proposalAssist: IntakeProposalAssist;
   rooms: string[];
   parsedLines: GeminiExtractionLine[];
   warnings: string[];
@@ -29,22 +37,10 @@ interface ExtractInput {
   fileName: string;
   mimeType: string;
   dataBase64?: string;
-  sourceType: 'pdf' | 'document' | 'spreadsheet' | 'image';
+  sourceType: 'pdf' | 'document' | 'spreadsheet';
   extractedText?: string;
   normalizedRows?: Array<Record<string, unknown>>;
 }
-
-type GeminiPart = {
-  text?: string;
-  fileData?: {
-    mimeType: string;
-    fileUri: string;
-  };
-  inlineData?: {
-    mimeType: string;
-    data: string;
-  };
-};
 
 function asText(value: unknown): string {
   return String(value ?? '').trim();
@@ -75,12 +71,39 @@ function sanitizeResult(value: any): GeminiExtractionResult {
     ? value.rooms.map((room: unknown) => asText(room)).filter(Boolean)
     : [];
 
+  const assumptions = Array.isArray(value?.assumptions)
+    ? value.assumptions
+        .map((assumption: any) => ({
+          kind: String(assumption?.kind || 'other').trim() as IntakeProjectAssumption['kind'],
+          text: asText(assumption?.text),
+          confidence: Number.isFinite(Number(assumption?.confidence)) ? Math.max(0, Math.min(1, Number(assumption.confidence))) : 0.5,
+        }))
+        .filter((assumption: IntakeProjectAssumption) => assumption.text)
+    : [];
+
+  const proposalAssist: IntakeProposalAssist = {
+    introDraft: asText(value?.proposalAssist?.introDraft),
+    scopeSummaryDraft: asText(value?.proposalAssist?.scopeSummaryDraft),
+    clarificationsDraft: asText(value?.proposalAssist?.clarificationsDraft),
+    exclusionsDraft: asText(value?.proposalAssist?.exclusionsDraft),
+  };
+
+  const pricingBasis = asText(value?.pricingBasis).toLowerCase();
+
   return {
     projectName: asText(value?.projectName),
     projectNumber: asText(value?.projectNumber),
     client: asText(value?.client),
+    generalContractor: asText(value?.generalContractor),
     address: asText(value?.address),
     bidDate: asText(value?.bidDate),
+    proposalDate: asText(value?.proposalDate),
+    estimator: asText(value?.estimator),
+    pricingBasis: pricingBasis === 'material_only' || pricingBasis === 'labor_only' || pricingBasis === 'labor_and_material'
+      ? pricingBasis as GeminiExtractionResult['pricingBasis']
+      : '',
+    assumptions,
+    proposalAssist,
     rooms,
     parsedLines,
     warnings: Array.isArray(value?.warnings) ? value.warnings.map((warning: unknown) => asText(warning)).filter(Boolean) : [],
@@ -114,116 +137,6 @@ function addQualityWarnings(result: GeminiExtractionResult, input: ExtractInput)
   };
 }
 
-function hasMeaningfulExtraction(result: GeminiExtractionResult): boolean {
-  return Boolean(
-    result.parsedLines.length > 0 ||
-    result.projectName ||
-    result.projectNumber ||
-    result.client ||
-    result.address ||
-    result.bidDate ||
-    result.rooms.length > 0
-  );
-}
-
-function buildPrompt(input: ExtractInput, mode: 'primary' | 'fallback'): string {
-  const prompt = [
-    'You are an estimator intake extraction engine.',
-    'Extract project metadata and takeoff lines into strict JSON.',
-    'Prioritize accurate extraction over guessing; if uncertain, leave blank and add a warning.',
-    'Return schema fields exactly as requested.',
-    'For takeoff drawings, schedules, and fixture plans, extract each visible scope item as a separate line with the clearest quantity and unit available.',
-    'For image or PDF sources, read legends, keynote callouts, schedules, plan tags, and room labels before deciding that nothing is present.',
-    'For spreadsheets: use provided normalized rows as source of truth and improve categorization/mapping only.',
-    'For PDFs/messy docs: infer room area, item, quantity, and unit when explicitly stated; avoid junk records.',
-    mode === 'fallback'
-      ? 'Fallback mode: return your best-effort extraction even if some values are partial. If you can identify likely scope items, include them rather than returning an empty parsedLines array.'
-      : 'Primary mode: prefer precise extraction and avoid speculative rows.',
-    mode === 'fallback'
-      ? 'Pay special attention to schedules, fixture tags, keynote lists, partition types, elevations, and notes blocks. If the document is visual, transcribe what matters first and then structure it.'
-      : 'If project-level metadata such as project name, bid package, bid date, client, or address is present, extract it cleanly.',
-    '',
-    `Source Type: ${input.sourceType}`,
-    `File Name: ${input.fileName}`,
-    input.extractedText ? `Extracted Text Preview:\n${input.extractedText.slice(0, 14000)}` : '',
-    input.normalizedRows?.length
-      ? `Normalized Rows JSON (deterministic parse):\n${JSON.stringify(input.normalizedRows.slice(0, 500))}`
-      : '',
-    'For structured spreadsheets, prefer the row/column structure over OCR-like interpretation.',
-    'Do not invent room names. Only return rooms that are clearly present in the source.',
-    'Return a JSON object with keys: projectName, projectNumber, client, address, bidDate, rooms, parsedLines, warnings.',
-  ];
-
-  return prompt.filter(Boolean).join('\n');
-}
-
-async function runExtractionAttempt(
-  ai: GoogleGenAI,
-  prompt: string,
-  attachmentPart: GeminiPart | null,
-  useSchema: boolean
-): Promise<GeminiExtractionResult> {
-  const parts: GeminiPart[] = [{ text: prompt }];
-  if (attachmentPart) parts.push(attachmentPart);
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: [{ role: 'user', parts }],
-    config: useSchema
-      ? {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              projectName: { type: Type.STRING },
-              projectNumber: { type: Type.STRING },
-              client: { type: Type.STRING },
-              address: { type: Type.STRING },
-              bidDate: { type: Type.STRING },
-              rooms: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-              },
-              parsedLines: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    roomArea: { type: Type.STRING },
-                    category: { type: Type.STRING },
-                    itemCode: { type: Type.STRING },
-                    itemName: { type: Type.STRING },
-                    description: { type: Type.STRING },
-                    quantity: { type: Type.NUMBER },
-                    unit: { type: Type.STRING },
-                    notes: { type: Type.STRING },
-                  },
-                  required: ['description', 'quantity', 'unit'],
-                },
-              },
-              warnings: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-              },
-            },
-            required: ['projectName', 'projectNumber', 'client', 'address', 'bidDate', 'rooms', 'parsedLines'],
-          },
-        }
-      : {
-          responseMimeType: 'application/json',
-        },
-  });
-
-  let parsed: any = {};
-  try {
-    parsed = JSON.parse(response.text || '{}');
-  } catch (_error) {
-    parsed = {};
-  }
-
-  return sanitizeResult(parsed);
-}
-
 export async function extractIntakeFromGemini(input: ExtractInput): Promise<GeminiExtractionResult> {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || '';
   if (!apiKey) {
@@ -232,73 +145,93 @@ export async function extractIntakeFromGemini(input: ExtractInput): Promise<Gemi
 
   const ai = new GoogleGenAI({ apiKey });
 
+  const prompt = [
+    'You are an estimator intake extraction engine.',
+    'Extract project metadata and takeoff lines into strict JSON.',
+    'Before emitting parsedLines, classify each source row or chunk as one of: project_metadata, header_row, section_header, actual_scope_line, or ignore.',
+    'Only actual_scope_line content may appear in parsedLines.',
+    'Project metadata rows must populate project fields and must never appear in parsedLines.',
+    'Header rows such as room/category/item/description/quantity/unit/labor/material/notes define structure only and must never appear in parsedLines.',
+    'Section headers such as Toilet Accessories, Visual Display Boards, or Wall Protection may inform category context but must never appear in parsedLines unless a real scoped item is present.',
+    'Ignore repeated field names, bid/proposal labels, generic setup text, parser artifacts, and long raw text blobs when they are not actual scoped items.',
+    'Focus on finding: project name, project number or bid package, client, general contractor, full address, bid date, proposal date, estimator, room or area names, category, item identity, quantity, and unit.',
+    'When the source is messy, use semantic reasoning to cleanly group scope lines and separate metadata from actual takeoff content.',
+    'Prioritize accurate extraction over guessing; if uncertain, leave blank and add a warning.',
+    'Return schema fields exactly as requested.',
+    'For spreadsheets: use provided normalized rows as source of truth and improve categorization/mapping only.',
+    'When structured fields are present in the source, split them into roomArea, category, itemName, description, quantity, unit, notes, and labor/material flags instead of dumping whole rows into description.',
+    'For PDFs/messy docs: infer room area, item, quantity, and unit when explicitly stated or strongly implied by schedules and scope tables; avoid junk records.',
+    'Interpret common construction proposal and invitation-to-bid structures, including schedules, room finish legends, keyed notes, and bid package references.',
+    'Extract assumptions and commercial clues when present, including pricing basis, tax, delivery, freight, shipment, bond, unload, site visit, clarifications, exclusions, and alternates.',
+    'Produce a short proposal assist object with intro, scope summary, clarifications, and exclusions when the source contains enough context.',
+    '',
+    `Source Type: ${input.sourceType}`,
+    `File Name: ${input.fileName}`,
+    input.extractedText ? `Extracted Text Preview:\n${input.extractedText.slice(0, 14000)}` : '',
+    input.normalizedRows?.length
+      ? `Normalized Rows JSON (deterministic parse):\n${JSON.stringify(input.normalizedRows.slice(0, 500))}`
+      : '',
+    'If project-level metadata such as project name, bid package, bid date, client, or address is present, extract it cleanly.',
+    'For structured spreadsheets, prefer the row/column structure over OCR-like interpretation.',
+    'Do not invent room names. Only return rooms that are clearly present in the source.',
+    'Do not invent assumptions that are not present or strongly implied by the source.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const parts: any[] = [{ text: prompt }];
+
   let tempFilePath: string | null = null;
   try {
-    let attachmentPart: GeminiPart | null = null;
-    const shouldUploadBinary = Boolean(
-      input.dataBase64 && (
-        input.sourceType === 'pdf' ||
-        input.sourceType === 'image' ||
-        input.mimeType.toLowerCase().includes('pdf') ||
-        input.mimeType.toLowerCase().startsWith('image/')
-      )
-    );
+    if (input.dataBase64 && input.mimeType) {
+      if (input.sourceType === 'pdf' && input.mimeType.toLowerCase().includes('pdf')) {
+      const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gemini-intake-'));
+      tempFilePath = path.join(tmpDir, input.fileName || 'upload.pdf');
+      await fs.writeFile(tempFilePath, Buffer.from(input.dataBase64, 'base64'));
 
-    if (shouldUploadBinary && input.dataBase64) {
-      if (input.mimeType.toLowerCase().startsWith('image/')) {
-        attachmentPart = {
+      const uploaded = await ai.files.upload({
+        file: tempFilePath,
+        config: {
+          mimeType: input.mimeType,
+          displayName: input.fileName,
+        },
+      });
+
+      if (uploaded.uri) {
+        parts.push({
+          fileData: {
+            mimeType: input.mimeType,
+            fileUri: uploaded.uri,
+          },
+        });
+      }
+      } else {
+        parts.push({
           inlineData: {
             mimeType: input.mimeType,
             data: input.dataBase64,
           },
-        };
-      } else {
-        try {
-          const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gemini-intake-'));
-          tempFilePath = path.join(tmpDir, input.fileName || 'upload.pdf');
-          await fs.writeFile(tempFilePath, Buffer.from(input.dataBase64, 'base64'));
-
-          const uploaded = await ai.files.upload({
-            file: tempFilePath,
-            config: {
-              mimeType: input.mimeType,
-              displayName: input.fileName,
-            },
-          });
-
-          if (uploaded.uri) {
-            attachmentPart = {
-              fileData: {
-                mimeType: input.mimeType,
-                fileUri: uploaded.uri,
-              },
-            };
-          }
-        } catch (_error) {
-          attachmentPart = {
-            inlineData: {
-              mimeType: input.mimeType,
-              data: input.dataBase64,
-            },
-          };
-        }
+        });
       }
     }
 
-    const primaryResult = await runExtractionAttempt(ai, buildPrompt(input, 'primary'), attachmentPart, true);
-    if (hasMeaningfulExtraction(primaryResult)) {
-      return addQualityWarnings(primaryResult, input);
+    const response = await ai.models.generateContent({
+      model: INTAKE_GEMINI_MODEL,
+      contents: [{ role: 'user', parts }],
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: intakeGeminiResponseSchema,
+      },
+    });
+
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(response.text || '{}');
+    } catch (_error) {
+      parsed = {};
     }
 
-    const fallbackResult = await runExtractionAttempt(ai, buildPrompt(input, 'fallback'), attachmentPart, false);
-    const withFallbackWarning = {
-      ...fallbackResult,
-      warnings: fallbackResult.parsedLines.length > 0
-        ? Array.from(new Set([...(fallbackResult.warnings || []), 'Fallback Gemini extraction was used for this takeoff. Review quantities and scope before import.']))
-        : fallbackResult.warnings,
-    };
-
-    return addQualityWarnings(withFallbackWarning, input);
+    return addQualityWarnings(sanitizeResult(parsed), input);
   } finally {
     if (tempFilePath) {
       try {

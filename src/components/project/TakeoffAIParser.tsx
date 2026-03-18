@@ -2,8 +2,15 @@
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload, FileText, Loader2, Check, AlertCircle, X, Trash2 } from 'lucide-react';
-import { gemini, ParsedTakeoffItem } from '../../services/gemini';
+import { api } from '../../services/api';
 import { Project, ProjectLine, CatalogItem } from '../../types';
+
+interface ParsedTakeoffItem {
+  description: string;
+  qty: number;
+  roomName?: string;
+  notes?: string;
+}
 
 interface Props {
   project: Project;
@@ -41,20 +48,45 @@ export function TakeoffAIParser({ project, catalog, onImport, onClose }: Props) 
 
     try {
       const reader = new FileReader();
-      const base64Promise = new Promise<string>((resolve) => {
+      const base64Promise = new Promise<string>((resolve, reject) => {
         reader.onload = () => {
-          const base64 = (reader.result as string).split(',')[1];
+          const result = typeof reader.result === 'string' ? reader.result : '';
+          const base64 = result.split(',')[1];
+          if (!base64) {
+            reject(new Error('Unable to read the uploaded file.'));
+            return;
+          }
           resolve(base64);
         };
+        reader.onerror = () => reject(new Error('Unable to read the uploaded file.'));
       });
       reader.readAsDataURL(file);
-      const base64 = await base64Promise;
+      const dataBase64 = await base64Promise;
 
-      const items = await gemini.parseTakeoffDocument(base64, file.type, file.name);
+      const sourceType = (file.type || '').toLowerCase().includes('pdf') || file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'document';
+      const parsed = await api.parseV1Intake({
+        fileName: file.name,
+        mimeType: file.type || (sourceType === 'pdf' ? 'application/pdf' : 'image/png'),
+        sourceType,
+        dataBase64,
+        matchCatalog: true,
+      });
+
+      const items = parsed.reviewLines.map((line) => ({
+        description: line.catalogMatch?.description || line.description || line.itemName,
+        qty: Number(line.quantity) || 1,
+        roomName: line.roomName || 'General',
+        notes: [line.notes, ...line.warnings].filter(Boolean).join(' | '),
+      }));
+
+      if (items.length === 0) {
+        throw new Error('No usable takeoff lines were found in the uploaded file.');
+      }
+
       setResults(items);
     } catch (err) {
       console.error("AI Parsing failed", err);
-      setError(err instanceof Error ? err.message : "Failed to parse document. Please try again with a clearer file.");
+      setError(err instanceof Error ? err.message : 'Failed to parse document. Please try again with a clearer file.');
     } finally {
       setParsing(false);
     }

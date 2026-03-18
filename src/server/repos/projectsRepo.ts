@@ -26,8 +26,10 @@ function mapProjectRow(row: any): ProjectRecord {
     projectNumber: row.project_number,
     projectName: row.project_name,
     clientName: row.client_name,
+    generalContractor: row.general_contractor,
     estimator: row.estimator,
     bidDate: row.bid_date,
+    proposalDate: row.proposal_date,
     dueDate: row.due_date,
     address: row.address,
     projectType: row.project_type,
@@ -69,8 +71,10 @@ export function createProject(input: Partial<ProjectRecord>): ProjectRecord {
     projectNumber: input.projectNumber ?? null,
     projectName: input.projectName ?? 'Untitled Project',
     clientName: input.clientName ?? null,
+    generalContractor: input.generalContractor ?? null,
     estimator: input.estimator ?? null,
     bidDate: input.bidDate ?? null,
+    proposalDate: input.proposalDate ?? null,
     dueDate: input.dueDate ?? null,
     address: input.address ?? null,
     projectType: input.projectType ?? null,
@@ -98,17 +102,19 @@ export function createProject(input: Partial<ProjectRecord>): ProjectRecord {
 
   estimatorDb.prepare(`
     INSERT INTO projects_v1 (
-      id, project_number, project_name, client_name, estimator, bid_date, due_date, address, project_type,
+      id, project_number, project_name, client_name, general_contractor, estimator, bid_date, proposal_date, due_date, address, project_type,
       project_size, floor_level, access_difficulty, install_height, material_handling, wall_substrate,
       labor_burden_percent, overhead_percent, profit_percent, tax_percent, pricing_mode, scope_categories_json, job_conditions_json, status, notes, special_notes, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     project.id,
     project.projectNumber,
     project.projectName,
     project.clientName,
+    project.generalContractor,
     project.estimator,
     project.bidDate,
+    project.proposalDate,
     project.dueDate,
     project.address,
     project.projectType,
@@ -152,7 +158,7 @@ export function updateProject(projectId: string, input: Partial<ProjectRecord>):
 
   estimatorDb.prepare(`
     UPDATE projects_v1 SET
-      project_number = ?, project_name = ?, client_name = ?, estimator = ?, bid_date = ?, due_date = ?,
+      project_number = ?, project_name = ?, client_name = ?, general_contractor = ?, estimator = ?, bid_date = ?, proposal_date = ?, due_date = ?,
       address = ?, project_type = ?, project_size = ?, floor_level = ?, access_difficulty = ?, install_height = ?,
       material_handling = ?, wall_substrate = ?, labor_burden_percent = ?, overhead_percent = ?,
       profit_percent = ?, tax_percent = ?, pricing_mode = ?, scope_categories_json = ?, job_conditions_json = ?, status = ?, notes = ?, special_notes = ?, updated_at = ?
@@ -161,8 +167,10 @@ export function updateProject(projectId: string, input: Partial<ProjectRecord>):
     next.projectNumber,
     next.projectName,
     next.clientName,
+    next.generalContractor,
     next.estimator,
     next.bidDate,
+    next.proposalDate,
     next.dueDate,
     next.address,
     next.projectType,
@@ -193,5 +201,10 @@ export function archiveProject(projectId: string): boolean {
   const result = estimatorDb.prepare(`
     UPDATE projects_v1 SET status = 'Archived', updated_at = ? WHERE id = ?
   `).run(new Date().toISOString(), projectId);
+  return result.changes > 0;
+}
+
+export function deleteProject(projectId: string): boolean {
+  const result = estimatorDb.prepare('DELETE FROM projects_v1 WHERE id = ?').run(projectId);
   return result.changes > 0;
 }

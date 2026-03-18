@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getCatalogSyncStatus, getSettings, listCatalogSyncRuns, updateSettings } from '../../repos/settingsRepo.ts';
+import { recalculateAllLinePricing } from '../../repos/modifiersRepo.ts';
 import { syncCatalogFromGoogleSheets } from '../../services/googleSheetsCatalogSync.ts';
 import { generateProposalDraftFromGemini } from '../../services/geminiProposalDraft.ts';
 
@@ -10,7 +11,12 @@ settingsRouter.get('/', (_req, res) => {
 });
 
 settingsRouter.put('/', (req, res) => {
-  return res.json({ data: updateSettings(req.body ?? {}) });
+  const current = getSettings();
+  const next = updateSettings(req.body ?? {});
+  if (current.defaultLaborRatePerHour !== next.defaultLaborRatePerHour) {
+    recalculateAllLinePricing();
+  }
+  return res.json({ data: next });
 });
 
 settingsRouter.post('/proposal-draft', async (req, res) => {

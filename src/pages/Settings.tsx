@@ -219,6 +219,9 @@ export function Settings() {
         <section className="ui-surface p-4 space-y-3">
           <h2 className="ui-label">Estimate Defaults</h2>
           <div className="grid grid-cols-2 gap-2">
+            <label className="text-xs text-slate-600 block">Default Labor Rate / Hr
+              <input type="number" className="ui-input mt-1" value={settings.defaultLaborRatePerHour} onChange={(e) => setSettings({ ...settings, defaultLaborRatePerHour: Number(e.target.value) || 0 })} />
+            </label>
             <label className="text-xs text-slate-600 block">Default Tax %
               <input type="number" className="ui-input mt-1" value={settings.defaultTaxPercent} onChange={(e) => setSettings({ ...settings, defaultTaxPercent: Number(e.target.value) || 0 })} />
             </label>

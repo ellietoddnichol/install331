@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { createTakeoffLine, deleteTakeoffLine, listTakeoffLines, updateTakeoffLine } from '../../repos/takeoffRepo.ts';
+import { recalculateProjectLinePricing } from '../../repos/modifiersRepo.ts';
 import { getProject } from '../../repos/projectsRepo.ts';
 import { calculateEstimateSummary } from '../../services/estimateEngineV1.ts';
 
@@ -56,6 +57,16 @@ takeoffRouter.post('/finalize-parser-lines', (req, res) => {
 
   const created = lines.map((line: any) => createTakeoffLine(line));
   return res.status(201).json({ data: created });
+});
+
+takeoffRouter.post('/reprice/:projectId', (req, res) => {
+  const project = getProject(req.params.projectId);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const updated = recalculateProjectLinePricing(project.id);
+  return res.json({ data: updated });
 });
 
 takeoffRouter.get('/summary/:projectId', (req, res) => {

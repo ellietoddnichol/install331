@@ -13,6 +13,7 @@
     --bg-app: #f6f8fb;
     --surface: #ffffff;
     --surface-soft: #f8fafc;
+    --surface-tint: #f2f6fb;
     --line: #d8dee8;
     --line-soft: #e7ecf3;
     --text: #0e1726;
@@ -21,6 +22,11 @@
     --brand: #0b3d91;
     --brand-strong: #072f73;
     --brand-soft: #e7efff;
+    --brand-deep: #0a224d;
+    --accent-teal: #0f766e;
+    --accent-teal-soft: #e4f5f2;
+    --accent-gold: #b7791f;
+    --accent-gold-soft: #fff5dd;
     --success: #0f766e;
     --warn: #b45309;
     --danger: #b91c1c;
@@ -60,14 +66,14 @@
 
   .ui-surface {
     background: var(--surface);
-    border: 1px solid var(--line-soft);
-    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.04);
+    border: 1px solid rgba(231, 236, 243, 0.7);
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.05);
     @apply rounded-xl;
   }
 
   .ui-surface-soft {
-    background: var(--surface-soft);
-    border: 1px solid var(--line-soft);
+    background: linear-gradient(180deg, #fbfcfe 0%, var(--surface-soft) 100%);
+    border: 1px solid rgba(231, 236, 243, 0.85);
     @apply rounded-lg;
   }
 
@@ -82,7 +88,7 @@
 
   .ui-label {
     color: var(--text-subtle);
-    @apply text-[11px] font-semibold uppercase tracking-[0.11em];
+    @apply text-[11px] font-semibold tracking-[0.06em];
   }
 
   .ui-input {
@@ -132,6 +138,24 @@
 
   .ui-chip {
     @apply inline-flex items-center rounded-full border px-2 py-1 text-[11px] font-medium;
+  }
+
+  .ui-chip-soft {
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid rgba(216, 222, 232, 0.8);
+    color: var(--text-muted);
+    @apply inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium backdrop-blur;
+  }
+
+  .ui-ghost-btn {
+    background: transparent;
+    color: var(--text-muted);
+    @apply h-9 rounded-full px-3 text-sm font-medium transition;
+  }
+
+  .ui-ghost-btn:hover {
+    background: rgba(231, 239, 255, 0.7);
+    color: var(--brand);
   }
 
   .ui-divider {

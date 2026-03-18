@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Layers3, Search } from 'lucide-react';
-import { BundleRecord, RoomRecord } from '../../shared/types/estimator';
+import { api } from '../../services/api';
+import { BundleItemRecord, BundleRecord, RoomRecord } from '../../shared/types/estimator';
 
 interface Props {
   open: boolean;
@@ -15,12 +16,40 @@ export function BundlePickerModal({ open, bundles, rooms, activeRoomId, onClose,
   const [search, setSearch] = useState('');
   const [roomId, setRoomId] = useState('');
   const [applyingBundleId, setApplyingBundleId] = useState<string | null>(null);
+  const [selectedBundleId, setSelectedBundleId] = useState<string>('');
+  const [bundleItems, setBundleItems] = useState<BundleItemRecord[]>([]);
+  const [bundleItemsLoading, setBundleItemsLoading] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setSearch('');
     setRoomId(activeRoomId || rooms[0]?.id || '');
+    setSelectedBundleId(bundles[0]?.id || '');
   }, [open, activeRoomId, rooms]);
+
+  useEffect(() => {
+    if (!open || !selectedBundleId) {
+      setBundleItems([]);
+      return;
+    }
+
+    let cancelled = false;
+    setBundleItemsLoading(true);
+    api.getV1BundleItems(selectedBundleId)
+      .then((items) => {
+        if (!cancelled) setBundleItems(items);
+      })
+      .catch(() => {
+        if (!cancelled) setBundleItems([]);
+      })
+      .finally(() => {
+        if (!cancelled) setBundleItemsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, selectedBundleId]);
 
   const filteredBundles = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -30,6 +59,8 @@ export function BundlePickerModal({ open, bundles, rooms, activeRoomId, onClose,
       return haystack.includes(query);
     });
   }, [bundles, search]);
+
+  const selectedBundle = filteredBundles.find((bundle) => bundle.id === selectedBundleId) || bundles.find((bundle) => bundle.id === selectedBundleId) || null;
 
   if (!open) return null;
 
@@ -75,10 +106,12 @@ export function BundlePickerModal({ open, bundles, rooms, activeRoomId, onClose,
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="min-h-0 flex-1 overflow-hidden p-4">
+          <div className="grid h-full grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="min-h-0 overflow-y-auto">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {filteredBundles.map((bundle) => (
-              <div key={bundle.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-blue-300 hover:bg-blue-50/20">
+              <div key={bundle.id} className={`rounded-2xl border bg-white p-4 shadow-sm transition ${selectedBundleId === bundle.id ? 'border-blue-400 bg-blue-50/30' : 'border-slate-200 hover:border-blue-300 hover:bg-blue-50/20'}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] uppercase tracking-[0.08em] text-slate-500">{bundle.category || 'General Scope'}</p>
@@ -90,12 +123,8 @@ export function BundlePickerModal({ open, bundles, rooms, activeRoomId, onClose,
                 </div>
                 <p className="mt-3 text-xs leading-5 text-slate-600">Bundle application adds the full preset scope to the selected room while preserving estimate pricing logic.</p>
                 <div className="mt-4 flex items-center justify-between gap-2">
-                  <p className="text-[11px] text-slate-500">Target room: {rooms.find((room) => room.id === roomId)?.roomName || 'Select a room'}</p>
-                  <button
-                    onClick={() => void applyBundle(bundle.id)}
-                    disabled={!roomId || applyingBundleId === bundle.id}
-                    className="inline-flex h-9 items-center rounded-md bg-slate-900 px-3 text-[11px] font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
-                  >
+                  <button onClick={() => setSelectedBundleId(bundle.id)} className="text-[11px] font-medium text-blue-700 hover:text-blue-800">View Details</button>
+                  <button onClick={() => void applyBundle(bundle.id)} disabled={!roomId || applyingBundleId === bundle.id} className="inline-flex h-9 items-center rounded-md bg-slate-900 px-3 text-[11px] font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
                     {applyingBundleId === bundle.id ? 'Adding Bundle...' : 'Add Bundle'}
                   </button>
                 </div>
@@ -104,6 +133,40 @@ export function BundlePickerModal({ open, bundles, rooms, activeRoomId, onClose,
             {filteredBundles.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-300 p-6 text-sm text-slate-500 md:col-span-2 xl:col-span-3">No bundles match the current search.</div>
             ) : null}
+              </div>
+            </div>
+
+            <aside className="min-h-0 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Bundle Detail</p>
+              {selectedBundle ? (
+                <>
+                  <h4 className="mt-1 text-sm font-semibold text-slate-900">{selectedBundle.bundleName}</h4>
+                  <p className="mt-1 text-xs text-slate-600">Category: {selectedBundle.category || 'General Scope'}</p>
+                  <p className="mt-3 text-[11px] font-medium text-slate-700">Items</p>
+                  <div className="mt-2 space-y-2">
+                    {bundleItemsLoading ? <p className="text-xs text-slate-500">Loading bundle items...</p> : null}
+                    {!bundleItemsLoading && bundleItems.length === 0 ? <p className="text-xs text-slate-500">No bundle items found.</p> : null}
+                    {bundleItems.map((item) => (
+                      <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-2.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="text-xs font-semibold text-slate-900">{item.description}</p>
+                            <p className="mt-1 text-[11px] text-slate-500">Qty {item.qty} {item.sku ? `• ${item.sku}` : ''}</p>
+                          </div>
+                          <div className="text-right text-[11px] text-slate-500">
+                            <p>{item.materialCost.toFixed(2)} mat</p>
+                            <p>{item.laborMinutes.toFixed(1)} labor min</p>
+                          </div>
+                        </div>
+                        {item.notes ? <p className="mt-1 text-[11px] text-slate-500">{item.notes}</p> : null}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="mt-2 text-xs text-slate-500">Select a bundle to review its included items.</p>
+              )}
+            </aside>
           </div>
         </div>
       </div>

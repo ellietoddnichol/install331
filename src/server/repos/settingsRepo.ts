@@ -10,6 +10,8 @@ function mapSettingsRow(row: any): SettingsRecord {
     companyPhone: row.company_phone,
     companyEmail: row.company_email,
     logoUrl: row.logo_url,
+    defaultLaborRatePerHour: Number(row.default_labor_rate_per_hour || 85),
+    defaultLaborRatePerHour: Number(row.default_labor_rate_per_hour || 85),
     defaultOverheadPercent: row.default_overhead_percent,
     defaultProfitPercent: row.default_profit_percent,
     defaultTaxPercent: row.default_tax_percent,
@@ -39,7 +41,7 @@ export function updateSettings(input: Partial<SettingsRecord>): SettingsRecord {
 
   estimatorDb.prepare(`
     UPDATE settings_v1 SET
-      company_name = ?, company_address = ?, company_phone = ?, company_email = ?, logo_url = ?,
+      company_name = ?, company_address = ?, company_phone = ?, company_email = ?, logo_url = ?, default_labor_rate_per_hour = ?,
       default_overhead_percent = ?, default_profit_percent = ?, default_tax_percent = ?, default_labor_burden_percent = ?,
       proposal_intro = ?, proposal_terms = ?, proposal_exclusions = ?, proposal_clarifications = ?, proposal_acceptance_label = ?, updated_at = ?
     WHERE id = 'global'
@@ -49,6 +51,7 @@ export function updateSettings(input: Partial<SettingsRecord>): SettingsRecord {
     next.companyPhone,
     next.companyEmail,
     next.logoUrl,
+    next.defaultLaborRatePerHour,
     next.defaultOverheadPercent,
     next.defaultProfitPercent,
     next.defaultTaxPercent,

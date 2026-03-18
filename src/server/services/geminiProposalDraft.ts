@@ -1,9 +1,9 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { ProjectRecord, SettingsRecord, TakeoffLineRecord } from '../../shared/types/estimator.ts';
-import { DEFAULT_PROPOSAL_CLARIFICATIONS, DEFAULT_PROPOSAL_EXCLUSIONS, DEFAULT_PROPOSAL_INTRO, DEFAULT_PROPOSAL_TERMS } from '../../shared/utils/proposalDefaults.ts';
+import { DEFAULT_PROPOSAL_ACCEPTANCE_LABEL, DEFAULT_PROPOSAL_CLARIFICATIONS, DEFAULT_PROPOSAL_EXCLUSIONS, DEFAULT_PROPOSAL_INTRO, DEFAULT_PROPOSAL_TERMS } from '../../shared/utils/proposalDefaults.ts';
 
 interface ProposalDraftInput {
-  mode?: 'scope_summary' | 'proposal_text' | 'terms_and_conditions';
+  mode?: 'scope_summary' | 'proposal_text' | 'terms_and_conditions' | 'default_short';
   project?: ProjectRecord;
   lines?: TakeoffLineRecord[];
   summary?: {
@@ -27,18 +27,6 @@ interface ProposalDraftInput {
 
 function asText(value: unknown): string {
   return String(value ?? '').trim();
-}
-
-function limitToTwoSentences(value: unknown): string {
-  const normalized = asText(value).replace(/\s+/g, ' ');
-  if (!normalized) return '';
-
-  const sentences = normalized.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [];
-  return sentences
-    .map((sentence) => sentence.trim())
-    .filter(Boolean)
-    .slice(0, 2)
-    .join(' ');
 }
 
 function summarizeLines(lines: TakeoffLineRecord[]): Array<Record<string, unknown>> {
@@ -79,10 +67,10 @@ export async function generateProposalDraftFromGemini(input: ProposalDraftInput)
     'Draft concise, professional proposal language from the estimate data provided.',
     'Use the estimate data as source material. Do not invent scope that is not supported by the input.',
     'Keep the language client-facing and commercially usable.',
-    'Each populated proposal field must be no more than two sentences, and one sentence is preferred whenever possible.',
-    'Do not use bullet points, numbering, headings, or line breaks in any generated field.',
     mode === 'scope_summary'
       ? 'Focus on drafting a clean scope summary for the proposal intro field. Leave other fields blank unless a change is strongly warranted.'
+      : mode === 'default_short'
+        ? 'Draft a short default proposal pack. Keep the intro to one concise paragraph. Keep terms, exclusions, and clarifications practical and brief. Return a short acceptance label suitable for signature.'
       : mode === 'terms_and_conditions'
         ? 'Improve the proposal terms, exclusions, and clarifications using the estimate scope and project assumptions. Keep the proposal intro unchanged unless necessary.'
         : 'Draft proposal intro, terms, exclusions, and clarifications. Improve readability while preserving practical construction assumptions.',
@@ -99,10 +87,12 @@ export async function generateProposalDraftFromGemini(input: ProposalDraftInput)
     `Current Proposal Terms: ${asText(input.settings?.proposalTerms)}`,
     `Current Proposal Exclusions: ${asText(input.settings?.proposalExclusions)}`,
     `Current Proposal Clarifications: ${asText(input.settings?.proposalClarifications)}`,
+    `Current Acceptance Label: ${asText(input.settings?.proposalAcceptanceLabel)}`,
     `Default Intro: ${DEFAULT_PROPOSAL_INTRO}`,
     `Default Terms: ${DEFAULT_PROPOSAL_TERMS}`,
     `Default Exclusions: ${DEFAULT_PROPOSAL_EXCLUSIONS}`,
     `Default Clarifications: ${DEFAULT_PROPOSAL_CLARIFICATIONS}`,
+    `Default Acceptance Label: ${DEFAULT_PROPOSAL_ACCEPTANCE_LABEL}`,
     `Estimate Line Snapshot: ${JSON.stringify(summarizeLines(lines))}`,
   ].join('\n');
 
@@ -118,6 +108,7 @@ export async function generateProposalDraftFromGemini(input: ProposalDraftInput)
           proposalTerms: { type: Type.STRING },
           proposalExclusions: { type: Type.STRING },
           proposalClarifications: { type: Type.STRING },
+          proposalAcceptanceLabel: { type: Type.STRING },
         },
       },
     },
@@ -132,22 +123,33 @@ export async function generateProposalDraftFromGemini(input: ProposalDraftInput)
 
   if (mode === 'scope_summary') {
     return {
-      proposalIntro: limitToTwoSentences(parsed.proposalIntro) || DEFAULT_PROPOSAL_INTRO,
+      proposalIntro: asText(parsed.proposalIntro) || DEFAULT_PROPOSAL_INTRO,
     };
   }
 
   if (mode === 'terms_and_conditions') {
     return {
-      proposalTerms: limitToTwoSentences(parsed.proposalTerms) || DEFAULT_PROPOSAL_TERMS,
-      proposalExclusions: limitToTwoSentences(parsed.proposalExclusions) || DEFAULT_PROPOSAL_EXCLUSIONS,
-      proposalClarifications: limitToTwoSentences(parsed.proposalClarifications) || DEFAULT_PROPOSAL_CLARIFICATIONS,
+      proposalTerms: asText(parsed.proposalTerms) || DEFAULT_PROPOSAL_TERMS,
+      proposalExclusions: asText(parsed.proposalExclusions) || DEFAULT_PROPOSAL_EXCLUSIONS,
+      proposalClarifications: asText(parsed.proposalClarifications) || DEFAULT_PROPOSAL_CLARIFICATIONS,
+    };
+  }
+
+  if (mode === 'default_short') {
+    return {
+      proposalIntro: asText(parsed.proposalIntro) || DEFAULT_PROPOSAL_INTRO,
+      proposalTerms: asText(parsed.proposalTerms) || DEFAULT_PROPOSAL_TERMS,
+      proposalExclusions: asText(parsed.proposalExclusions) || DEFAULT_PROPOSAL_EXCLUSIONS,
+      proposalClarifications: asText(parsed.proposalClarifications) || DEFAULT_PROPOSAL_CLARIFICATIONS,
+      proposalAcceptanceLabel: asText(parsed.proposalAcceptanceLabel) || DEFAULT_PROPOSAL_ACCEPTANCE_LABEL,
     };
   }
 
   return {
-    proposalIntro: limitToTwoSentences(parsed.proposalIntro) || DEFAULT_PROPOSAL_INTRO,
-    proposalTerms: limitToTwoSentences(parsed.proposalTerms) || DEFAULT_PROPOSAL_TERMS,
-    proposalExclusions: limitToTwoSentences(parsed.proposalExclusions) || DEFAULT_PROPOSAL_EXCLUSIONS,
-    proposalClarifications: limitToTwoSentences(parsed.proposalClarifications) || DEFAULT_PROPOSAL_CLARIFICATIONS,
+    proposalIntro: asText(parsed.proposalIntro) || DEFAULT_PROPOSAL_INTRO,
+    proposalTerms: asText(parsed.proposalTerms) || DEFAULT_PROPOSAL_TERMS,
+    proposalExclusions: asText(parsed.proposalExclusions) || DEFAULT_PROPOSAL_EXCLUSIONS,
+    proposalClarifications: asText(parsed.proposalClarifications) || DEFAULT_PROPOSAL_CLARIFICATIONS,
+    proposalAcceptanceLabel: asText(parsed.proposalAcceptanceLabel) || DEFAULT_PROPOSAL_ACCEPTANCE_LABEL,
   };
 }

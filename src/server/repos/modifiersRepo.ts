@@ -42,27 +42,40 @@ export function listLineModifiers(lineId: string): LineModifierRecord[] {
   return rows.map(mapLineModifier);
 }
 
-function recalculateLineFromModifiers(lineId: string) {
+export function recalculateLineFromModifiers(lineId: string) {
   const line = getTakeoffLine(lineId);
   if (!line) return null;
 
   const lineModifiers = listLineModifiers(lineId);
 
   let materialCost = line.baseMaterialCost;
-  let laborCost = line.baseLaborCost || resolveUnitLaborCostFromMinutes(line.laborMinutes || 0);
+  const baseLaborCost = line.laborMinutes > 0
+    ? resolveUnitLaborCostFromMinutes(line.laborMinutes || 0)
+    : (line.baseLaborCost || 0);
+  let laborCost = baseLaborCost;
 
   lineModifiers.forEach((modifier) => {
     materialCost += modifier.addMaterialCost + (line.baseMaterialCost * (modifier.percentMaterial / 100));
-    laborCost += resolveUnitLaborCostFromMinutes(modifier.addLaborMinutes || 0) + ((line.baseLaborCost || 0) * (modifier.percentLabor / 100));
+    laborCost += resolveUnitLaborCostFromMinutes(modifier.addLaborMinutes || 0) + (baseLaborCost * (modifier.percentLabor / 100));
   });
 
   return updateTakeoffLine(lineId, {
     materialCost: Number(materialCost.toFixed(2)),
     laborCost: Number(laborCost.toFixed(2)),
     baseMaterialCost: line.baseMaterialCost,
-    baseLaborCost: line.baseLaborCost,
+    baseLaborCost: Number(baseLaborCost.toFixed(2)),
     unitSell: Number((materialCost + laborCost).toFixed(2))
   });
+}
+
+export function recalculateProjectLinePricing(projectId: string) {
+  const rows = estimatorDb.prepare('SELECT id FROM takeoff_lines_v1 WHERE project_id = ? ORDER BY created_at').all(projectId) as Array<{ id: string }>;
+  return rows.map((row) => recalculateLineFromModifiers(row.id)).filter(Boolean);
+}
+
+export function recalculateAllLinePricing() {
+  const rows = estimatorDb.prepare('SELECT id FROM takeoff_lines_v1 ORDER BY created_at').all() as Array<{ id: string }>;
+  return rows.map((row) => recalculateLineFromModifiers(row.id)).filter(Boolean);
 }
 
 export function applyModifierToLine(lineId: string, modifierId: string): { line: any; modifier: LineModifierRecord } | null {

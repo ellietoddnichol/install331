@@ -9,7 +9,7 @@ import {
 } from '../../shared/utils/proposalDefaults.ts';
 
 export function initEstimatorSchema() {
-  const defaultLaborRatePerHour = Number(process.env.DEFAULT_LABOR_RATE_PER_HOUR || 30);
+  const defaultLaborRatePerHour = Number(process.env.DEFAULT_LABOR_RATE_PER_HOUR || 85);
 
   estimatorDb.exec(`
     CREATE TABLE IF NOT EXISTS projects_v1 (
@@ -17,8 +17,10 @@ export function initEstimatorSchema() {
       project_number TEXT,
       project_name TEXT NOT NULL,
       client_name TEXT,
+      general_contractor TEXT,
       estimator TEXT,
       bid_date TEXT,
+      proposal_date TEXT,
       due_date TEXT,
       address TEXT,
       project_type TEXT,
@@ -90,6 +92,7 @@ export function initEstimatorSchema() {
       company_phone TEXT NOT NULL,
       company_email TEXT NOT NULL,
       logo_url TEXT NOT NULL,
+      default_labor_rate_per_hour REAL NOT NULL DEFAULT 85,
       default_overhead_percent REAL NOT NULL DEFAULT 0,
       default_profit_percent REAL NOT NULL DEFAULT 0,
       default_tax_percent REAL NOT NULL DEFAULT 0,
@@ -203,6 +206,11 @@ export function initEstimatorSchema() {
     estimatorDb.exec("ALTER TABLE settings_v1 ADD COLUMN proposal_exclusions TEXT NOT NULL DEFAULT ''");
   }
 
+  const hasDefaultLaborRatePerHour = settingsColumns.some((column) => column.name === 'default_labor_rate_per_hour');
+  if (!hasDefaultLaborRatePerHour) {
+    estimatorDb.exec(`ALTER TABLE settings_v1 ADD COLUMN default_labor_rate_per_hour REAL NOT NULL DEFAULT ${defaultLaborRatePerHour}`);
+  }
+
   const hasProposalClarifications = settingsColumns.some((column) => column.name === 'proposal_clarifications');
   if (!hasProposalClarifications) {
     estimatorDb.exec("ALTER TABLE settings_v1 ADD COLUMN proposal_clarifications TEXT NOT NULL DEFAULT ''");
@@ -234,6 +242,16 @@ export function initEstimatorSchema() {
   const hasSpecialNotes = projectColumns.some((column) => column.name === 'special_notes');
   if (!hasSpecialNotes) {
     estimatorDb.exec('ALTER TABLE projects_v1 ADD COLUMN special_notes TEXT');
+  }
+
+  const hasGeneralContractor = projectColumns.some((column) => column.name === 'general_contractor');
+  if (!hasGeneralContractor) {
+    estimatorDb.exec('ALTER TABLE projects_v1 ADD COLUMN general_contractor TEXT');
+  }
+
+  const hasProposalDate = projectColumns.some((column) => column.name === 'proposal_date');
+  if (!hasProposalDate) {
+    estimatorDb.exec('ALTER TABLE projects_v1 ADD COLUMN proposal_date TEXT');
   }
 
   estimatorDb.exec("UPDATE projects_v1 SET job_conditions_json = '{}' WHERE job_conditions_json IS NULL OR trim(job_conditions_json) = ''");
@@ -304,10 +322,10 @@ export function initEstimatorSchema() {
   if (!settingsExists) {
     estimatorDb.prepare(`
       INSERT INTO settings_v1 (
-        id, company_name, company_address, company_phone, company_email, logo_url,
+        id, company_name, company_address, company_phone, company_email, logo_url, default_labor_rate_per_hour,
         default_overhead_percent, default_profit_percent, default_tax_percent, default_labor_burden_percent,
         proposal_intro, proposal_terms, proposal_exclusions, proposal_clarifications, proposal_acceptance_label, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       'global',
       'Brighten Builders, LLC',
@@ -315,6 +333,7 @@ export function initEstimatorSchema() {
       '',
       '',
       'https://static.wixstatic.com/media/18d091_be2178f095264ea0a1d2c8d78520b2ce%7Emv2.png/v1/fit/w_2500,h_1330,al_c/18d091_be2178f095264ea0a1d2c8d78520b2ce%7Emv2.png',
+      defaultLaborRatePerHour,
       15,
       10,
       8.25,
@@ -327,6 +346,12 @@ export function initEstimatorSchema() {
       new Date().toISOString()
     );
   } else {
+    estimatorDb.prepare(`
+      UPDATE settings_v1
+      SET default_labor_rate_per_hour = ?, updated_at = ?
+      WHERE id = 'global' AND (default_labor_rate_per_hour IS NULL OR default_labor_rate_per_hour <= 0)
+    `).run(defaultLaborRatePerHour, new Date().toISOString());
+
     estimatorDb.prepare(`
       UPDATE settings_v1
       SET company_name = ?, updated_at = ?

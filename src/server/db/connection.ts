@@ -7,3 +7,4 @@ const dbPath = path.join(__dirname, '../../../estimator.db');
 
 export const estimatorDb = new Database(dbPath);
 estimatorDb.pragma('journal_mode = WAL');
+estimatorDb.pragma('foreign_keys = ON');

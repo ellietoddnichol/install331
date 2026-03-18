@@ -1,5 +1,5 @@
 import { ProjectRecord, TakeoffLineRecord } from '../../shared/types/estimator.ts';
-import { computeProjectConditionEffects } from '../../shared/utils/jobConditions.ts';
+import { computeProjectConditionEffects, normalizeProjectJobConditions } from '../../shared/utils/jobConditions.ts';
 
 export interface EstimateSummary {
   materialSubtotal: number;
@@ -20,6 +20,7 @@ export interface EstimateSummary {
 
 export function calculateEstimateSummary(project: ProjectRecord, lines: TakeoffLineRecord[]): EstimateSummary {
   const pricingMode = project.pricingMode || 'labor_and_material';
+  const jobConditions = normalizeProjectJobConditions(project.jobConditions);
   const rawMaterialSubtotal = lines.reduce((sum, line) => sum + (line.materialCost * line.qty), 0);
   const rawLaborSubtotal = lines.reduce((sum, line) => sum + (line.laborCost * line.qty), 0);
   const rawLaborHours = lines.reduce((sum, line) => sum + ((line.laborMinutes * line.qty) / 60), 0);
@@ -35,7 +36,8 @@ export function calculateEstimateSummary(project: ProjectRecord, lines: TakeoffL
   const totalLaborHours = pricingMode === 'material_only'
     ? 0
     : rawLaborHours * effects.laborMultiplier;
-  const durationDays = totalLaborHours > 0 ? Math.max(1, Math.ceil(totalLaborHours / 8)) : 0;
+  const crewHoursPerDay = Math.max(1, jobConditions.installerCount) * 8;
+  const durationDays = totalLaborHours > 0 ? Math.max(1, Math.ceil(totalLaborHours / crewHoursPerDay)) : 0;
 
   const lineSubtotal = materialSubtotal + adjustedLaborSubtotal + effects.estimateAdderAmount;
 

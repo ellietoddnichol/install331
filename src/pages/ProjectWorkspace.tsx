@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { Download, FileUp, Paperclip, Trash2 } from 'lucide-react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { ArrowRight, Calculator, Clock3, Download, FileUp, Hammer, Layers3, Paperclip, Sparkles, Trash2, Wallet, CalendarClock } from 'lucide-react';
 import { api } from '../services/api';
 import { BundleRecord, ModifierRecord, ProjectFileRecord, ProjectJobConditions, ProjectRecord, RoomRecord, SettingsRecord, TakeoffLineRecord } from '../shared/types/estimator';
 import { CatalogItem } from '../types';
@@ -16,12 +16,12 @@ import {
 import { TopProjectHeader } from '../components/workspace/TopProjectHeader';
 import { RoomManager } from '../components/workspace/RoomManager';
 import { EstimateGrid } from '../components/workspace/EstimateGrid';
-import { ImportParsePanel } from '../components/workspace/ImportParsePanel';
 import { ItemPicker } from '../components/workspace/ItemPicker';
 import { ModifierPanel } from '../components/workspace/ModifierPanel';
 import { ProposalPreview } from '../components/workspace/ProposalPreview';
 import { BundlePickerModal } from '../components/workspace/BundlePickerModal';
 import { formatCurrencySafe, formatKilobytesSafe, formatNumberSafe } from '../utils/numberFormat';
+import { getDistanceInMiles } from '../utils/geo';
 
 interface Summary {
   materialSubtotal: number;
@@ -48,6 +48,14 @@ interface RoomCreationDraft {
   starterUnit: string;
 }
 
+type WorkspaceTab = 'overview' | 'setup' | 'rooms' | 'takeoff' | 'estimate' | 'files' | 'proposal';
+
+const WORKSPACE_TABS: WorkspaceTab[] = ['overview', 'setup', 'rooms', 'takeoff', 'estimate', 'files', 'proposal'];
+
+function isWorkspaceTab(value: string | null): value is WorkspaceTab {
+  return !!value && WORKSPACE_TABS.includes(value as WorkspaceTab);
+}
+
 const DEFAULT_ROOM_CREATION_DRAFT: RoomCreationDraft = {
   roomName: '',
   addStarterLine: false,
@@ -59,9 +67,13 @@ const DEFAULT_ROOM_CREATION_DRAFT: RoomCreationDraft = {
 export function ProjectWorkspace() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'setup' | 'rooms' | 'takeoff' | 'estimate' | 'files' | 'proposal'>('estimate');
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>(() => {
+    const requestedTab = searchParams.get('tab');
+    return isWorkspaceTab(requestedTab) ? requestedTab : 'estimate';
+  });
 
   const [project, setProject] = useState<ProjectRecord | null>(null);
   const [rooms, setRooms] = useState<RoomRecord[]>([]);
@@ -93,7 +105,6 @@ export function ProjectWorkspace() {
 
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [bundleModalOpen, setBundleModalOpen] = useState(false);
-  const [importModalOpen, setImportModalOpen] = useState(false);
   const [modifiersModalOpen, setModifiersModalOpen] = useState(false);
   const [takeoffRoomsModalOpen, setTakeoffRoomsModalOpen] = useState(false);
   const [roomCreateModalOpen, setRoomCreateModalOpen] = useState(false);
@@ -101,7 +112,9 @@ export function ProjectWorkspace() {
   const [creatingRoom, setCreatingRoom] = useState(false);
   const [catalogSearch, setCatalogSearch] = useState('');
   const [catalogCategory, setCatalogCategory] = useState('all');
-  const [proposalDrafting, setProposalDrafting] = useState<null | 'scope_summary' | 'proposal_text' | 'terms_and_conditions'>(null);
+  const [proposalDrafting, setProposalDrafting] = useState<null | 'scope_summary' | 'proposal_text' | 'terms_and_conditions' | 'default_short'>(null);
+  const [distanceCalculating, setDistanceCalculating] = useState(false);
+  const [distanceError, setDistanceError] = useState<string | null>(null);
   const companyWebsite = 'https://www.brightenbuildersllc.com/';
 
   const statusActionLabel = useMemo(() => {
@@ -118,9 +131,23 @@ export function ProjectWorkspace() {
     void loadWorkspace(id);
   }, [id]);
 
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (activeTab === 'estimate') {
+      next.delete('tab');
+    } else {
+      next.set('tab', activeTab);
+    }
+
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [activeTab, searchParams, setSearchParams]);
+
   async function loadWorkspace(projectId: string) {
     try {
       setLoading(true);
+      await api.repriceV1ProjectTakeoff(projectId);
       const [projectData, roomData, lineData, catalogData, summaryData, settingsData, modifiersData, bundlesData, filesData] = await Promise.all([
         api.getV1Project(projectId),
         api.getV1Rooms(projectId),
@@ -186,6 +213,16 @@ export function ProjectWorkspace() {
     () => activeRoomLines.reduce((sum, line) => sum + line.lineTotal, 0),
     [activeRoomLines]
   );
+
+  const roomMetrics = useMemo(() => {
+    const byRoom: Record<string, { count: number; subtotal: number }> = {};
+    lines.forEach((line) => {
+      if (!byRoom[line.roomId]) byRoom[line.roomId] = { count: 0, subtotal: 0 };
+      byRoom[line.roomId].count += 1;
+      byRoom[line.roomId].subtotal += line.lineTotal;
+    });
+    return byRoom;
+  }, [lines]);
 
   const pricingMode = project?.pricingMode || 'labor_and_material';
   const showMaterial = pricingMode !== 'labor_only';
@@ -269,6 +306,49 @@ export function ProjectWorkspace() {
     setProject(saved);
     setLastSavedAt(new Date().toISOString());
     await refreshTakeoff(saved.id);
+  }
+
+  async function deleteProjectPermanently() {
+    if (!project) return;
+    const confirmed = window.confirm(`Delete project "${project.projectName}" permanently? This removes rooms, takeoff lines, and attached files.`);
+    if (!confirmed) return;
+
+    try {
+      await api.deleteV1Project(project.id);
+      navigate('/projects');
+    } catch (error) {
+      console.error('Failed to delete project', error);
+      window.alert('Unable to delete this project right now.');
+    }
+  }
+
+  async function refreshProjectDistance() {
+    if (!project?.address || !project.address.trim()) {
+      patchJobConditions({ travelDistanceMiles: null });
+      setDistanceError(null);
+      return;
+    }
+
+    setDistanceCalculating(true);
+    setDistanceError(null);
+    try {
+      const distance = await getDistanceInMiles(project.address);
+      if (distance === null) {
+        patchJobConditions({ travelDistanceMiles: null });
+        setDistanceError('Unable to calculate distance from the current address.');
+        return;
+      }
+
+      patchJobConditions({
+        travelDistanceMiles: distance,
+        remoteTravel: distance > 50 ? true : jobConditions.remoteTravel,
+      });
+    } catch (error) {
+      console.error('Distance lookup failed', error);
+      setDistanceError('Distance lookup failed.');
+    } finally {
+      setDistanceCalculating(false);
+    }
   }
 
   async function previewProposal() {
@@ -510,13 +590,6 @@ export function ProjectWorkspace() {
     await refreshTakeoff(project.id);
   }
 
-  async function finalizeParsedLines(parsedLines: Array<Partial<TakeoffLineRecord>>) {
-    if (!project) return;
-    const created = await api.finalizeV1ParserLines(parsedLines);
-    setLines((prev) => [...prev, ...created]);
-    await refreshTakeoff(project.id);
-  }
-
   function toBase64Payload(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -561,7 +634,7 @@ export function ProjectWorkspace() {
     setProjectFiles((prev) => prev.filter((file) => file.id !== fileId));
   }
 
-  async function generateProposalDraft(mode: 'scope_summary' | 'proposal_text' | 'terms_and_conditions') {
+  async function generateProposalDraft(mode: 'scope_summary' | 'proposal_text' | 'terms_and_conditions' | 'default_short') {
     if (!project || !settings || !summary) return;
 
     setProposalDrafting(mode);
@@ -622,6 +695,7 @@ export function ProjectWorkspace() {
         onPreviewProposal={previewProposal}
         onExport={exportProposal}
         onSubmitBid={submitBid}
+        onDeleteProject={deleteProjectPermanently}
         statusActionLabel={statusActionLabel}
       />
 
@@ -760,7 +834,7 @@ export function ProjectWorkspace() {
                     <label className="text-[11px] font-medium text-slate-700">Client<input className="ui-input mt-1 h-9" value={project.clientName || ''} onChange={(e) => setProject({ ...project, clientName: e.target.value || null })} /></label>
                     <label className="text-[11px] font-medium text-slate-700">Project #<input className="ui-input mt-1 h-9" value={project.projectNumber || ''} onChange={(e) => setProject({ ...project, projectNumber: e.target.value || null })} /></label>
                     <label className="text-[11px] font-medium text-slate-700">Estimator<input className="ui-input mt-1 h-9" value={project.estimator || ''} onChange={(e) => setProject({ ...project, estimator: e.target.value || null })} /></label>
-                    <label className="text-[11px] font-medium text-slate-700 md:col-span-2">Address<input className="ui-input mt-1 h-9" value={project.address || ''} onChange={(e) => setProject({ ...project, address: e.target.value || null })} /></label>
+                    <label className="text-[11px] font-medium text-slate-700 md:col-span-2">Address<input className="ui-input mt-1 h-9" value={project.address || ''} onChange={(e) => setProject({ ...project, address: e.target.value || null })} onBlur={() => void refreshProjectDistance()} /></label>
                   </div>
                 </div>
 
@@ -792,9 +866,20 @@ export function ProjectWorkspace() {
                       </select>
                     </label>
                     <label className="text-[11px] font-medium text-slate-700">Labor Multiplier<input type="number" step="0.01" className="ui-input mt-1 h-9" value={jobConditions.laborRateMultiplier} onChange={(e) => patchJobConditions({ laborRateMultiplier: Number(e.target.value) || 1 })} /></label>
+                    <label className="text-[11px] font-medium text-slate-700">Installers / Crew Size<input type="number" min={1} className="ui-input mt-1 h-9" value={jobConditions.installerCount} onChange={(e) => patchJobConditions({ installerCount: Number(e.target.value) || 1 })} /></label>
                     <label className="text-[11px] font-medium text-slate-700">Labor Burden %<input type="number" className="ui-input mt-1 h-9" value={project.laborBurdenPercent} onChange={(e) => setProject({ ...project, laborBurdenPercent: Number(e.target.value) || 0 })} /></label>
                     <label className="text-[11px] font-medium text-slate-700">Overhead %<input type="number" className="ui-input mt-1 h-9" value={project.overheadPercent} onChange={(e) => setProject({ ...project, overheadPercent: Number(e.target.value) || 0 })} /></label>
                     <label className="text-[11px] font-medium text-slate-700">Profit %<input type="number" className="ui-input mt-1 h-9" value={project.profitPercent} onChange={(e) => setProject({ ...project, profitPercent: Number(e.target.value) || 0 })} /></label>
+                  </div>
+                  <div className="rounded-xl bg-slate-50/80 border border-slate-200/80 p-3 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+                    <div>
+                      <p className="font-medium text-slate-900">Job Distance From Office</p>
+                      <p className="mt-1">{jobConditions.travelDistanceMiles !== null ? `${formatNumberSafe(jobConditions.travelDistanceMiles, 1)} miles from office` : 'No calculated distance yet.'}</p>
+                      {distanceError ? <p className="mt-1 text-red-600">{distanceError}</p> : null}
+                    </div>
+                    <button onClick={() => void refreshProjectDistance()} disabled={distanceCalculating} className="ui-btn-secondary h-8 px-3 text-[11px] font-semibold disabled:opacity-50">
+                      {distanceCalculating ? 'Calculating...' : 'Recalculate Distance'}
+                    </button>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-xl bg-slate-50/80 border border-slate-200/80 p-3">
                     <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
@@ -933,6 +1018,14 @@ export function ProjectWorkspace() {
                 <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500 font-semibold">Assumptions / Impact Summary</p>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                   <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
+                    <p className="text-slate-500">Installers</p>
+                    <p className="font-semibold text-slate-900">{jobConditions.installerCount}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
+                    <p className="text-slate-500">Distance</p>
+                    <p className="font-semibold text-slate-900">{jobConditions.travelDistanceMiles !== null ? `${formatNumberSafe(jobConditions.travelDistanceMiles, 1)} mi` : 'n/a'}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
                     <p className="text-slate-500">Labor Multiplier</p>
                     <p className="font-semibold text-slate-900">x{formatNumberSafe(summary?.conditionLaborMultiplier || 1, 2)}</p>
                   </div>
@@ -1015,63 +1108,94 @@ export function ProjectWorkspace() {
         )}
 
         {activeTab === 'takeoff' && (
-          <div className="space-y-2 min-w-0">
-              <div className="rounded-2xl border border-amber-200/70 bg-gradient-to-r from-amber-50 to-white p-3 shadow-sm">
-                <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="space-y-3 min-w-0">
+              <div className="relative overflow-hidden rounded-[28px] border border-amber-200/70 bg-[radial-gradient(circle_at_top_left,rgba(255,246,220,0.95)_0%,rgba(255,252,245,0.98)_46%,rgba(255,255,255,0.98)_100%)] p-5 shadow-[0_22px_48px_rgba(180,131,27,0.08)]">
+                <div className="pointer-events-none absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(circle_at_center,rgba(183,121,31,0.08)_0%,rgba(183,121,31,0)_72%)]" />
+                <div className="relative flex flex-wrap items-start justify-between gap-4">
+                  <div className="max-w-3xl">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="ui-chip-soft">Takeoff workspace</span>
+                      <span className="ui-chip-soft">{activeRoomLines.length} visible lines</span>
+                      <span className="ui-chip-soft">{rooms.length} rooms</span>
+                    </div>
+                    <h3 className="mt-3 text-[28px] font-semibold tracking-[-0.04em] text-slate-950 md:text-[34px]">Import, clean up, assign</h3>
+                    <p className="mt-2 max-w-2xl text-[13px] leading-6 text-slate-600">This is the cleanup pass before pricing. Normalize descriptions, confirm quantities, keep the active room in focus, and resolve source mapping before you switch to estimate mode.</p>
+                    <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
+                      <span className="rounded-full bg-white/80 px-3 py-1.5 text-slate-600 shadow-sm ring-1 ring-amber-200/70">Active room {roomNamesById[activeRoomId] || 'Unassigned'}</span>
+                      <span className="rounded-full bg-white/80 px-3 py-1.5 text-slate-600 shadow-sm ring-1 ring-amber-200/70">Room subtotal {formatCurrencySafe(roomSubtotal)}</span>
+                      <span className="rounded-full bg-white/80 px-3 py-1.5 text-slate-600 shadow-sm ring-1 ring-amber-200/70">Parser-first review</span>
+                    </div>
+                  </div>
+                  <div className="grid min-w-[280px] gap-3 sm:grid-cols-2">
+                    <div className="rounded-[24px] border border-amber-200/80 bg-[linear-gradient(180deg,#fff8e6_0%,#fff1cb_100%)] p-4 shadow-sm sm:col-span-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-700">Takeoff focus</p>
+                      <p className="mt-2 text-[24px] font-semibold tracking-[-0.04em] text-slate-950">{roomNamesById[activeRoomId] || 'Unassigned'}</p>
+                      <div className="mt-3 flex items-center justify-between text-[11px] text-slate-600">
+                        <span>{activeRoomLines.length} visible lines</span>
+                        <span>{formatCurrencySafe(roomSubtotal)}</span>
+                      </div>
+                    </div>
+                    <button onClick={() => void addManualLine()} className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,#b7791f_0%,#8d5b12_100%)] px-4 text-[11px] font-semibold text-white shadow-[0_12px_24px_rgba(183,121,31,0.22)] hover:brightness-[1.03]">
+                      <Sparkles className="h-3.5 w-3.5" /> Add Manual Line
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4 rounded-[28px] bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,rgba(255,251,244,0.96)_100%)] p-4 shadow-[0_18px_40px_rgba(15,23,42,0.05)] ring-1 ring-amber-200/60">
+                <div className="flex flex-wrap items-center gap-2 justify-between">
                   <div>
-                    <p className="text-[10px] uppercase tracking-[0.11em] text-amber-700 font-semibold">Takeoff Review</p>
-                    <h3 className="text-[16px] font-semibold text-slate-900 mt-0.5">Import, Clean Up, Assign</h3>
-                    <p className="text-xs text-slate-600 mt-1">Prioritize quantity accuracy and room placement before applying pricing logic.</p>
+                    <p className="text-[13px] font-semibold tracking-[-0.02em] text-slate-900">Scope review workflow</p>
+                    <p className="mt-1 text-[12px] text-slate-500">Keep room assignment, source cleanup, and catalog matching close at hand.</p>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <button onClick={() => setImportModalOpen(true)} className="h-8 px-3 rounded-md border border-amber-300 bg-amber-100/70 text-amber-900 text-[11px] font-semibold hover:bg-amber-100">Import Scope</button>
-                    <button onClick={() => void addManualLine()} className="h-8 px-3 rounded-md border border-slate-300 bg-white text-[11px] font-medium hover:bg-slate-50">Add Manual Line</button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button onClick={() => setCatalogOpen(true)} className="inline-flex h-10 items-center gap-2 rounded-full bg-[linear-gradient(135deg,var(--brand)_0%,var(--brand-strong)_100%)] px-4 text-[11px] font-semibold text-white shadow-[0_12px_24px_rgba(11,61,145,0.22)] hover:brightness-[1.03]">Catalog Match</button>
+                    <button onClick={() => setBundleModalOpen(true)} className="ui-btn-secondary h-10 rounded-full px-4 text-[11px]">Scope Bundles</button>
+                    <button onClick={() => setTakeoffRoomsModalOpen(true)} className="ui-ghost-btn h-10 px-2 text-[11px]">Manage Rooms</button>
                   </div>
                 </div>
-              </div>
 
-              <div className="ui-surface p-2 flex items-center gap-1.5 flex-wrap shadow-sm">
-                <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pr-1">
-                  {rooms.map((room) => {
-                    const active = room.id === activeRoomId;
-                    return (
-                      <button
-                        key={room.id}
-                        onClick={() => setActiveRoomId(room.id)}
-                        className={`h-7 shrink-0 rounded-full border px-2.5 text-[11px] font-medium transition-colors ${active ? 'border-blue-300 bg-blue-50 text-blue-800' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
-                      >
-                        {room.roomName}
-                      </button>
-                    );
-                  })}
+                <div className="rounded-[24px] bg-[linear-gradient(180deg,rgba(255,248,230,0.72)_0%,rgba(255,255,255,0.96)_100%)] p-3 ring-1 ring-amber-200/70">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[12px] font-semibold text-slate-900">Rooms</p>
+                      <p className="mt-1 text-[11px] text-slate-500">Treat the active room like a workspace lane, not just a filter.</p>
+                    </div>
+                    <div className="rounded-2xl bg-white px-3 py-2 text-right shadow-sm ring-1 ring-amber-200/70">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-700">Active room total</p>
+                      <p className="mt-1 text-[16px] font-semibold tracking-[-0.03em] text-slate-900">{formatCurrencySafe(roomSubtotal)}</p>
+                    </div>
+                  </div>
+                  <div className="flex min-w-0 gap-2 overflow-x-auto pb-1">
+                    {rooms.map((room) => {
+                      const active = room.id === activeRoomId;
+                      const metric = roomMetrics[room.id] || { count: 0, subtotal: 0 };
+                      return (
+                        <button
+                          key={room.id}
+                          onClick={() => setActiveRoomId(room.id)}
+                          title={`${metric.count} lines · ${formatCurrencySafe(metric.subtotal)}`}
+                          className={`shrink-0 rounded-[20px] px-3 py-2 text-left transition-all ${active ? 'bg-[linear-gradient(135deg,#b7791f_0%,#8d5b12_100%)] text-white shadow-[0_12px_28px_rgba(183,121,31,0.22)]' : 'bg-white/92 text-slate-700 shadow-sm ring-1 ring-amber-200/70 hover:-translate-y-0.5 hover:bg-white'}`}
+                        >
+                          <div className="min-w-[148px]">
+                            <div className={`text-[11px] font-semibold ${active ? 'text-white' : 'text-slate-800'}`}>{room.roomName}</div>
+                            <div className={`mt-1 flex items-center justify-between text-[10px] ${active ? 'text-amber-100' : 'text-slate-500'}`}>
+                              <span>{metric.count} lines</span>
+                              <span>{formatCurrencySafe(metric.subtotal)}</span>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-                <button onClick={() => setCatalogOpen(true)} className="ui-btn-secondary h-7 px-2.5 text-[11px]">Catalog Match</button>
-                <button onClick={() => setBundleModalOpen(true)} className="ui-btn-secondary h-7 px-2.5 text-[11px]">Scope Bundles</button>
-                <button onClick={() => setTakeoffRoomsModalOpen(true)} className="ui-btn-secondary h-7 px-2.5 text-[11px]">Manage Rooms</button>
-                <div className="ml-auto text-right pr-0.5 rounded-lg bg-slate-50 px-2 py-1 border border-slate-200">
-                  <p className="text-[10px] text-slate-500">Active Room Total</p>
-                  <p className="text-[13px] font-semibold text-slate-900">{formatCurrencySafe(roomSubtotal)}</p>
-                </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-                <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
-                  <p className="text-[10px] uppercase tracking-[0.08em] text-amber-700">Active Room</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900 truncate">{roomNamesById[activeRoomId] || 'Unassigned'}</p>
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                  <div className="rounded-[24px] bg-[linear-gradient(180deg,#fff8e6_0%,#fff1cb_100%)] p-4 shadow-sm ring-1 ring-amber-200/80"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-amber-700">Active Room</p><Layers3 className="h-4 w-4 text-amber-700" /></div><p className="mt-3 truncate text-[22px] font-semibold tracking-[-0.04em] text-slate-950">{roomNamesById[activeRoomId] || 'Unassigned'}</p><p className="mt-1 text-[11px] text-slate-600">Current cleanup lane</p></div>
+                  <div className="rounded-[24px] bg-white p-4 shadow-sm ring-1 ring-slate-200/80"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-slate-500">Visible Lines</p><Calculator className="h-4 w-4 text-slate-400" /></div><p className="mt-3 text-[24px] font-semibold tracking-[-0.04em] text-slate-950">{activeRoomLines.length}</p><p className="mt-1 text-[11px] text-slate-500">In active room</p></div>
+                  <div className="rounded-[24px] bg-white p-4 shadow-sm ring-1 ring-slate-200/80"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-slate-500">Rooms</p><CalendarClock className="h-4 w-4 text-slate-400" /></div><p className="mt-3 text-[24px] font-semibold tracking-[-0.04em] text-slate-950">{rooms.length}</p><p className="mt-1 text-[11px] text-slate-500">Across the project</p></div>
+                  <div className="rounded-[24px] bg-[linear-gradient(180deg,#10284f_0%,#0a224d_100%)] p-4 text-white shadow-[0_18px_40px_rgba(10,34,77,0.18)]"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-slate-300">Room Total</p><Wallet className="h-4 w-4 text-blue-200" /></div><p className="mt-3 text-[24px] font-semibold tracking-[-0.05em]">{formatCurrencySafe(roomSubtotal)}</p><p className="mt-1 text-[11px] text-slate-300">Current room subtotal</p></div>
                 </div>
-                <div className="rounded-xl border border-slate-200 bg-white p-3">
-                  <p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Visible Lines</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{activeRoomLines.length}</p>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-white p-3">
-                  <p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Rooms</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{rooms.length}</p>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-white p-3">
-                  <p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Room Total</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{formatCurrencySafe(roomSubtotal)}</p>
-                </div>
-              </div>
 
               <EstimateGrid
                 lines={activeRoomLines}
@@ -1080,77 +1204,124 @@ export function ProjectWorkspace() {
                 roomNamesById={roomNamesById}
                 pricingMode={pricingMode}
                 viewMode="takeoff"
+                laborMultiplier={summary?.conditionLaborMultiplier || 1}
                 selectedLineId={selectedLineId}
                 onSelectLine={openLineEditor}
                 onPersistLine={(lineId, updates) => void persistLine(lineId, updates)}
                 onDeleteLine={(lineId) => void deleteLine(lineId)}
               />
+            </div>
           </div>
         )}
 
         {activeTab === 'estimate' && (
           <div className="space-y-2 min-w-0">
-              <div className="rounded-2xl border border-slate-200 bg-gradient-to-r from-white to-slate-50 p-4 shadow-sm">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.11em] text-slate-500 font-semibold">Estimate Overview</p>
-                    <h3 className="mt-1 text-lg font-semibold text-slate-900">Project Estimate</h3>
-                    <p className="mt-1 text-sm text-slate-600">Review pricing, keep room-based scope organized, and open focused tools only when you need them.</p>
+              <div className="relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(231,239,255,0.92)_0%,rgba(255,255,255,0.98)_42%,rgba(244,248,252,0.95)_100%)] p-5 shadow-[0_24px_56px_rgba(15,23,42,0.08)]">
+                <div className="pointer-events-none absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(circle_at_center,rgba(15,118,110,0.09)_0%,rgba(15,118,110,0)_72%)]" />
+                <div className="relative flex flex-wrap items-start justify-between gap-4">
+                  <div className="max-w-3xl">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="ui-chip-soft">Estimate workspace</span>
+                      <span className="ui-chip-soft">{pricingMode.replaceAll('_', ' ')}</span>
+                      <span className="ui-chip-soft">{lines.length} scoped lines</span>
+                    </div>
+                    <h3 className="mt-3 text-[28px] font-semibold tracking-[-0.04em] text-slate-950 md:text-[34px]">Project Estimate</h3>
+                    <p className="mt-2 max-w-2xl text-[13px] leading-6 text-slate-600">Keep scope decisions, pricing adjustments, and room organization in one place. The active room and core estimate drivers stay visible so you can move quickly without losing context.</p>
+                    <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
+                      <span className="rounded-full bg-white/80 px-3 py-1.5 text-slate-600 shadow-sm ring-1 ring-slate-200/80">Active room {roomNamesById[activeRoomId] || 'Unassigned'}</span>
+                      <span className="rounded-full bg-white/80 px-3 py-1.5 text-slate-600 shadow-sm ring-1 ring-slate-200/80">{activeRoomLines.length} line items visible</span>
+                      <span className="rounded-full bg-white/80 px-3 py-1.5 text-slate-600 shadow-sm ring-1 ring-slate-200/80">{rooms.length} rooms in scope</span>
+                    </div>
                   </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-900 px-4 py-3 text-right text-slate-100">
-                    <p className="text-[10px] uppercase tracking-[0.1em] text-slate-300">Estimated Total</p>
-                    <p className="mt-1 text-2xl font-bold">{formatCurrencySafe(summary?.baseBidTotal)}</p>
-                    <p className="mt-1 text-[11px] text-slate-300">Active room: {roomNamesById[activeRoomId] || 'Unassigned'}</p>
+                  <div className="grid min-w-[280px] gap-3 self-stretch sm:grid-cols-2">
+                    <div className="rounded-[24px] border border-slate-200/70 bg-[linear-gradient(180deg,#0f274f_0%,#0a224d_100%)] p-4 text-white shadow-[0_18px_44px_rgba(10,34,77,0.2)] sm:col-span-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-300">Estimated Total</p>
+                      <p className="mt-2 text-[30px] font-semibold tracking-[-0.05em]">{formatCurrencySafe(summary?.baseBidTotal)}</p>
+                      <div className="mt-3 flex items-center justify-between text-[11px] text-slate-300">
+                        <span>Room subtotal {formatCurrencySafe(roomSubtotal)}</span>
+                        <span>{formatNumberSafe(summary?.totalLaborHours || 0, 1)} hrs</span>
+                      </div>
+                    </div>
+                    <div className="rounded-2xl bg-white/78 p-3 shadow-sm ring-1 ring-slate-200/80 backdrop-blur">
+                      <p className="text-[10px] font-semibold tracking-[0.08em] text-slate-500 uppercase">Assumptions</p>
+                      <p className="mt-1 text-[18px] font-semibold tracking-[-0.03em] text-slate-900">{summary?.conditionAssumptions?.length || 0}</p>
+                      <p className="mt-1 text-[11px] text-slate-500">Active pricing conditions</p>
+                    </div>
+                    <div className="rounded-2xl bg-white/78 p-3 shadow-sm ring-1 ring-slate-200/80 backdrop-blur">
+                      <p className="text-[10px] font-semibold tracking-[0.08em] text-slate-500 uppercase">Crew plan</p>
+                      <p className="mt-1 text-[18px] font-semibold tracking-[-0.03em] text-slate-900">{jobConditions.installerCount}</p>
+                      <p className="mt-1 text-[11px] text-slate-500">Installer{jobConditions.installerCount === 1 ? '' : 's'} planned</p>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <div className="ui-surface p-3 shadow-sm space-y-3">
+              <div className="space-y-4 rounded-[28px] bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,rgba(248,250,252,0.96)_100%)] p-4 shadow-[0_18px_40px_rgba(15,23,42,0.05)] ring-1 ring-slate-200/70">
                 <div className="flex flex-wrap items-center gap-2 justify-between">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button onClick={() => setCatalogOpen(true)} className="h-9 rounded-md bg-slate-900 px-3 text-[11px] font-semibold text-white hover:bg-slate-800">Bulk Add Items</button>
-                    <button onClick={() => setBundleModalOpen(true)} className="ui-btn-secondary h-9 px-3 text-[11px]">Add Bundle</button>
-                    <button onClick={() => setModifiersModalOpen(true)} disabled={!selectedLine} className="ui-btn-secondary h-9 px-3 text-[11px] disabled:opacity-50">Edit Line</button>
-                    <button onClick={() => setTakeoffRoomsModalOpen(true)} className="ui-btn-secondary h-9 px-3 text-[11px]">Manage Rooms</button>
-                    <button onClick={() => setActiveTab('proposal')} className="ui-btn-secondary h-9 px-3 text-[11px]">Edit Proposal</button>
+                  <div>
+                    <p className="text-[13px] font-semibold tracking-[-0.02em] text-slate-900">Pricing workspace</p>
+                    <p className="mt-1 text-[12px] text-slate-500">Focused actions, room-based scope navigation, and a live view of the estimate.</p>
                   </div>
-                  <p className="text-[11px] text-slate-500">Rooms, items, modifiers, and bundles open in focused tools so the line grid keeps the width.</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button onClick={() => setCatalogOpen(true)} className="inline-flex h-10 items-center gap-2 rounded-full bg-[linear-gradient(135deg,var(--brand)_0%,var(--brand-strong)_100%)] px-4 text-[11px] font-semibold text-white shadow-[0_12px_24px_rgba(11,61,145,0.22)] hover:brightness-[1.03]">
+                      <Sparkles className="h-3.5 w-3.5" /> Bulk Add Items
+                    </button>
+                    <button onClick={() => setBundleModalOpen(true)} className="ui-btn-secondary h-10 rounded-full px-4 text-[11px]">Add Bundle</button>
+                    <button onClick={() => setModifiersModalOpen(true)} disabled={!selectedLine} className="ui-btn-secondary h-10 rounded-full px-4 text-[11px] disabled:opacity-50">Edit Line</button>
+                    <button onClick={() => setTakeoffRoomsModalOpen(true)} className="ui-ghost-btn h-10 px-2 text-[11px]">Manage Rooms</button>
+                    <button onClick={() => setActiveTab('proposal')} className="ui-ghost-btn h-10 px-2 text-[11px] inline-flex items-center gap-1.5">Proposal <ArrowRight className="h-3.5 w-3.5" /></button>
+                  </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Active Room</span>
-                  <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
+                <div className="rounded-[24px] bg-[linear-gradient(180deg,rgba(242,246,251,0.9)_0%,rgba(255,255,255,0.96)_100%)] p-3 ring-1 ring-slate-200/70">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[12px] font-semibold text-slate-900">Rooms</p>
+                      <p className="mt-1 text-[11px] text-slate-500">Switch rooms quickly and keep the active subtotal in view.</p>
+                    </div>
+                    <div className="rounded-2xl bg-white px-3 py-2 text-right shadow-sm ring-1 ring-slate-200/70">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Active Room Total</p>
+                      <p className="mt-1 text-[16px] font-semibold tracking-[-0.03em] text-slate-900">{formatCurrencySafe(roomSubtotal)}</p>
+                    </div>
+                  </div>
+                  <div className="flex min-w-0 gap-2 overflow-x-auto pb-1">
                     {rooms.map((room) => {
                       const active = room.id === activeRoomId;
+                      const metric = roomMetrics[room.id] || { count: 0, subtotal: 0 };
                       return (
                         <button
                           key={room.id}
                           onClick={() => setActiveRoomId(room.id)}
-                          className={`h-8 shrink-0 rounded-full border px-3 text-[11px] font-medium transition-colors ${active ? 'border-blue-300 bg-blue-50 text-blue-800' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'}`}
+                          title={`${metric.count} lines · ${formatCurrencySafe(metric.subtotal)}`}
+                          className={`shrink-0 rounded-[20px] px-3 py-2 text-left transition-all ${active ? 'bg-[linear-gradient(135deg,var(--brand)_0%,#164fa8_100%)] text-white shadow-[0_12px_28px_rgba(11,61,145,0.22)]' : 'bg-white/92 text-slate-700 shadow-sm ring-1 ring-slate-200/80 hover:-translate-y-0.5 hover:bg-white'}`}
                         >
-                          {room.roomName}
+                          <div className="min-w-[148px]">
+                            <div className={`text-[11px] font-semibold ${active ? 'text-white' : 'text-slate-800'}`}>{room.roomName}</div>
+                            <div className={`mt-1 flex items-center justify-between text-[10px] ${active ? 'text-blue-100' : 'text-slate-500'}`}>
+                              <span>{metric.count} lines</span>
+                              <span>{formatCurrencySafe(metric.subtotal)}</span>
+                            </div>
+                          </div>
                         </button>
                       );
                     })}
                   </div>
-                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-right">
-                    <p className="text-[10px] text-slate-500">Room Total</p>
-                    <p className="text-[13px] font-semibold text-slate-900">{formatCurrencySafe(roomSubtotal)}</p>
-                  </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 lg:grid-cols-6">
-                  <div className={`rounded-xl border p-3 ${showMaterial ? 'border-slate-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-50'}`}><p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Material</p><p className="mt-1 text-lg font-semibold text-slate-900">{formatCurrencySafe(summary?.materialSubtotal)}</p><p className="mt-1 text-[11px] text-slate-500">Installed material value</p></div>
-                  <div className={`rounded-xl border p-3 ${showLabor ? 'border-slate-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-50'}`}><p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Labor</p><p className="mt-1 text-lg font-semibold text-slate-900">{formatCurrencySafe(summary?.adjustedLaborSubtotal || summary?.laborSubtotal)}</p><p className="mt-1 text-[11px] text-slate-500">Adjusted for project conditions</p></div>
-                  <div className="rounded-xl border border-slate-200 bg-white p-3"><p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Markup + Tax</p><p className="mt-1 text-lg font-semibold text-slate-900">{formatCurrencySafe((summary?.taxAmount || 0) + (summary?.overheadAmount || 0) + (summary?.profitAmount || 0) + (summary?.burdenAmount || 0))}</p><p className="mt-1 text-[11px] text-slate-500">Burden, overhead, profit, tax</p></div>
-                  <div className="rounded-xl border border-slate-200 bg-white p-3"><p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Total Hours</p><p className="mt-1 text-lg font-semibold text-slate-900">{formatNumberSafe(summary?.totalLaborHours || 0, 1)} hrs</p><p className="mt-1 text-[11px] text-slate-500">Crew planning metric</p></div>
-                  <div className="rounded-xl border border-slate-200 bg-white p-3"><p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Duration</p><p className="mt-1 text-lg font-semibold text-slate-900">{formatNumberSafe(summary?.durationDays || 0, 0)} day{(summary?.durationDays || 0) === 1 ? '' : 's'}</p><p className="mt-1 text-[11px] text-slate-500">Estimated field duration</p></div>
-                  <div className="rounded-xl border border-slate-900 bg-slate-900 p-3 text-white"><p className="text-[10px] uppercase tracking-[0.08em] text-slate-300">Grand Total</p><p className="mt-1 text-xl font-bold">{formatCurrencySafe(summary?.baseBidTotal)}</p><p className="mt-1 text-[11px] text-slate-300">Active room {formatCurrencySafe(roomSubtotal)}</p></div>
+                <div className="grid grid-cols-2 gap-3 xl:grid-cols-6">
+                  <div className={`rounded-[24px] p-4 shadow-sm ring-1 ${showMaterial ? 'bg-[linear-gradient(180deg,#ffffff_0%,#f7fbff_100%)] ring-slate-200/80' : 'bg-slate-50 opacity-50 ring-slate-200/80'}`}><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-slate-500">Material</p><Wallet className="h-4 w-4 text-slate-400" /></div><p className="mt-3 text-[26px] font-semibold tracking-[-0.04em] text-slate-950">{formatCurrencySafe(summary?.materialSubtotal)}</p><p className="mt-1 text-[11px] text-slate-500">Installed material value</p></div>
+                  <div className={`rounded-[24px] p-4 shadow-sm ring-1 ${showLabor ? 'bg-[linear-gradient(180deg,#ffffff_0%,#eef8f6_100%)] ring-emerald-200/80' : 'bg-slate-50 opacity-50 ring-slate-200/80'}`}><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-slate-500">Labor</p><Hammer className="h-4 w-4 text-emerald-600" /></div><p className="mt-3 text-[26px] font-semibold tracking-[-0.04em] text-slate-950">{formatCurrencySafe(summary?.adjustedLaborSubtotal || summary?.laborSubtotal)}</p><p className="mt-1 text-[11px] text-slate-500">Adjusted by project conditions</p></div>
+                  <div className="rounded-[24px] bg-[linear-gradient(180deg,#ffffff_0%,#fff8eb_100%)] p-4 shadow-sm ring-1 ring-amber-200/80"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-slate-500">Markup + Tax</p><Sparkles className="h-4 w-4 text-amber-600" /></div><p className="mt-3 text-[26px] font-semibold tracking-[-0.04em] text-slate-950">{formatCurrencySafe((summary?.taxAmount || 0) + (summary?.overheadAmount || 0) + (summary?.profitAmount || 0) + (summary?.burdenAmount || 0))}</p><p className="mt-1 text-[11px] text-slate-500">Burden, overhead, profit, and tax</p></div>
+                  <div className="rounded-[24px] bg-[linear-gradient(180deg,#ffffff_0%,#f4f8ff_100%)] p-4 shadow-sm ring-1 ring-blue-200/80"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-slate-500">Total Hours</p><Clock3 className="h-4 w-4 text-blue-700" /></div><p className="mt-3 text-[28px] font-semibold tracking-[-0.04em] text-slate-950">{formatNumberSafe(summary?.totalLaborHours || 0, 1)}</p><p className="mt-1 text-[11px] text-slate-500">Crew planning metric</p></div>
+                  <div className="rounded-[24px] bg-[linear-gradient(180deg,#ffffff_0%,#f7f8fb_100%)] p-4 shadow-sm ring-1 ring-slate-200/80"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-slate-500">Duration</p><CalendarClock className="h-4 w-4 text-slate-500" /></div><p className="mt-3 text-[28px] font-semibold tracking-[-0.04em] text-slate-950">{formatNumberSafe(summary?.durationDays || 0, 0)}</p><p className="mt-1 text-[11px] text-slate-500">Estimated field days</p></div>
+                  <div className="rounded-[24px] bg-[linear-gradient(180deg,#10284f_0%,#0a224d_100%)] p-4 text-white shadow-[0_18px_40px_rgba(10,34,77,0.2)]"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-slate-300">Grand Total</p><Calculator className="h-4 w-4 text-blue-200" /></div><p className="mt-3 text-[30px] font-semibold tracking-[-0.05em]">{formatCurrencySafe(summary?.baseBidTotal)}</p><p className="mt-1 text-[11px] text-slate-300">Active room {formatCurrencySafe(roomSubtotal)}</p></div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">{activeRoomLines.length} line items in active room</span>
-                  {selectedLine ? <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-blue-800">Line in review: {selectedLine.description}</span> : <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">Click any row to open the line editor</span>}
+                  <span className="rounded-full bg-white px-3 py-1.5 shadow-sm ring-1 ring-slate-200/80">{activeRoomLines.length} line items in active room</span>
+                  <span className="rounded-full bg-white px-3 py-1.5 shadow-sm ring-1 ring-slate-200/80">{selectedScopeCategories.length || categories.filter((category) => category !== 'all').length} scope categories active</span>
+                  {selectedLine ? <span className="rounded-full bg-[var(--brand-soft)] px-3 py-1.5 text-blue-800 shadow-sm ring-1 ring-blue-200/80">Line in review: {selectedLine.description}</span> : <span className="rounded-full bg-white px-3 py-1.5 shadow-sm ring-1 ring-slate-200/80">Click any row to open the line editor</span>}
+                  {(summary?.conditionAssumptions?.length || 0) > 0 ? <span className="rounded-full bg-[var(--accent-teal-soft)] px-3 py-1.5 text-teal-800 shadow-sm ring-1 ring-teal-200/70 inline-flex items-center gap-1"><Layers3 className="h-3.5 w-3.5" /> {summary?.conditionAssumptions?.length} active assumptions</span> : null}
                 </div>
               </div>
 
@@ -1161,6 +1332,7 @@ export function ProjectWorkspace() {
                 roomNamesById={roomNamesById}
                 pricingMode={pricingMode}
                 viewMode="estimate"
+                laborMultiplier={summary?.conditionLaborMultiplier || 1}
                 selectedLineId={selectedLineId}
                 onSelectLine={openLineEditor}
                 onPersistLine={(lineId, updates) => void persistLine(lineId, updates)}
@@ -1170,192 +1342,251 @@ export function ProjectWorkspace() {
         )}
 
         {activeTab === 'files' && (
-          <div className="space-y-3">
-            <section className="bg-white border border-slate-200 rounded-lg p-3">
-              <div className="flex flex-wrap items-center gap-2 justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-800">Project Files</h3>
-                  <p className="text-xs text-slate-500">Upload and keep takeoff sheets, scope docs, and references with this project.</p>
+          <div className="space-y-4">
+            <section className="overflow-hidden rounded-[28px] border border-slate-200/80 bg-[linear-gradient(135deg,#ffffff_0%,#f6f9fd_55%,#eef4ff_100%)] p-5 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="max-w-3xl">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Project File Locker</p>
+                  <h3 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">Keep takeoff sheets, drawings, and scope docs attached to the job</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">Store source files with the estimate so imports, proposal drafting, and future revisions always have the same reference set.</p>
                 </div>
-                <label className="h-8 px-3 rounded border border-slate-300 text-xs font-medium hover:bg-slate-50 inline-flex items-center gap-1.5 cursor-pointer">
-                  <FileUp className="w-3.5 h-3.5" />
+                <label className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,var(--brand)_0%,#164fa8_100%)] px-5 text-[11px] font-semibold text-white shadow-[0_12px_28px_rgba(11,61,145,0.22)] hover:brightness-[1.03]">
+                  <FileUp className="h-4 w-4" />
                   {fileUploading ? 'Uploading...' : 'Upload File'}
                   <input type="file" className="hidden" onChange={(e) => void uploadProjectFile(e.target.files?.[0])} disabled={fileUploading} />
                 </label>
               </div>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-[22px] bg-white/90 p-4 shadow-sm ring-1 ring-slate-200/80">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Files Stored</p>
+                  <p className="mt-2 text-[28px] font-semibold tracking-[-0.04em] text-slate-950">{projectFiles.length}</p>
+                  <p className="mt-1 text-[11px] text-slate-500">Project-level reference set</p>
+                </div>
+                <div className="rounded-[22px] bg-[var(--brand-soft)] p-4 shadow-sm ring-1 ring-blue-200/80">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-800">Latest Upload</p>
+                  <p className="mt-2 truncate text-sm font-semibold text-slate-950">{projectFiles[0]?.fileName || 'No uploads yet'}</p>
+                  <p className="mt-1 text-[11px] text-slate-600">{projectFiles[0] ? new Date(projectFiles[0].createdAt).toLocaleString() : 'Add your first source file to start building the project record.'}</p>
+                </div>
+                <div className="rounded-[22px] bg-amber-50/80 p-4 shadow-sm ring-1 ring-amber-200/80">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">Suggested Use</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">Import source + proposal backup</p>
+                  <p className="mt-1 text-[11px] text-slate-600">Keep parser inputs, markups, and client-facing support files in one place.</p>
+                </div>
+              </div>
             </section>
 
-            <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+            <section className="overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/90 shadow-sm">
               {projectFiles.length === 0 ? (
-                <div className="p-6 text-sm text-slate-500">No files saved for this project yet.</div>
+                <div className="px-6 py-10 text-center">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+                    <Paperclip className="h-6 w-6" />
+                  </div>
+                  <h4 className="mt-4 text-base font-semibold text-slate-900">No project files yet</h4>
+                  <p className="mt-2 text-sm text-slate-500">Upload takeoff sheets, reference drawings, scope docs, or proposal support material to keep this estimate self-contained.</p>
+                </div>
               ) : (
-                <table className="w-full text-xs">
-                  <thead className="bg-slate-100 border-b border-slate-200">
-                    <tr>
-                      <th className="px-3 py-2 text-left text-[11px] uppercase tracking-wide text-slate-600">File</th>
-                      <th className="px-3 py-2 text-left text-[11px] uppercase tracking-wide text-slate-600">Type</th>
-                      <th className="px-3 py-2 text-right text-[11px] uppercase tracking-wide text-slate-600">Size</th>
-                      <th className="px-3 py-2 text-left text-[11px] uppercase tracking-wide text-slate-600">Uploaded</th>
-                      <th className="px-3 py-2 text-right text-[11px] uppercase tracking-wide text-slate-600">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {projectFiles.map((file) => (
-                      <tr key={file.id} className="border-b border-slate-100">
-                        <td className="px-3 py-2">
-                          <div className="inline-flex items-center gap-1.5 text-slate-800 font-medium">
-                            <Paperclip className="w-3.5 h-3.5 text-slate-500" />
-                            {file.fileName}
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 text-slate-600">{file.mimeType}</td>
-                        <td className="px-3 py-2 text-right text-slate-600">{formatKilobytesSafe(file.sizeBytes)}</td>
-                        <td className="px-3 py-2 text-slate-600">{new Date(file.createdAt).toLocaleString()}</td>
-                        <td className="px-3 py-2">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <a
-                              href={api.getV1ProjectFileDownloadUrl(project.id, file.id)}
-                              className="h-7 px-2 rounded border border-slate-300 text-[11px] hover:bg-slate-50 inline-flex items-center gap-1"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                              Download
-                            </a>
-                            <button
-                              onClick={() => void removeProjectFile(file.id)}
-                              className="h-7 px-2 rounded border border-red-200 text-red-700 text-[11px] hover:bg-red-50 inline-flex items-center gap-1"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              Delete
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="divide-y divide-slate-100">
+                  {projectFiles.map((file) => (
+                    <div key={file.id} className="flex flex-wrap items-center justify-between gap-4 px-5 py-4 hover:bg-slate-50/70">
+                      <div className="min-w-0 flex-1">
+                        <div className="inline-flex max-w-full items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-[11px] font-medium text-slate-600">
+                          <Paperclip className="h-3.5 w-3.5" />
+                          <span className="truncate">{file.fileName}</span>
+                        </div>
+                        <div className="mt-3 grid gap-2 text-[11px] text-slate-500 sm:grid-cols-3">
+                          <span>Type: {file.mimeType}</span>
+                          <span>Size: {formatKilobytesSafe(file.sizeBytes)}</span>
+                          <span>Uploaded: {new Date(file.createdAt).toLocaleString()}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={api.getV1ProjectFileDownloadUrl(project.id, file.id)}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          Download
+                        </a>
+                        <button
+                          onClick={() => void removeProjectFile(file.id)}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3.5 text-[11px] font-semibold text-red-700 shadow-sm hover:bg-red-100"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </section>
           </div>
         )}
 
         {activeTab === 'proposal' && (
-          <div className="space-y-3">
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500 font-semibold">Proposal Editor</p>
-                  <h3 className="mt-1 text-lg font-semibold text-slate-900">Draft, Edit, And Finalize Proposal Text</h3>
-                  <p className="mt-1 text-sm text-slate-600">Professional defaults are prefilled automatically. AI drafting is optional and never replaces existing content without confirmation.</p>
+          <div className="space-y-4">
+            <section className="overflow-hidden rounded-[28px] border border-slate-200/80 bg-[linear-gradient(135deg,#ffffff_0%,#f8fbff_60%,#eef4ff_100%)] p-5 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="max-w-3xl">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Proposal Studio</p>
+                  <h3 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">Draft, tune, and export the client-facing proposal from the live estimate</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">Use AI to jump-start wording, edit the final language directly, and preview the exact document before export.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => void generateProposalDraft('scope_summary')}
                     disabled={proposalDrafting !== null}
-                    className="h-8 px-3 rounded border border-slate-300 text-xs font-medium hover:bg-slate-50 disabled:opacity-50"
+                    className="inline-flex h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
                   >
                     {proposalDrafting === 'scope_summary' ? 'Generating Scope Summary...' : 'AI Scope Summary'}
                   </button>
                   <button
-                    onClick={() => void generateProposalDraft('proposal_text')}
+                    onClick={() => void generateProposalDraft('default_short')}
                     disabled={proposalDrafting !== null}
-                    className="h-8 px-3 rounded border border-slate-300 text-xs font-medium hover:bg-slate-50 disabled:opacity-50"
+                    className="inline-flex h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
                   >
-                    {proposalDrafting === 'proposal_text' ? 'Drafting Proposal Text...' : 'AI Full Draft'}
+                    {proposalDrafting === 'default_short' ? 'Drafting Short Proposal...' : 'AI Short Proposal Pack'}
                   </button>
                   <button
                     onClick={() => void generateProposalDraft('terms_and_conditions')}
                     disabled={proposalDrafting !== null}
-                    className="h-8 px-3 rounded border border-slate-300 text-xs font-medium hover:bg-slate-50 disabled:opacity-50"
+                    className="inline-flex h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
                   >
                     {proposalDrafting === 'terms_and_conditions' ? 'Improving Terms + Conditions...' : 'AI Terms + Conditions'}
                   </button>
                   <button
                     onClick={() => void saveProposalWording()}
-                    className="h-8 px-3 rounded border border-slate-300 text-xs font-medium hover:bg-slate-50"
+                    className="inline-flex h-10 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-4 text-[11px] font-semibold text-emerald-700 shadow-sm hover:bg-emerald-100"
                   >
                     Save Proposal Edits
                   </button>
                   <button
                     onClick={() => resetProposalDefaults('all')}
-                    className="h-8 px-3 rounded border border-slate-300 text-xs font-medium hover:bg-slate-50"
+                    className="inline-flex h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-600 shadow-sm hover:bg-slate-50"
                   >
                     Reset To Defaults
                   </button>
-                  <button onClick={() => window.print()} className="h-8 px-3 rounded border border-slate-300 text-xs font-medium hover:bg-slate-50">Print</button>
-                  <button onClick={exportProposal} className="h-8 px-3 rounded bg-blue-700 text-white text-xs font-medium hover:bg-blue-800 flex items-center gap-1"><Download className="w-3.5 h-3.5" />Export</button>
+                  <button onClick={() => window.print()} className="inline-flex h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50">Print</button>
+                  <button onClick={exportProposal} className="inline-flex h-10 items-center gap-1.5 rounded-full bg-[linear-gradient(135deg,var(--brand)_0%,#164fa8_100%)] px-4 text-[11px] font-semibold text-white shadow-[0_12px_28px_rgba(11,61,145,0.22)] hover:brightness-[1.03]"><Download className="h-3.5 w-3.5" />Export</button>
                 </div>
               </div>
-            </div>
 
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 grid grid-cols-1 md:grid-cols-2 gap-3 shadow-sm">
-              <label className="text-xs text-slate-600 block">
-                <span className="flex items-center justify-between gap-2">
-                  <span>Scope Summary / Intro</span>
-                  <button type="button" onClick={() => resetProposalDefaults('intro')} className="text-[11px] font-medium text-blue-700 hover:text-blue-800">Reset Default</button>
-                </span>
-                <textarea
-                  rows={4}
-                  className="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
-                  value={settings?.proposalIntro || ''}
-                  onChange={(e) => settings && setSettings({ ...settings, proposalIntro: e.target.value })}
-                />
-              </label>
-              <label className="text-xs text-slate-600 block">
-                <span className="flex items-center justify-between gap-2">
-                  <span>Terms</span>
-                  <button type="button" onClick={() => resetProposalDefaults('terms')} className="text-[11px] font-medium text-blue-700 hover:text-blue-800">Reset Default</button>
-                </span>
-                <textarea
-                  rows={4}
-                  className="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
-                  value={settings?.proposalTerms || ''}
-                  onChange={(e) => settings && setSettings({ ...settings, proposalTerms: e.target.value })}
-                />
-              </label>
-              <label className="text-xs text-slate-600 block">
-                <span className="flex items-center justify-between gap-2">
-                  <span>Exclusions</span>
-                  <button type="button" onClick={() => resetProposalDefaults('exclusions')} className="text-[11px] font-medium text-blue-700 hover:text-blue-800">Reset Default</button>
-                </span>
-                <textarea
-                  rows={4}
-                  className="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
-                  value={settings?.proposalExclusions || ''}
-                  onChange={(e) => settings && setSettings({ ...settings, proposalExclusions: e.target.value })}
-                />
-              </label>
-              <label className="text-xs text-slate-600 block">
-                <span className="flex items-center justify-between gap-2">
-                  <span>Clarifications</span>
-                  <button type="button" onClick={() => resetProposalDefaults('clarifications')} className="text-[11px] font-medium text-blue-700 hover:text-blue-800">Reset Default</button>
-                </span>
-                <textarea
-                  rows={4}
-                  className="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
-                  value={settings?.proposalClarifications || ''}
-                  onChange={(e) => settings && setSettings({ ...settings, proposalClarifications: e.target.value })}
-                />
-              </label>
-              <label className="text-xs text-slate-600 block md:col-span-2">
-                <span className="flex items-center justify-between gap-2">
-                  <span>Acceptance Label</span>
-                  <button type="button" onClick={() => resetProposalDefaults('acceptance')} className="text-[11px] font-medium text-blue-700 hover:text-blue-800">Reset Default</button>
-                </span>
-                <input
-                  className="mt-1 h-9 w-full rounded border border-slate-300 px-2 text-sm"
-                  value={settings?.proposalAcceptanceLabel || ''}
-                  onChange={(e) => settings && setSettings({ ...settings, proposalAcceptanceLabel: e.target.value })}
-                />
-              </label>
-            </div>
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-[22px] bg-white/90 p-4 shadow-sm ring-1 ring-slate-200/80">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Proposal Value</p>
+                  <p className="mt-2 text-[28px] font-semibold tracking-[-0.04em] text-slate-950">{formatCurrencySafe(summary?.baseBidTotal)}</p>
+                  <p className="mt-1 text-[11px] text-slate-500">Bound to the current estimate output</p>
+                </div>
+                <div className="rounded-[22px] bg-[var(--brand-soft)] p-4 shadow-sm ring-1 ring-blue-200/80">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-800">Included Lines</p>
+                  <p className="mt-2 text-[28px] font-semibold tracking-[-0.04em] text-slate-950">{lines.length}</p>
+                  <p className="mt-1 text-[11px] text-slate-600">Proposal content reflects the live takeoff and estimate.</p>
+                </div>
+                <div className="rounded-[22px] bg-amber-50/80 p-4 shadow-sm ring-1 ring-amber-200/80">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">Draft Source</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">Defaults + AI assist</p>
+                  <p className="mt-1 text-[11px] text-slate-600">AI drafting is optional and never overwrites existing wording without confirmation.</p>
+                </div>
+              </div>
+            </section>
 
-            <ProposalPreview
-              project={project}
-              settings={settings}
-              website={companyWebsite}
-              lines={lines}
-              summary={summary}
-            />
+            <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)] items-start">
+              <section className="space-y-4">
+                <div className="rounded-[28px] border border-slate-200/80 bg-white/90 p-4 shadow-sm">
+                  <div className="mb-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Editable Proposal Copy</p>
+                    <h4 className="mt-1 text-base font-semibold tracking-tight text-slate-900">Control the language block by block</h4>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="block rounded-[22px] border border-slate-200/80 bg-slate-50/65 p-3 text-xs text-slate-600">
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-700">Scope Summary / Intro</span>
+                        <button type="button" onClick={() => resetProposalDefaults('intro')} className="text-[11px] font-semibold text-blue-700 hover:text-blue-800">Reset Default</button>
+                      </span>
+                      <textarea
+                        rows={6}
+                        className="mt-2 w-full rounded-[18px] border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                        value={settings?.proposalIntro || ''}
+                        onChange={(e) => settings && setSettings({ ...settings, proposalIntro: e.target.value })}
+                      />
+                    </label>
+
+                    <label className="block rounded-[22px] border border-slate-200/80 bg-slate-50/65 p-3 text-xs text-slate-600">
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-700">Terms</span>
+                        <button type="button" onClick={() => resetProposalDefaults('terms')} className="text-[11px] font-semibold text-blue-700 hover:text-blue-800">Reset Default</button>
+                      </span>
+                      <textarea
+                        rows={5}
+                        className="mt-2 w-full rounded-[18px] border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                        value={settings?.proposalTerms || ''}
+                        onChange={(e) => settings && setSettings({ ...settings, proposalTerms: e.target.value })}
+                      />
+                    </label>
+
+                    <label className="block rounded-[22px] border border-slate-200/80 bg-slate-50/65 p-3 text-xs text-slate-600">
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-700">Exclusions</span>
+                        <button type="button" onClick={() => resetProposalDefaults('exclusions')} className="text-[11px] font-semibold text-blue-700 hover:text-blue-800">Reset Default</button>
+                      </span>
+                      <textarea
+                        rows={5}
+                        className="mt-2 w-full rounded-[18px] border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                        value={settings?.proposalExclusions || ''}
+                        onChange={(e) => settings && setSettings({ ...settings, proposalExclusions: e.target.value })}
+                      />
+                    </label>
+
+                    <label className="block rounded-[22px] border border-slate-200/80 bg-slate-50/65 p-3 text-xs text-slate-600">
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-700">Clarifications</span>
+                        <button type="button" onClick={() => resetProposalDefaults('clarifications')} className="text-[11px] font-semibold text-blue-700 hover:text-blue-800">Reset Default</button>
+                      </span>
+                      <textarea
+                        rows={5}
+                        className="mt-2 w-full rounded-[18px] border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                        value={settings?.proposalClarifications || ''}
+                        onChange={(e) => settings && setSettings({ ...settings, proposalClarifications: e.target.value })}
+                      />
+                    </label>
+
+                    <label className="block rounded-[22px] border border-slate-200/80 bg-slate-50/65 p-3 text-xs text-slate-600">
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-700">Acceptance Label</span>
+                        <button type="button" onClick={() => resetProposalDefaults('acceptance')} className="text-[11px] font-semibold text-blue-700 hover:text-blue-800">Reset Default</button>
+                      </span>
+                      <input
+                        className="mt-2 h-10 w-full rounded-[16px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                        value={settings?.proposalAcceptanceLabel || ''}
+                        onChange={(e) => settings && setSettings({ ...settings, proposalAcceptanceLabel: e.target.value })}
+                      />
+                    </label>
+                  </div>
+                </div>
+              </section>
+
+              <div className="space-y-4">
+                <section className="rounded-[24px] border border-slate-200/80 bg-white/90 p-4 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Live Preview</p>
+                      <h4 className="mt-1 text-base font-semibold tracking-tight text-slate-900">Client-ready proposal rendering</h4>
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-3 py-1.5 text-[11px] font-medium text-slate-600">Print/export uses this layout</span>
+                  </div>
+                </section>
+
+                <ProposalPreview
+                  project={project}
+                  settings={settings}
+                  website={companyWebsite}
+                  lines={lines}
+                  summary={summary}
+                />
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -1386,57 +1617,100 @@ export function ProjectWorkspace() {
       />
 
       {modifiersModalOpen && selectedLine && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 p-3 sm:p-6" onClick={() => setModifiersModalOpen(false)}>
-          <div className="mx-auto flex h-[88vh] max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500 font-semibold">Line Editor</p>
-                <h3 className="mt-1 text-sm font-semibold text-slate-900">Edit Line Item In A Popup</h3>
-                <p className="mt-1 text-xs text-slate-600">Clicking a row opens this editor so you can adjust description, room, pricing, notes, and modifiers without editing directly in the table.</p>
+        <div className="fixed inset-0 z-50 bg-[radial-gradient(circle_at_top,rgba(10,34,77,0.18)_0%,rgba(15,23,42,0.55)_60%)] p-3 backdrop-blur-sm sm:p-6" onClick={() => setModifiersModalOpen(false)}>
+          <div className="mx-auto flex h-[90vh] max-w-5xl flex-col overflow-hidden rounded-[30px] border border-slate-200/80 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] shadow-[0_32px_80px_rgba(15,23,42,0.22)]" onClick={(event) => event.stopPropagation()}>
+            <div className="border-b border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(246,248,251,0.96)_100%)] px-5 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="max-w-3xl">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="ui-chip-soft">Line editor</span>
+                    <span className="ui-chip-soft">{selectedLine.category || 'Uncategorized'}</span>
+                    <span className="ui-chip-soft">{roomNamesById[selectedLine.roomId] || 'Unassigned room'}</span>
+                  </div>
+                  <h3 className="mt-3 text-[28px] font-semibold tracking-[-0.04em] text-slate-950">Edit line item</h3>
+                  <p className="mt-2 text-[13px] leading-6 text-slate-600">Adjust description, room placement, pricing, notes, and modifiers without losing sight of the line’s sell math.</p>
+                </div>
+                <button onClick={() => setModifiersModalOpen(false)} className="h-10 rounded-full border border-slate-200 bg-white px-4 text-[11px] font-medium text-slate-700 shadow-sm transition hover:bg-slate-50">Done</button>
               </div>
-              <button onClick={() => setModifiersModalOpen(false)} className="h-8 rounded-md border border-slate-300 px-3 text-xs font-medium hover:bg-slate-50">Close</button>
+              <div className="mt-4 grid gap-3 sm:grid-cols-4">
+                <div className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200/80"><p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Qty</p><p className="mt-1 text-[20px] font-semibold tracking-[-0.03em] text-slate-950">{formatNumberSafe(selectedLine.qty, 0)}</p></div>
+                <div className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200/80"><p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Material</p><p className="mt-1 text-[20px] font-semibold tracking-[-0.03em] text-slate-950">{formatCurrencySafe(selectedLine.materialCost)}</p></div>
+                <div className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200/80"><p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Labor</p><p className="mt-1 text-[20px] font-semibold tracking-[-0.03em] text-slate-950">{formatCurrencySafe(selectedLine.laborCost)}</p></div>
+                <div className="rounded-2xl bg-[linear-gradient(180deg,#10284f_0%,#0a224d_100%)] p-3 text-white shadow-[0_18px_40px_rgba(10,34,77,0.18)]"><p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-300">Unit Sell</p><p className="mt-1 text-[20px] font-semibold tracking-[-0.03em]">{formatCurrencySafe(selectedLine.unitSell)}</p></div>
+              </div>
             </div>
 
             <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="min-h-0 overflow-y-auto p-4">
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <label className="text-[11px] font-medium text-slate-700 md:col-span-2">Description
-                    <input className="ui-input mt-1 h-9" value={selectedLine.description} onChange={(e) => patchLineLocal(selectedLine.id, { description: e.target.value })} onBlur={() => void persistLine(selectedLine.id)} />
-                  </label>
-                  <label className="text-[11px] font-medium text-slate-700">Room
-                    <select className="ui-input mt-1 h-9" value={selectedLine.roomId} onChange={(e) => patchLineLocal(selectedLine.id, { roomId: e.target.value })} onBlur={() => void persistLine(selectedLine.id)}>
+              <div className="min-h-0 overflow-y-auto p-5">
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+                  <div className="space-y-4">
+                    <div className="rounded-[24px] bg-white p-4 shadow-sm ring-1 ring-slate-200/80">
+                      <p className="text-[12px] font-semibold tracking-[-0.02em] text-slate-900">Line details</p>
+                      <p className="mt-1 text-[11px] text-slate-500">Set the identity, room, and descriptive information that appears in the estimate grid.</p>
+                      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <label className="text-[11px] font-medium text-slate-700 md:col-span-2">Description
+                          <input className="ui-input mt-1 h-10 rounded-xl" value={selectedLine.description} onChange={(e) => patchLineLocal(selectedLine.id, { description: e.target.value })} onBlur={() => void persistLine(selectedLine.id)} />
+                        </label>
+                        <label className="text-[11px] font-medium text-slate-700">Room
+                          <select className="ui-input mt-1 h-10 rounded-xl" value={selectedLine.roomId} onChange={(e) => patchLineLocal(selectedLine.id, { roomId: e.target.value })} onBlur={() => void persistLine(selectedLine.id)}>
                       {rooms.map((room) => <option key={room.id} value={room.id}>{room.roomName}</option>)}
-                    </select>
-                  </label>
-                  <label className="text-[11px] font-medium text-slate-700">Category
-                    <input className="ui-input mt-1 h-9" value={selectedLine.category || ''} onChange={(e) => patchLineLocal(selectedLine.id, { category: e.target.value || null })} onBlur={() => void persistLine(selectedLine.id)} />
-                  </label>
-                  <label className="text-[11px] font-medium text-slate-700">Qty
-                    <input type="number" className="ui-input mt-1 h-9" value={selectedLine.qty} onChange={(e) => patchLineLocal(selectedLine.id, { qty: Number(e.target.value) || 0 })} onBlur={() => void persistLine(selectedLine.id)} />
-                  </label>
-                  <label className="text-[11px] font-medium text-slate-700">Unit
-                    <input className="ui-input mt-1 h-9" value={selectedLine.unit} onChange={(e) => patchLineLocal(selectedLine.id, { unit: e.target.value })} onBlur={() => void persistLine(selectedLine.id)} />
-                  </label>
-                  {showMaterial ? (
-                    <label className="text-[11px] font-medium text-slate-700">Material
-                      <input type="number" className="ui-input mt-1 h-9" value={selectedLine.materialCost} onChange={(e) => patchLineLocal(selectedLine.id, { materialCost: Number(e.target.value) || 0 })} onBlur={() => void persistLine(selectedLine.id)} />
-                    </label>
-                  ) : null}
-                  {showLabor ? (
-                    <label className="text-[11px] font-medium text-slate-700">Labor
-                      <input type="number" className="ui-input mt-1 h-9" value={selectedLine.laborCost} onChange={(e) => patchLineLocal(selectedLine.id, { laborCost: Number(e.target.value) || 0 })} onBlur={() => void persistLine(selectedLine.id)} />
-                    </label>
-                  ) : null}
-                  <label className="text-[11px] font-medium text-slate-700">Unit Sell
-                    <input type="number" className="ui-input mt-1 h-9" value={selectedLine.unitSell} onChange={(e) => patchLineLocal(selectedLine.id, { unitSell: Number(e.target.value) || 0 })} onBlur={() => void persistLine(selectedLine.id)} />
-                  </label>
-                  <label className="text-[11px] font-medium text-slate-700 md:col-span-2">Notes
-                    <textarea rows={4} className="ui-textarea mt-1" value={selectedLine.notes || ''} onChange={(e) => patchLineLocal(selectedLine.id, { notes: e.target.value || null })} onBlur={() => void persistLine(selectedLine.id)} />
-                  </label>
+                          </select>
+                        </label>
+                        <label className="text-[11px] font-medium text-slate-700">Category
+                          <input className="ui-input mt-1 h-10 rounded-xl" value={selectedLine.category || ''} onChange={(e) => patchLineLocal(selectedLine.id, { category: e.target.value || null })} onBlur={() => void persistLine(selectedLine.id)} />
+                        </label>
+                        <label className="text-[11px] font-medium text-slate-700">Qty
+                          <input type="number" className="ui-input mt-1 h-10 rounded-xl" value={selectedLine.qty} onChange={(e) => patchLineLocal(selectedLine.id, { qty: Number(e.target.value) || 0 })} onBlur={() => void persistLine(selectedLine.id)} />
+                        </label>
+                        <label className="text-[11px] font-medium text-slate-700">Unit
+                          <input className="ui-input mt-1 h-10 rounded-xl" value={selectedLine.unit} onChange={(e) => patchLineLocal(selectedLine.id, { unit: e.target.value })} onBlur={() => void persistLine(selectedLine.id)} />
+                        </label>
+                        <label className="text-[11px] font-medium text-slate-700 md:col-span-2">Notes
+                          <textarea rows={4} className="ui-textarea mt-1 rounded-2xl" value={selectedLine.notes || ''} onChange={(e) => patchLineLocal(selectedLine.id, { notes: e.target.value || null })} onBlur={() => void persistLine(selectedLine.id)} />
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="rounded-[24px] bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-4 shadow-sm ring-1 ring-slate-200/80">
+                      <p className="text-[12px] font-semibold tracking-[-0.02em] text-slate-900">Pricing</p>
+                      <p className="mt-1 text-[11px] text-slate-500">Base line math before overall estimate markups. Edits update the grid immediately.</p>
+                      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                        {showMaterial ? (
+                          <label className="text-[11px] font-medium text-slate-700">Material
+                            <input type="number" className="ui-input mt-1 h-10 rounded-xl" value={selectedLine.materialCost} onChange={(e) => patchLineLocal(selectedLine.id, { materialCost: Number(e.target.value) || 0 })} onBlur={() => void persistLine(selectedLine.id)} />
+                          </label>
+                        ) : null}
+                        {showLabor ? (
+                          <label className="text-[11px] font-medium text-slate-700">Labor
+                            <input type="number" className="ui-input mt-1 h-10 rounded-xl" value={selectedLine.laborCost} onChange={(e) => patchLineLocal(selectedLine.id, { laborCost: Number(e.target.value) || 0 })} onBlur={() => void persistLine(selectedLine.id)} />
+                            {(summary?.conditionLaborMultiplier || 1) !== 1 ? <p className="mt-1 text-[10px] text-slate-500">Effective labor with project multiplier: {formatCurrencySafe((selectedLine.laborCost || 0) * (summary?.conditionLaborMultiplier || 1))}</p> : null}
+                          </label>
+                        ) : null}
+                        <label className="text-[11px] font-medium text-slate-700">Unit Sell
+                          <input type="number" className="ui-input mt-1 h-10 rounded-xl" value={selectedLine.unitSell} onChange={(e) => patchLineLocal(selectedLine.id, { unitSell: Number(e.target.value) || 0 })} onBlur={() => void persistLine(selectedLine.id)} />
+                        </label>
+                        <div className="rounded-2xl bg-white px-3 py-3 shadow-sm ring-1 ring-slate-200/80">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Base minutes</p>
+                          <p className="mt-1 text-[20px] font-semibold tracking-[-0.03em] text-slate-950">{formatNumberSafe(selectedLine.laborMinutes, 1)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="rounded-[24px] bg-[linear-gradient(180deg,#ffffff_0%,#f4f8ff_100%)] p-4 shadow-sm ring-1 ring-slate-200/80">
+                      <p className="text-[12px] font-semibold tracking-[-0.02em] text-slate-900">Line snapshot</p>
+                      <div className="mt-3 space-y-2 text-[11px] text-slate-600">
+                        <div className="flex items-center justify-between rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-slate-200/80"><span>Room</span><span className="font-semibold text-slate-900">{roomNamesById[selectedLine.roomId] || 'Unassigned'}</span></div>
+                        <div className="flex items-center justify-between rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-slate-200/80"><span>Category</span><span className="font-semibold text-slate-900">{selectedLine.category || 'Uncategorized'}</span></div>
+                        <div className="flex items-center justify-between rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-slate-200/80"><span>Line total</span><span className="font-semibold text-slate-900">{formatCurrencySafe(selectedLine.lineTotal)}</span></div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div className="border-t border-slate-200 bg-slate-50/70 p-4 lg:border-l lg:border-t-0">
+              <div className="border-t border-slate-200/80 bg-[linear-gradient(180deg,rgba(248,250,252,0.96)_0%,rgba(241,245,249,0.98)_100%)] p-4 lg:border-l lg:border-t-0">
                 <ModifierPanel
                   modifiers={modifiers}
                   activeModifiers={lineModifiers}
@@ -1445,41 +1719,6 @@ export function ProjectWorkspace() {
                   onRemoveModifier={(lineModifierId) => void removeModifier(lineModifierId)}
                 />
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {importModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 p-3 sm:p-6" onClick={() => setImportModalOpen(false)}>
-          <div
-            className="mx-auto h-[92vh] max-w-6xl rounded-xl bg-white border border-slate-200 shadow-2xl flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-900">Import Scope Lines</h2>
-                <p className="text-xs text-slate-500">Review parsed rows in a full-size workspace before adding them to the estimate.</p>
-              </div>
-              <button
-                onClick={() => setImportModalOpen(false)}
-                className="h-8 px-3 rounded border border-slate-300 text-xs font-medium hover:bg-slate-50"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="flex-1 min-h-0 overflow-y-auto p-4">
-              <ImportParsePanel
-                variant="expanded"
-                catalog={catalog}
-                projectId={project.id}
-                roomId={activeRoomId}
-                onFinalize={async (parsedLines) => {
-                  await finalizeParsedLines(parsedLines);
-                  setImportModalOpen(false);
-                }}
-              />
             </div>
           </div>
         </div>

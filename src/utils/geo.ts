@@ -3,7 +3,7 @@
  * Utility for geocoding and distance calculation
  */
 
-const OFFICE_ADDRESS = "512 S 70th Street Kansas City, KS 66111";
+export const OFFICE_ADDRESS = "512 S 70th Street Kansas City, KS 66111";
 const OFFICE_COORDS = { lat: 39.0911, lon: -94.7547 }; // Kansas City office approx coords
 
 export async function getDistanceInMiles(address: string): Promise<number | null> {
