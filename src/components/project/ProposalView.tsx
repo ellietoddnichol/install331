@@ -4,6 +4,10 @@ import { Project, EstimateResult } from '../../types';
 import { Printer, Download, Mail, ShieldCheck } from 'lucide-react';
 import { formatCurrencySafe } from '../../utils/numberFormat';
 
+function getLegacyProjectDate(project: Project): string | undefined {
+  return project.bidDate || project.dueDate;
+}
+
 interface Props {
   project: Project;
   estimate: EstimateResult | null;
@@ -15,6 +19,8 @@ export function ProposalView({ project, estimate }: Props) {
   const handlePrint = () => {
     window.print();
   };
+
+  const projectDate = getLegacyProjectDate(project);
 
   return (
     <div className="space-y-8">
@@ -62,7 +68,7 @@ export function ProposalView({ project, estimate }: Props) {
           <div className="text-right">
             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Project Details</h3>
             <p className="text-xl font-bold text-gray-900">{project.name}</p>
-            <p className="text-gray-500 mt-1">Bid Date: {project.bidDate || 'TBD'}</p>
+            <p className="text-gray-500 mt-1">Bid Due Date: {projectDate || 'TBD'}</p>
           </div>
         </div>
 

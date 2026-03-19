@@ -3,6 +3,7 @@ import fs from 'fs';
 import { google } from 'googleapis';
 import { JWT } from 'google-auth-library';
 import { estimatorDb } from '../db/connection.ts';
+import { TAKEOFF_CATALOG_SEED_ITEMS } from './intake/takeoffCatalogRegistry.ts';
 
 interface SyncCounts {
   itemsSynced: number;
@@ -19,6 +20,15 @@ export interface CatalogSyncResult extends SyncCounts {
     modifiers: string;
     bundles: string;
   };
+  warnings: string[];
+  syncedAt: string;
+}
+
+export interface TakeoffRegistryBackfillResult {
+  message: string;
+  spreadsheetId: string;
+  tabName: string;
+  itemsBackfilled: number;
   warnings: string[];
   syncedAt: string;
 }
@@ -316,6 +326,88 @@ export async function upsertItemInGoogleSheet(input: {
       { aliases: ['UpdatedAt', 'Updated At'], value: new Date().toISOString() },
     ],
   });
+}
+
+export async function backfillTakeoffRegistryToGoogleSheets(): Promise<TakeoffRegistryBackfillResult> {
+  const cfg = getSpreadsheetConfig();
+  const warnings: string[] = [];
+
+  updateSyncStatus({
+    status: 'running',
+    message: `Backfilling ${TAKEOFF_CATALOG_SEED_ITEMS.length} takeoff registry items to Google Sheets...`,
+  });
+
+  try {
+    for (const item of TAKEOFF_CATALOG_SEED_ITEMS) {
+      await upsertItemInGoogleSheet({
+        sku: item.sku,
+        category: item.category,
+        manufacturer: item.manufacturer || null,
+        model: item.model || null,
+        description: item.description,
+        unit: item.uom,
+        baseMaterialCost: item.baseMaterialCost,
+        baseLaborMinutes: item.baseLaborMinutes,
+        active: item.active,
+      });
+    }
+
+    const syncedAt = new Date().toISOString();
+    const uniqueWarnings = Array.from(new Set(warnings));
+    const message = `Takeoff registry backfill complete: ${TAKEOFF_CATALOG_SEED_ITEMS.length} items upserted to ${cfg.itemsTab}.`;
+    const counts = {
+      itemsSynced: TAKEOFF_CATALOG_SEED_ITEMS.length,
+      modifiersSynced: 0,
+      bundlesSynced: 0,
+      bundleItemsSynced: 0,
+    };
+
+    updateSyncStatus({
+      status: 'success',
+      message,
+      counts,
+      warnings: uniqueWarnings,
+    });
+
+    insertSyncRun({
+      status: 'success',
+      message,
+      counts,
+      warnings: uniqueWarnings,
+    });
+
+    return {
+      message,
+      spreadsheetId: cfg.spreadsheetId,
+      tabName: cfg.itemsTab,
+      itemsBackfilled: TAKEOFF_CATALOG_SEED_ITEMS.length,
+      warnings: uniqueWarnings,
+      syncedAt,
+    };
+  } catch (error: any) {
+    const failedCounts = {
+      itemsSynced: 0,
+      modifiersSynced: 0,
+      bundlesSynced: 0,
+      bundleItemsSynced: 0,
+    };
+
+    updateSyncStatus({
+      status: 'failed',
+      message: error.message || 'Takeoff registry backfill failed.',
+      counts: failedCounts,
+      warnings,
+    });
+
+    insertSyncRun({
+      status: 'failed',
+      message: error.message || 'Takeoff registry backfill failed.',
+      counts: failedCounts,
+      warnings,
+    });
+
+    throw error;
+  }
 }
 
 export async function upsertModifierInGoogleSheet(input: {

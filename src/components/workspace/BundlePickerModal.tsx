@@ -1,7 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Layers3, Search } from 'lucide-react';
+import { Layers3, Search, Trash2 } from 'lucide-react';
 import { api } from '../../services/api';
 import { BundleItemRecord, BundleRecord, RoomRecord } from '../../shared/types/estimator';
+
+interface StagedBundle {
+  id: string;
+  bundleId: string;
+  bundleName: string;
+  roomId: string;
+  roomName: string;
+  itemCount: number;
+  quantityTotal: number;
+}
 
 interface Props {
   open: boolean;
@@ -16,15 +26,20 @@ export function BundlePickerModal({ open, bundles, rooms, activeRoomId, onClose,
   const [search, setSearch] = useState('');
   const [roomId, setRoomId] = useState('');
   const [applyingBundleId, setApplyingBundleId] = useState<string | null>(null);
+  const [committingStaged, setCommittingStaged] = useState(false);
   const [selectedBundleId, setSelectedBundleId] = useState<string>('');
   const [bundleItems, setBundleItems] = useState<BundleItemRecord[]>([]);
   const [bundleItemsLoading, setBundleItemsLoading] = useState(false);
+  const [bundleQuantities, setBundleQuantities] = useState<Record<string, number>>({});
+  const [stagedBundles, setStagedBundles] = useState<StagedBundle[]>([]);
 
   useEffect(() => {
     if (!open) return;
     setSearch('');
     setRoomId(activeRoomId || rooms[0]?.id || '');
     setSelectedBundleId(bundles[0]?.id || '');
+    setBundleQuantities({});
+    setStagedBundles([]);
   }, [open, activeRoomId, rooms]);
 
   useEffect(() => {
@@ -37,7 +52,13 @@ export function BundlePickerModal({ open, bundles, rooms, activeRoomId, onClose,
     setBundleItemsLoading(true);
     api.getV1BundleItems(selectedBundleId)
       .then((items) => {
-        if (!cancelled) setBundleItems(items);
+        if (!cancelled) {
+          setBundleItems(items);
+          setBundleQuantities((prev) => ({
+            ...prev,
+            [selectedBundleId]: items.reduce((sum, item) => sum + Math.max(1, Number(item.qty || 1)), 0),
+          }));
+        }
       })
       .catch(() => {
         if (!cancelled) setBundleItems([]);
@@ -61,17 +82,51 @@ export function BundlePickerModal({ open, bundles, rooms, activeRoomId, onClose,
   }, [bundles, search]);
 
   const selectedBundle = filteredBundles.find((bundle) => bundle.id === selectedBundleId) || bundles.find((bundle) => bundle.id === selectedBundleId) || null;
+  const stagedQuantityTotal = useMemo(
+    () => stagedBundles.reduce((sum, bundle) => sum + bundle.quantityTotal, 0),
+    [stagedBundles]
+  );
 
   if (!open) return null;
 
-  async function applyBundle(bundleId: string) {
-    if (!roomId || applyingBundleId) return;
+  async function stageBundle(bundleId: string) {
+    if (!roomId || applyingBundleId || committingStaged) return;
+    const bundle = bundles.find((entry) => entry.id === bundleId);
+    if (!bundle) return;
+
     setApplyingBundleId(bundleId);
     try {
-      await onApplyBundle(bundleId, roomId);
-      onClose();
+      const items = await api.getV1BundleItems(bundleId);
+      const quantityTotal = items.reduce((sum, item) => sum + Math.max(1, Number(item.qty || 1)), 0);
+      const roomName = rooms.find((room) => room.id === roomId)?.roomName || 'Selected room';
+      setBundleQuantities((prev) => ({ ...prev, [bundleId]: quantityTotal }));
+      setStagedBundles((prev) => ([
+        ...prev,
+        {
+          id: `${bundleId}-${roomId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          bundleId,
+          bundleName: bundle.bundleName,
+          roomId,
+          roomName,
+          itemCount: items.length,
+          quantityTotal,
+        },
+      ]));
     } finally {
       setApplyingBundleId(null);
+    }
+  }
+
+  async function commitStagedBundles() {
+    if (!stagedBundles.length || committingStaged) return;
+    setCommittingStaged(true);
+    try {
+      for (const bundle of stagedBundles) {
+        await onApplyBundle(bundle.bundleId, bundle.roomId);
+      }
+      onClose();
+    } finally {
+      setCommittingStaged(false);
     }
   }
 
@@ -124,8 +179,8 @@ export function BundlePickerModal({ open, bundles, rooms, activeRoomId, onClose,
                 <p className="mt-3 text-xs leading-5 text-slate-600">Bundle application adds the full preset scope to the selected room while preserving estimate pricing logic.</p>
                 <div className="mt-4 flex items-center justify-between gap-2">
                   <button onClick={() => setSelectedBundleId(bundle.id)} className="text-[11px] font-medium text-blue-700 hover:text-blue-800">View Details</button>
-                  <button onClick={() => void applyBundle(bundle.id)} disabled={!roomId || applyingBundleId === bundle.id} className="inline-flex h-9 items-center rounded-md bg-slate-900 px-3 text-[11px] font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
-                    {applyingBundleId === bundle.id ? 'Adding Bundle...' : 'Add Bundle'}
+                  <button onClick={() => void stageBundle(bundle.id)} disabled={!roomId || applyingBundleId === bundle.id || committingStaged} className="inline-flex h-9 items-center rounded-md bg-slate-900 px-3 text-[11px] font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
+                    {applyingBundleId === bundle.id ? 'Staging Bundle...' : `Stage ${bundleQuantities[bundle.id] || 0 ? `${bundleQuantities[bundle.id]} Units` : 'Bundle'}`}
                   </button>
                 </div>
               </div>
@@ -142,6 +197,7 @@ export function BundlePickerModal({ open, bundles, rooms, activeRoomId, onClose,
                 <>
                   <h4 className="mt-1 text-sm font-semibold text-slate-900">{selectedBundle.bundleName}</h4>
                   <p className="mt-1 text-xs text-slate-600">Category: {selectedBundle.category || 'General Scope'}</p>
+                  <p className="mt-1 text-xs text-slate-500">Stage this bundle first, then commit the full staged list once the room targets look right.</p>
                   <p className="mt-3 text-[11px] font-medium text-slate-700">Items</p>
                   <div className="mt-2 space-y-2">
                     {bundleItemsLoading ? <p className="text-xs text-slate-500">Loading bundle items...</p> : null}
@@ -161,6 +217,33 @@ export function BundlePickerModal({ open, bundles, rooms, activeRoomId, onClose,
                         {item.notes ? <p className="mt-1 text-[11px] text-slate-500">{item.notes}</p> : null}
                       </div>
                     ))}
+                  </div>
+                  <div className="mt-4 border-t border-slate-200 pt-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Staged Bundles</p>
+                        <p className="mt-1 text-xs text-slate-600">{stagedBundles.length} staged bundle{stagedBundles.length === 1 ? '' : 's'} · {stagedQuantityTotal} total units</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      {stagedBundles.map((bundle) => (
+                        <div key={bundle.id} className="rounded-xl border border-slate-200 bg-white p-2.5">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-xs font-semibold text-slate-900">{bundle.bundleName}</p>
+                              <p className="mt-1 text-[11px] text-slate-500">{bundle.roomName} · {bundle.itemCount} lines · {bundle.quantityTotal} units</p>
+                            </div>
+                            <button onClick={() => setStagedBundles((prev) => prev.filter((entry) => entry.id !== bundle.id))} className="rounded-md border border-slate-200 p-1 text-slate-500 hover:bg-red-50 hover:text-red-700">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                      {stagedBundles.length === 0 ? <p className="text-xs text-slate-500">No bundles staged yet.</p> : null}
+                    </div>
+                    <button onClick={() => void commitStagedBundles()} disabled={stagedBundles.length === 0 || committingStaged} className="mt-4 inline-flex h-10 w-full items-center justify-center rounded-md bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
+                      {committingStaged ? 'Adding Bundles...' : `Add ${stagedQuantityTotal} Bundle Unit${stagedQuantityTotal === 1 ? '' : 's'} To Estimate`}
+                    </button>
                   </div>
                 </>
               ) : (

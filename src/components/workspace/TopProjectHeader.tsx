@@ -70,7 +70,7 @@ export function TopProjectHeader({
             <FileText className="w-3.5 h-3.5" /> <span className="hidden lg:inline">Preview</span>
           </button>
               <button onClick={onExport} className="h-8 rounded-full px-3 text-[11px] font-medium text-slate-700 hover:bg-slate-100 flex items-center gap-1">
-            <FileDown className="w-3.5 h-3.5" /> Export
+            <FileDown className="w-3.5 h-3.5" /> Export PDF
           </button>
             </div>
             <button onClick={() => onDeleteProject()} className="hidden md:inline-flex ui-ghost-btn items-center gap-1.5 text-[11px] text-red-700 hover:bg-red-50 hover:text-red-700">

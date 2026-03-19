@@ -1,6 +1,6 @@
-import { IntakeParseRequest, IntakeParseResult } from '../../shared/types/intake.ts';
-import { parseIntakeRequest } from './intakePipeline.ts';
+import type { IntakeParseRequest, IntakeParseResult } from '../../shared/types/intake.ts';
+import { parseUploadedWithRouter } from './uploadRouter.ts';
 
 export async function parseUploadedIntake(input: IntakeParseRequest): Promise<IntakeParseResult> {
-  return parseIntakeRequest(input);
+  return parseUploadedWithRouter(input);
 }

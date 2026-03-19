@@ -58,7 +58,7 @@ export async function generateProposalDraftFromGemini(input: ProposalDraftInput)
   }
 
   const ai = new GoogleGenAI({ apiKey });
-  const mode = input.mode || 'proposal_text';
+  const mode = input.mode || 'default_short';
   const lines = Array.isArray(input.lines) ? input.lines : [];
   const assumptions = Array.isArray(input.summary?.conditionAssumptions) ? input.summary?.conditionAssumptions : [];
 

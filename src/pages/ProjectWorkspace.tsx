@@ -1,10 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowRight, Calculator, Clock3, Download, FileUp, Hammer, Layers3, Paperclip, Sparkles, Trash2, Wallet, CalendarClock } from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import { BundleRecord, ModifierRecord, ProjectFileRecord, ProjectJobConditions, ProjectRecord, RoomRecord, SettingsRecord, TakeoffLineRecord } from '../shared/types/estimator';
+import { BundleRecord, EstimateSummary, InstallReviewEmailDraft, ModifierRecord, ProjectFileRecord, ProjectJobConditions, ProjectRecord, RoomRecord, SettingsRecord, TakeoffLineRecord } from '../shared/types/estimator';
 import { CatalogItem } from '../types';
-import { createDefaultProjectJobConditions, normalizeProjectJobConditions } from '../shared/utils/jobConditions';
+import {
+  createDefaultProjectJobConditions,
+  normalizeProjectJobConditions,
+  recommendDeliveryPlan,
+  recommendedPhasedWorkMultiplier,
+} from '../shared/utils/jobConditions';
+import { buildProposalLineItems, buildProposalScheduleSections, splitProposalTextLines } from '../shared/utils/proposalDocument';
+import { collectPastProjectDateErrors, mapProjectDateErrors } from '../shared/utils/projectDateValidation';
 import {
   DEFAULT_PROPOSAL_ACCEPTANCE_LABEL,
   DEFAULT_PROPOSAL_CLARIFICATIONS,
@@ -21,24 +31,7 @@ import { ModifierPanel } from '../components/workspace/ModifierPanel';
 import { ProposalPreview } from '../components/workspace/ProposalPreview';
 import { BundlePickerModal } from '../components/workspace/BundlePickerModal';
 import { formatCurrencySafe, formatKilobytesSafe, formatNumberSafe } from '../utils/numberFormat';
-import { getDistanceInMiles } from '../utils/geo';
-
-interface Summary {
-  materialSubtotal: number;
-  laborSubtotal: number;
-  adjustedLaborSubtotal: number;
-  totalLaborHours: number;
-  durationDays: number;
-  lineSubtotal: number;
-  conditionAdjustmentAmount: number;
-  conditionLaborMultiplier: number;
-  burdenAmount: number;
-  overheadAmount: number;
-  profitAmount: number;
-  taxAmount: number;
-  baseBidTotal: number;
-  conditionAssumptions: string[];
-}
+import { OFFICE_ADDRESS, getDistanceInMiles } from '../utils/geo';
 
 interface RoomCreationDraft {
   roomName: string;
@@ -49,6 +42,8 @@ interface RoomCreationDraft {
 }
 
 type WorkspaceTab = 'overview' | 'setup' | 'rooms' | 'takeoff' | 'estimate' | 'files' | 'proposal';
+type WorkspaceOrganizeMode = 'room' | 'item';
+type WorkspaceScopeMode = 'active' | 'all';
 
 const WORKSPACE_TABS: WorkspaceTab[] = ['overview', 'setup', 'rooms', 'takeoff', 'estimate', 'files', 'proposal'];
 
@@ -68,6 +63,7 @@ export function ProjectWorkspace() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { userEmail } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(() => {
@@ -79,7 +75,7 @@ export function ProjectWorkspace() {
   const [rooms, setRooms] = useState<RoomRecord[]>([]);
   const [lines, setLines] = useState<TakeoffLineRecord[]>([]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
-  const [summary, setSummary] = useState<Summary | null>(null);
+  const [summary, setSummary] = useState<EstimateSummary | null>(null);
   const [settings, setSettings] = useState<SettingsRecord | null>(null);
   const [modifiers, setModifiers] = useState<ModifierRecord[]>([]);
   const [bundles, setBundles] = useState<BundleRecord[]>([]);
@@ -113,9 +109,23 @@ export function ProjectWorkspace() {
   const [catalogSearch, setCatalogSearch] = useState('');
   const [catalogCategory, setCatalogCategory] = useState('all');
   const [proposalDrafting, setProposalDrafting] = useState<null | 'scope_summary' | 'proposal_text' | 'terms_and_conditions' | 'default_short'>(null);
+  const [installReviewDraft, setInstallReviewDraft] = useState<InstallReviewEmailDraft | null>(null);
+  const [installReviewGenerating, setInstallReviewGenerating] = useState(false);
   const [distanceCalculating, setDistanceCalculating] = useState(false);
   const [distanceError, setDistanceError] = useState<string | null>(null);
+  const [distanceMessage, setDistanceMessage] = useState('Add a site address to calculate travel distance.');
+  const [officeAddressInput, setOfficeAddressInput] = useState(OFFICE_ADDRESS);
+  const [projectDateErrors, setProjectDateErrors] = useState<Partial<Record<'bidDate' | 'proposalDate' | 'dueDate', string>>>({});
+  const [workspaceOrganizeMode, setWorkspaceOrganizeMode] = useState<WorkspaceOrganizeMode>('room');
+  const [workspaceScopeMode, setWorkspaceScopeMode] = useState<WorkspaceScopeMode>('active');
   const companyWebsite = 'https://www.brightenbuildersllc.com/';
+  const unifiedProjectDate = project?.bidDate || project?.proposalDate || project?.dueDate || '';
+
+  function getProposalFileStem(): string {
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const number = project?.projectNumber || project?.id.slice(0, 8) || 'proposal';
+    return `proposal-${number}-${dateStamp}`;
+  }
 
   const statusActionLabel = useMemo(() => {
     if (!project) return 'Mark Submitted';
@@ -132,146 +142,15 @@ export function ProjectWorkspace() {
   }, [id]);
 
   useEffect(() => {
-    const next = new URLSearchParams(searchParams);
-    if (activeTab === 'estimate') {
-      next.delete('tab');
-    } else {
-      next.set('tab', activeTab);
-    }
-
-    if (next.toString() !== searchParams.toString()) {
-      setSearchParams(next, { replace: true });
-    }
-  }, [activeTab, searchParams, setSearchParams]);
-
-  async function loadWorkspace(projectId: string) {
-    try {
-      setLoading(true);
-      await api.repriceV1ProjectTakeoff(projectId);
-      const [projectData, roomData, lineData, catalogData, summaryData, settingsData, modifiersData, bundlesData, filesData] = await Promise.all([
-        api.getV1Project(projectId),
-        api.getV1Rooms(projectId),
-        api.getV1TakeoffLines(projectId),
-        api.getCatalog(),
-        api.getV1Summary(projectId),
-        api.getV1Settings(),
-        api.getV1Modifiers(),
-        api.getV1Bundles(),
-        api.getV1ProjectFiles(projectId),
-      ]);
-
-      setProject(projectData);
-      setRooms(roomData);
-      setLines(lineData);
-      setCatalog(catalogData);
-      setSummary(summaryData);
-      setSettings(ensureProposalDefaults(settingsData));
-      setModifiers(modifiersData);
-      setBundles(bundlesData);
-      setProjectFiles(filesData);
-
-      if (roomData[0]) setActiveRoomId(roomData[0].id);
-    } catch (error) {
-      console.error('Failed to load project workspace', error);
-      navigate('/');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function refreshTakeoff(projectId: string) {
-    const [lineData, summaryData] = await Promise.all([
-      api.getV1TakeoffLines(projectId),
-      api.getV1Summary(projectId),
-    ]);
-    setLines(lineData);
-    setSummary(summaryData);
-  }
-
-  const activeRoomLines = useMemo(
-    () => lines.filter((line) => line.roomId === activeRoomId),
-    [lines, activeRoomId]
-  );
-
-  const selectedLine = useMemo(
-    () => lines.find((line) => line.id === selectedLineId) || null,
-    [lines, selectedLineId]
-  );
-
-  useEffect(() => {
-    if (!selectedLineId) {
-      setLineModifiers([]);
-      return;
-    }
-
-    api.getV1LineModifiers(selectedLineId)
-      .then(setLineModifiers)
-      .catch(() => setLineModifiers([]));
-  }, [selectedLineId]);
-
-  const roomSubtotal = useMemo(
-    () => activeRoomLines.reduce((sum, line) => sum + line.lineTotal, 0),
-    [activeRoomLines]
-  );
-
-  const roomMetrics = useMemo(() => {
-    const byRoom: Record<string, { count: number; subtotal: number }> = {};
-    lines.forEach((line) => {
-      if (!byRoom[line.roomId]) byRoom[line.roomId] = { count: 0, subtotal: 0 };
-      byRoom[line.roomId].count += 1;
-      byRoom[line.roomId].subtotal += line.lineTotal;
+    if (!userEmail) return;
+    setProject((prev) => {
+      if (!prev || String(prev.estimator || '').trim()) return prev;
+      return {
+        ...prev,
+        estimator: userEmail,
+      };
     });
-    return byRoom;
-  }, [lines]);
-
-  const pricingMode = project?.pricingMode || 'labor_and_material';
-  const showMaterial = pricingMode !== 'labor_only';
-  const showLabor = pricingMode !== 'material_only';
-  const selectedScopeCategories = project?.selectedScopeCategories || [];
-  const jobConditions = useMemo(
-    () => normalizeProjectJobConditions(project?.jobConditions || createDefaultProjectJobConditions()),
-    [project?.jobConditions]
-  );
-
-  const roomNamesById = useMemo(() => {
-    const out: Record<string, string> = {};
-    rooms.forEach((room) => {
-      out[room.id] = room.roomName;
-    });
-    return out;
-  }, [rooms]);
-
-  const categories = useMemo(() => {
-    const all = new Set<string>();
-    catalog.forEach((item) => all.add(item.category));
-    return ['all', ...Array.from(all).sort()];
-  }, [catalog]);
-
-  const scopeCategoryOptions = useMemo(
-    () => categories.filter((category) => category !== 'all'),
-    [categories]
-  );
-
-  const filteredCatalog = useMemo(() => {
-    return catalog.filter((item) => {
-      const q = catalogSearch.toLowerCase();
-      const searchMatch = item.description.toLowerCase().includes(q) || item.sku.toLowerCase().includes(q);
-      const categoryMatch = catalogCategory === 'all' || item.category === catalogCategory;
-      return searchMatch && categoryMatch;
-    });
-  }, [catalog, catalogSearch, catalogCategory]);
-
-  function resolveLocalLinePricing(line: TakeoffLineRecord): TakeoffLineRecord {
-    const pricingSource = line.pricingSource === 'manual' ? 'manual' : 'auto';
-    const calculatedUnitSell = Number((line.materialCost + line.laborCost).toFixed(2));
-    const unitSell = pricingSource === 'manual' ? Number(line.unitSell || 0) : calculatedUnitSell;
-    return {
-      ...line,
-      pricingSource,
-      unitSell: Number(unitSell.toFixed(2)),
-      lineTotal: Number((unitSell * line.qty).toFixed(2)),
-    };
-  }
+  }, [userEmail]);
 
   function patchLineLocal(lineId: string, updates: Partial<TakeoffLineRecord>) {
     setLines((prev) =>
@@ -304,6 +183,39 @@ export function ProjectWorkspace() {
     });
   }
 
+  function patchProjectDate(value: string) {
+    if (!project) return;
+    setProject({ ...project, bidDate: value || null, proposalDate: value || null, dueDate: value || null });
+  }
+
+  function applyWorkspaceDeliveryRecommendation(distance: number | null, options?: { difficulty?: ProjectJobConditions['deliveryDifficulty']; force?: boolean }) {
+    const current = normalizeProjectJobConditions(project?.jobConditions || createDefaultProjectJobConditions());
+    if (!options?.force && !current.deliveryAutoCalculated && current.deliveryValue > 0) {
+      return;
+    }
+
+    patchJobConditions({
+      ...recommendDeliveryPlan(distance, options?.difficulty ?? current.deliveryDifficulty),
+      deliveryAutoCalculated: true,
+    });
+  }
+
+  function promptForPhasedWork(enable: boolean) {
+    if (!enable) {
+      patchJobConditions({ phasedWork: false, phasedWorkPhases: 1, phasedWorkMultiplier: 0 });
+      return;
+    }
+
+    const response = window.prompt('How many phases should this job be split into?', String(Math.max(2, jobConditions.phasedWorkPhases || 2)));
+    if (response === null) return;
+    const phaseCount = Math.max(2, Number(response) || 2);
+    patchJobConditions({
+      phasedWork: true,
+      phasedWorkPhases: phaseCount,
+      phasedWorkMultiplier: recommendedPhasedWorkMultiplier(phaseCount),
+    });
+  }
+
   function toggleScopeCategory(category: string) {
     setProject((prev) => {
       if (!prev) return prev;
@@ -320,7 +232,24 @@ export function ProjectWorkspace() {
 
   async function saveProject() {
     if (!project) return;
-    const saved = await api.updateV1Project(project.id, project);
+    const dateErrors = collectPastProjectDateErrors({ bidDate: project.bidDate, proposalDate: project.proposalDate, dueDate: project.dueDate });
+    if (dateErrors.length > 0) {
+      setProjectDateErrors(mapProjectDateErrors(dateErrors));
+      window.alert(dateErrors[0].message);
+      return;
+    }
+    const normalizedJobConditions = normalizeProjectJobConditions(project.jobConditions);
+    if ((project.address || '').trim() && normalizedJobConditions.travelDistanceMiles === null) {
+      const distance = await getDistanceInMiles(project.address, officeAddress);
+      if (distance !== null) {
+        normalizedJobConditions.travelDistanceMiles = distance;
+        if (distance > 50) normalizedJobConditions.remoteTravel = true;
+        if (normalizedJobConditions.deliveryAutoCalculated) {
+          Object.assign(normalizedJobConditions, recommendDeliveryPlan(distance, normalizedJobConditions.deliveryDifficulty));
+        }
+      }
+    }
+    const saved = await api.updateV1Project(project.id, { ...project, jobConditions: normalizedJobConditions });
     setProject(saved);
     setLastSavedAt(new Date().toISOString());
     await refreshTakeoff(saved.id);
@@ -340,30 +269,44 @@ export function ProjectWorkspace() {
     }
   }
 
-  async function refreshProjectDistance() {
-    if (!project?.address || !project.address.trim()) {
-      patchJobConditions({ travelDistanceMiles: null });
+  async function refreshProjectDistance(addressOverride?: string, officeOverride?: string, silentOnFailure = false): Promise<number | null> {
+    const address = String(addressOverride ?? project?.address ?? '').trim();
+    const originAddress = String(officeOverride ?? officeAddress).trim() || OFFICE_ADDRESS;
+
+    if (!address) {
+      patchJobConditions({ travelDistanceMiles: null, deliveryRequired: false, deliveryPricingMode: 'included', deliveryValue: 0, deliveryLeadDays: 0 });
       setDistanceError(null);
-      return;
+      setDistanceMessage('Add a site address to calculate travel distance.');
+      return null;
     }
 
     setDistanceCalculating(true);
     setDistanceError(null);
+    setDistanceMessage('Calculating travel...');
     try {
-      const distance = await getDistanceInMiles(project.address);
+      const distance = await getDistanceInMiles(address, originAddress);
       if (distance === null) {
         patchJobConditions({ travelDistanceMiles: null });
-        setDistanceError('Unable to calculate distance from the current address.');
-        return;
+        setDistanceError('Could not calculate distance');
+        setDistanceMessage('Could not calculate distance');
+        return null;
       }
 
       patchJobConditions({
         travelDistanceMiles: distance,
         remoteTravel: distance > 50 ? true : jobConditions.remoteTravel,
       });
+      applyWorkspaceDeliveryRecommendation(distance, { force: jobConditions.deliveryAutoCalculated });
+      setDistanceMessage(`${formatNumberSafe(distance, 1)} miles from office`);
+      return distance;
     } catch (error) {
       console.error('Distance lookup failed', error);
-      setDistanceError('Distance lookup failed.');
+      setDistanceError('Could not calculate distance');
+      setDistanceMessage('Could not calculate distance');
+      if (!silentOnFailure) {
+        patchJobConditions({ travelDistanceMiles: null });
+      }
+      return null;
     } finally {
       setDistanceCalculating(false);
     }
@@ -386,11 +329,16 @@ export function ProjectWorkspace() {
     }
 
     cssChunks.push(`
-      @page { size: A4; margin: 0.55in; }
+      @page { size: Letter; margin: 0.5in; }
       html, body { background: #ffffff !important; margin: 0; padding: 0; }
       body { color: #0f172a; }
-      .print-proposal { max-width: 100% !important; margin: 0 auto !important; box-shadow: none !important; }
-      .proposal-document { box-shadow: none !important; }
+      .print-proposal { max-width: 100% !important; margin: 0 auto !important; box-shadow: none !important; width: auto !important; min-height: auto !important; padding: 0 !important; }
+      .proposal-document { box-shadow: none !important; width: auto !important; min-height: auto !important; }
+      .proposal-section { break-inside: avoid; page-break-inside: avoid; }
+      .proposal-page-break { break-before: page; page-break-before: always; }
+      .proposal-avoid-break { break-inside: avoid; page-break-inside: avoid; }
+      table, tr, td, th { break-inside: avoid; page-break-inside: avoid; }
+      thead { display: table-header-group; }
     `);
 
     return cssChunks.join('\n');
@@ -428,23 +376,211 @@ export function ProjectWorkspace() {
   }
 
   async function exportProposal() {
-    if (!project) return;
-    const container = getProposalContainer();
-    if (!container) return;
+    if (!project || !summary) return;
 
-    const dateStamp = new Date().toISOString().slice(0, 10);
-    const number = project.projectNumber || project.id.slice(0, 8);
-    const filename = `proposal-${number}-${dateStamp}.html`;
-    const html = buildProposalHtml(container, filename);
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    const proposalSettings = ensureProposalDefaults(settings);
+    const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const marginX = 46;
+    const marginTop = 52;
+    const maxTextWidth = pageWidth - (marginX * 2);
+    const showMaterialPricing = pricingMode !== 'labor_only';
+    const showLaborPricing = pricingMode !== 'material_only';
+    const scheduleSections = buildProposalScheduleSections(lines, showMaterialPricing, showLaborPricing, summary.conditionLaborHoursMultiplier || 1);
+    const conditionLines = summary.conditionAssumptions || [];
+    const introSource = (proposalSettings.proposalIntro || DEFAULT_PROPOSAL_INTRO)
+      .split(/\n\n+/)
+      .map((paragraph) => paragraph.trim())
+      .filter(Boolean)[0] || DEFAULT_PROPOSAL_INTRO;
+    const introLines = doc.splitTextToSize(introSource, maxTextWidth);
+    const terms = splitProposalTextLines(proposalSettings.proposalTerms || DEFAULT_PROPOSAL_TERMS);
+    const exclusions = splitProposalTextLines(proposalSettings.proposalExclusions || DEFAULT_PROPOSAL_EXCLUSIONS);
+    const clarifications = splitProposalTextLines(proposalSettings.proposalClarifications || DEFAULT_PROPOSAL_CLARIFICATIONS);
+    const acceptanceLabel = proposalSettings.proposalAcceptanceLabel || DEFAULT_PROPOSAL_ACCEPTANCE_LABEL;
+    const activeProjectDate = project.bidDate || project.proposalDate || project.dueDate;
+    const proposalDate = activeProjectDate ? new Date(activeProjectDate).toLocaleDateString() : new Date().toLocaleDateString();
+    const companyName = proposalSettings.companyName || 'Brighten Builders';
+    const companyAddress = proposalSettings.companyAddress || '';
+    const companyPhone = proposalSettings.companyPhone || '';
+    const companyEmail = proposalSettings.companyEmail || '';
+    const clientName = project.clientName || 'Client';
+    const writeSectionTitle = (title: string, top: number) => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(100, 116, 139);
+      doc.text(title.toUpperCase(), marginX, top);
+    };
+    const ensurePageSpace = (cursor: number, required: number): number => {
+      if (cursor + required <= pageHeight - 48) return cursor;
+      doc.addPage();
+      return marginTop;
+    };
+
+    let cursorY = marginTop;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(24);
+    doc.setTextColor(15, 23, 42);
+    doc.text(companyName, marginX, cursorY);
+
+    cursorY += 18;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(71, 85, 105);
+    [companyAddress, companyPhone, companyEmail, companyWebsite].filter(Boolean).forEach((line) => {
+      doc.text(String(line), marginX, cursorY);
+      cursorY += 13;
+    });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(22);
+    doc.setTextColor(15, 23, 42);
+    doc.text('Project Proposal', pageWidth - marginX, marginTop, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Prepared for ${clientName}`, pageWidth - marginX, marginTop + 18, { align: 'right' });
+    doc.text(`Proposal date ${proposalDate}`, pageWidth - marginX, marginTop + 31, { align: 'right' });
+    if (project.projectNumber) {
+      doc.text(`Project #${project.projectNumber}`, pageWidth - marginX, marginTop + 44, { align: 'right' });
+    }
+
+    cursorY = Math.max(cursorY, marginTop + 72) + 16;
+    writeSectionTitle('Introduction', cursorY);
+    cursorY += 16;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    doc.setTextColor(51, 65, 85);
+    introLines.forEach((line: string) => {
+      cursorY = ensurePageSpace(cursorY, 16);
+      doc.text(line, marginX, cursorY);
+      cursorY += 15;
+    });
+
+    scheduleSections.forEach((section, index) => {
+      cursorY += index === 0 ? 18 : 22;
+      cursorY = ensurePageSpace(cursorY, 180);
+      writeSectionTitle(section.section, cursorY);
+      cursorY += 14;
+      autoTable(doc, {
+        startY: cursorY,
+        theme: 'grid',
+        styles: { fontSize: 8.75, cellPadding: 5, textColor: [15, 23, 42], lineColor: [226, 232, 240] },
+        headStyles: { fillColor: [248, 250, 252], textColor: [71, 85, 105], fontStyle: 'bold' },
+        bodyStyles: { fillColor: [255, 255, 255] },
+        margin: { left: marginX, right: marginX },
+        head: [['Item / Description', 'Qty', 'Material Cost', 'Labor Cost']],
+        body: section.items.map((item) => [
+          item.description,
+          formatNumberSafe(item.quantity, Number.isInteger(item.quantity) ? 0 : 2),
+          formatCurrencySafe(item.materialCost),
+          formatCurrencySafe(item.laborCost),
+        ]),
+        columnStyles: {
+          0: { cellWidth: 286 },
+          1: { halign: 'right', cellWidth: 55 },
+          2: { halign: 'right', cellWidth: 90 },
+          3: { halign: 'right', cellWidth: 90 },
+        },
+        didDrawPage: ({ pageNumber }) => {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9);
+          doc.setTextColor(148, 163, 184);
+          doc.text(`Proposal ${getProposalFileStem()} · Page ${pageNumber}`, pageWidth - marginX, pageHeight - 22, { align: 'right' });
+        },
+      });
+      cursorY = ((doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || cursorY) + 12;
+
+      const totalsRows = [
+        ['Total Material Cost', formatCurrencySafe(section.totalMaterialCost)],
+        ['Total Labor Cost', formatCurrencySafe(section.totalLaborCost)],
+        ['Total Estimated Time', `${formatNumberSafe(section.totalLaborHours, 1)} hrs`],
+        ['Section Total', formatCurrencySafe(section.sectionTotal)],
+      ];
+
+      cursorY = ensurePageSpace(cursorY, 110);
+      autoTable(doc, {
+        startY: cursorY,
+        theme: 'grid',
+        styles: { fontSize: 9, cellPadding: 5, textColor: [15, 23, 42], lineColor: [226, 232, 240] },
+        bodyStyles: { fillColor: [248, 250, 252] },
+        margin: { left: pageWidth - marginX - 240, right: marginX },
+        body: totalsRows,
+        columnStyles: {
+          0: { cellWidth: 150 },
+          1: { halign: 'right', cellWidth: 90 },
+        },
+      });
+      cursorY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || cursorY;
+    });
+
+    const writeBulletSection = (title: string, items: string[], minimumHeight = 80) => {
+      cursorY += 20;
+      cursorY = ensurePageSpace(cursorY, minimumHeight);
+      writeSectionTitle(title, cursorY);
+      cursorY += 16;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(51, 65, 85);
+
+      items.forEach((item) => {
+        const wrapped = doc.splitTextToSize(`• ${item}`, maxTextWidth - 8);
+        cursorY = ensurePageSpace(cursorY, wrapped.length * 12 + 4);
+        doc.text(wrapped, marginX, cursorY);
+        cursorY += wrapped.length * 12;
+      });
+    };
+
+    if (conditionLines.length > 0) {
+      writeBulletSection('Project Assumptions', conditionLines, 96);
+    }
+    if (project.specialNotes?.trim()) {
+      writeBulletSection('Additional Notes', [project.specialNotes.trim()], 72);
+    }
+
+    cursorY += 20;
+    cursorY = ensurePageSpace(cursorY, 140);
+    writeSectionTitle('Project Totals', cursorY);
+    cursorY += 14;
+    autoTable(doc, {
+      startY: cursorY,
+      theme: 'grid',
+      styles: { fontSize: 9.5, cellPadding: 5, textColor: [15, 23, 42], lineColor: [226, 232, 240] },
+      headStyles: { fillColor: [248, 250, 252], textColor: [71, 85, 105], fontStyle: 'bold' },
+      margin: { left: marginX, right: marginX },
+      head: [['Line', 'Amount']],
+      body: [
+        ['Total Material', formatCurrencySafe(showMaterialPricing ? summary.materialSubtotal : 0)],
+        ['Total Labor', formatCurrencySafe(showLaborPricing ? summary.adjustedLaborSubtotal || summary.laborSubtotal : 0)],
+        ['Total Estimated Time', `${formatNumberSafe(summary.totalLaborHours || 0, 1)} hrs`],
+        ['Total Proposal Amount', formatCurrencySafe(summary.baseBidTotal)],
+      ],
+      columnStyles: {
+        0: { cellWidth: 330 },
+        1: { halign: 'right', cellWidth: 120 },
+      },
+    });
+    cursorY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || cursorY;
+
+    writeBulletSection('Terms', terms, 96);
+    writeBulletSection('Exclusions', exclusions, 96);
+    writeBulletSection('Clarifications', clarifications, 96);
+
+    cursorY += 26;
+    cursorY = ensurePageSpace(cursorY, 92);
+    writeSectionTitle('Acceptance', cursorY);
+    cursorY += 24;
+    doc.setDrawColor(148, 163, 184);
+    doc.line(marginX, cursorY, marginX + 220, cursorY);
+    doc.line(pageWidth - marginX - 180, cursorY, pageWidth - marginX, cursorY);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(71, 85, 105);
+    doc.text(acceptanceLabel, marginX, cursorY + 14);
+    doc.text('Date', pageWidth - marginX - 180, cursorY + 14);
+
+    doc.save(`${getProposalFileStem()}.pdf`);
   }
 
   async function submitBid() {
@@ -470,9 +606,14 @@ export function ProjectWorkspace() {
 
   async function saveProposalWording() {
     if (!settings) return;
-    const saved = await api.updateV1Settings(settings);
-    setSettings(ensureProposalDefaults(saved));
-    setLastSavedAt(new Date().toISOString());
+    try {
+      const saved = await api.updateV1Settings(settings);
+      setSettings(ensureProposalDefaults(saved));
+      setLastSavedAt(new Date().toISOString());
+    } catch (error) {
+      console.error('Failed to save proposal wording', error);
+      window.alert('Unable to save proposal wording right now.');
+    }
   }
 
   async function syncSheets() {
@@ -737,6 +878,43 @@ export function ProjectWorkspace() {
     }
   }
 
+  async function generateInstallReviewEmail() {
+    if (!project) return;
+
+    setInstallReviewGenerating(true);
+    try {
+      const draft = await api.generateV1InstallReviewEmail(project.id);
+      setInstallReviewDraft(draft);
+      setActiveTab('proposal');
+    } catch (error: any) {
+      window.alert(error.message || 'Unable to generate install review email right now.');
+    } finally {
+      setInstallReviewGenerating(false);
+    }
+  }
+
+  async function copyInstallReviewEmailBody() {
+    if (!installReviewDraft) return;
+
+    try {
+      await navigator.clipboard.writeText(`Subject: ${installReviewDraft.subject}\n\n${installReviewDraft.body}`);
+    } catch {
+      window.alert('Unable to copy the install review email.');
+    }
+  }
+
+  useEffect(() => {
+    if (!project) {
+      setProjectDateErrors({});
+      return;
+    }
+    setProjectDateErrors(mapProjectDateErrors(collectPastProjectDateErrors({
+      bidDate: project.bidDate,
+      proposalDate: project.proposalDate,
+      dueDate: project.dueDate,
+    })));
+  }, [project]);
+
   function resetProposalDefaults(scope: 'all' | 'intro' | 'terms' | 'exclusions' | 'clarifications' | 'acceptance') {
     if (!settings) return;
 
@@ -802,14 +980,15 @@ export function ProjectWorkspace() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-xs text-slate-500">Labor Basis</p>
-                    <p className="font-semibold text-slate-900 mt-1">{jobConditions.laborRateBasis === 'standard' ? 'Standard labor' : jobConditions.laborRateBasis === 'union' ? 'Union labor' : 'Prevailing wage labor'}</p>
+                    <p className="text-xs text-slate-500">Install Labor Basis</p>
+                    <p className="font-semibold text-slate-900 mt-1">{jobConditions.laborRateBasis === 'prevailing' ? 'Prevailing wage premium' : 'Union baseline labor'}</p>
+                    <p className="text-xs text-slate-500 mt-1">Base rate {formatCurrencySafe(baseLaborRatePerHour)}/hr</p>
                     <p className="text-xs text-slate-500 mt-1">Base multiplier x{formatNumberSafe(jobConditions.laborRateMultiplier, 2)}</p>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                     <p className="text-xs text-slate-500">Delivery</p>
                     <p className="font-semibold text-slate-900 mt-1">{jobConditions.deliveryRequired ? 'Included in scope' : 'Not included'}</p>
-                    <p className="text-xs text-slate-500 mt-1">{jobConditions.deliveryRequired ? `${jobConditions.deliveryPricingMode === 'flat' ? formatCurrencySafe(jobConditions.deliveryValue) : jobConditions.deliveryPricingMode === 'percent' ? `${formatNumberSafe(jobConditions.deliveryValue, 2)}% of base` : 'No separate adder'}` : 'No delivery allowance applied'}</p>
+                    <p className="text-xs text-slate-500 mt-1">{jobConditions.deliveryRequired ? `${jobConditions.deliveryPricingMode === 'flat' ? formatCurrencySafe(jobConditions.deliveryValue) : jobConditions.deliveryPricingMode === 'percent' ? `${formatNumberSafe(jobConditions.deliveryValue, 2)}% of base` : 'No separate adder'} · ${jobConditions.deliveryLeadDays} business day${jobConditions.deliveryLeadDays === 1 ? '' : 's'}` : 'No delivery allowance applied'}</p>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 md:col-span-2">
                     <p className="text-xs text-slate-500">Included Scope Categories</p>
@@ -903,6 +1082,7 @@ export function ProjectWorkspace() {
                     <label className="text-[11px] font-medium text-slate-700">Client<input className="ui-input mt-1 h-9" value={project.clientName || ''} onChange={(e) => setProject({ ...project, clientName: e.target.value || null })} /></label>
                     <label className="text-[11px] font-medium text-slate-700">Project #<input className="ui-input mt-1 h-9" value={project.projectNumber || ''} onChange={(e) => setProject({ ...project, projectNumber: e.target.value || null })} /></label>
                     <label className="text-[11px] font-medium text-slate-700">Estimator<input className="ui-input mt-1 h-9" value={project.estimator || ''} onChange={(e) => setProject({ ...project, estimator: e.target.value || null })} /></label>
+                    <label className="text-[11px] font-medium text-slate-700">Bid Due Date<input type="date" className={`ui-input mt-1 h-9 ${projectDateErrors.bidDate ? 'border-red-300 ring-1 ring-red-200' : ''}`} value={unifiedProjectDate} onChange={(e) => patchProjectDate(e.target.value)} />{projectDateErrors.bidDate ? <span className="mt-1 block text-[11px] text-red-600">{projectDateErrors.bidDate}</span> : null}</label>
                     <label className="text-[11px] font-medium text-slate-700 md:col-span-2">Address<input className="ui-input mt-1 h-9" value={project.address || ''} onChange={(e) => setProject({ ...project, address: e.target.value || null })} onBlur={() => void refreshProjectDistance()} /></label>
                   </div>
                 </div>
@@ -911,6 +1091,10 @@ export function ProjectWorkspace() {
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-slate-900">Pricing Basis</h3>
                     <span className="text-[10px] uppercase tracking-wide text-slate-500">Material / Install / Rates</span>
+                  </div>
+                  <div className="rounded-xl border border-blue-200/80 bg-blue-50/70 p-3 text-xs text-slate-700">
+                    <p className="font-medium text-slate-900">Base labor rate in use: {formatCurrencySafe(baseLaborRatePerHour)}/hr</p>
+                    <p className="mt-1">This starting rate comes from Settings and is used for line labor pricing before project-wide labor multipliers and adders are applied.</p>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <label className="text-[11px] font-medium text-slate-700">Pricing Basis
@@ -927,11 +1111,10 @@ export function ProjectWorkspace() {
                     <label className="text-[11px] font-medium text-slate-700">Location / Region<input className="ui-input mt-1 h-9" value={jobConditions.locationLabel} onChange={(e) => patchJobConditions({ locationLabel: e.target.value })} /></label>
                     <label className="text-[11px] font-medium text-slate-700">Material Tax %<input type="number" className="ui-input mt-1 h-9" value={project.taxPercent} onChange={(e) => setProject({ ...project, taxPercent: Number(e.target.value) || 0 })} /></label>
                     <label className="text-[11px] font-medium text-slate-700">Location Tax Override %<input type="number" className="ui-input mt-1 h-9" value={jobConditions.locationTaxPercent ?? ''} onChange={(e) => patchJobConditions({ locationTaxPercent: e.target.value === '' ? null : Number(e.target.value) || 0 })} /></label>
-                    <label className="text-[11px] font-medium text-slate-700">Labor Basis
+                    <label className="text-[11px] font-medium text-slate-700">Install Labor Basis
                       <select className="ui-input mt-1 h-9" value={jobConditions.laborRateBasis} onChange={(e) => patchJobConditions({ laborRateBasis: e.target.value as ProjectJobConditions['laborRateBasis'] })}>
-                        <option value="standard">Standard</option>
-                        <option value="union">Union</option>
-                        <option value="prevailing">Prevailing</option>
+                        <option value="union">Union Baseline</option>
+                        <option value="prevailing">Prevailing Wage Premium</option>
                       </select>
                     </label>
                     <label className="text-[11px] font-medium text-slate-700">Labor Multiplier<input type="number" step="0.01" className="ui-input mt-1 h-9" value={jobConditions.laborRateMultiplier} onChange={(e) => patchJobConditions({ laborRateMultiplier: Number(e.target.value) || 1 })} /></label>
@@ -952,11 +1135,12 @@ export function ProjectWorkspace() {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-xl bg-slate-50/80 border border-slate-200/80 p-3">
                     <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
-                      <label className="text-xs text-slate-700 flex items-center gap-2"><input type="checkbox" checked={jobConditions.unionWage} onChange={(e) => patchJobConditions({ unionWage: e.target.checked })} />Union Wage</label>
-                      <label className="text-[11px] font-medium text-slate-700">Labor Multiplier<input type="number" step="0.01" className="ui-input mt-1 h-8" value={jobConditions.unionWageMultiplier} onChange={(e) => patchJobConditions({ unionWageMultiplier: Number(e.target.value) || 0 })} /></label>
+                      <p className="text-xs font-semibold text-slate-900">Union labor baseline</p>
+                      <p className="text-[11px] text-slate-500">Install labor pricing now assumes union wage as the default baseline. Use prevailing wage only when the project requires a premium above baseline labor.</p>
                     </div>
                     <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
                       <label className="text-xs text-slate-700 flex items-center gap-2"><input type="checkbox" checked={jobConditions.prevailingWage} onChange={(e) => patchJobConditions({ prevailingWage: e.target.checked })} />Prevailing Wage</label>
+                      <p className="text-[11px] text-slate-500">Use only when the project requires a premium above the default union install labor baseline.</p>
                       <label className="text-[11px] font-medium text-slate-700">Labor Multiplier<input type="number" step="0.01" className="ui-input mt-1 h-8" value={jobConditions.prevailingWageMultiplier} onChange={(e) => patchJobConditions({ prevailingWageMultiplier: Number(e.target.value) || 0 })} /></label>
                     </div>
                     <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
@@ -1008,7 +1192,13 @@ export function ProjectWorkspace() {
                     <label className="text-[11px] font-medium text-slate-700">Floors<input type="number" min={1} className="ui-input mt-1 h-9" value={jobConditions.floors} onChange={(e) => patchJobConditions({ floors: Number(e.target.value) || 1 })} /></label>
                     <label className="text-[11px] font-medium text-slate-700">Floor Labor Add / Floor<input type="number" step="0.01" className="ui-input mt-1 h-9" value={jobConditions.floorMultiplierPerFloor} onChange={(e) => patchJobConditions({ floorMultiplierPerFloor: Number(e.target.value) || 0 })} /></label>
                     <label className="text-[11px] font-medium text-slate-700">Delivery Difficulty
-                      <select className="ui-input mt-1 h-9" value={jobConditions.deliveryDifficulty} onChange={(e) => patchJobConditions({ deliveryDifficulty: e.target.value as ProjectJobConditions['deliveryDifficulty'] })}>
+                      <select className="ui-input mt-1 h-9" value={jobConditions.deliveryDifficulty} onChange={(e) => {
+                        const difficulty = e.target.value as ProjectJobConditions['deliveryDifficulty'];
+                        patchJobConditions({ deliveryDifficulty: difficulty });
+                        if (jobConditions.deliveryAutoCalculated) {
+                          applyWorkspaceDeliveryRecommendation(jobConditions.travelDistanceMiles, { difficulty, force: true });
+                        }
+                      }}>
                         <option value="standard">Standard</option>
                         <option value="constrained">Constrained</option>
                         <option value="difficult">Difficult</option>
@@ -1023,18 +1213,32 @@ export function ProjectWorkspace() {
                     </label>
                     <label className="text-[11px] font-medium text-slate-700">Project Adder %<input type="number" step="0.01" className="ui-input mt-1 h-9" value={jobConditions.estimateAdderPercent} onChange={(e) => patchJobConditions({ estimateAdderPercent: Number(e.target.value) || 0 })} /></label>
                     <label className="text-[11px] font-medium text-slate-700">Project Adder $<input type="number" step="0.01" className="ui-input mt-1 h-9" value={jobConditions.estimateAdderAmount} onChange={(e) => patchJobConditions({ estimateAdderAmount: Number(e.target.value) || 0 })} /></label>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 md:col-span-3 grid grid-cols-1 md:grid-cols-[1fr_180px_180px] gap-3 items-end">
-                      <label className="text-xs text-slate-700 flex items-center gap-2"><input type="checkbox" checked={jobConditions.deliveryRequired} onChange={(e) => patchJobConditions({ deliveryRequired: e.target.checked })} />Delivery is included in this job</label>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 md:col-span-3 grid grid-cols-1 md:grid-cols-[1fr_180px_180px_180px] gap-3 items-end">
+                      <label className="text-xs text-slate-700 flex items-center gap-2"><input type="checkbox" checked={jobConditions.deliveryRequired} onChange={(e) => {
+                        if (!e.target.checked) {
+                          patchJobConditions({ deliveryRequired: false, deliveryAutoCalculated: false });
+                          return;
+                        }
+
+                        applyWorkspaceDeliveryRecommendation(jobConditions.travelDistanceMiles, { force: true });
+                      }} />Delivery is included in this job</label>
                       <label className="text-[11px] font-medium text-slate-700">Delivery Pricing Mode
-                        <select className="ui-input mt-1 h-9" value={jobConditions.deliveryPricingMode} onChange={(e) => patchJobConditions({ deliveryPricingMode: e.target.value as ProjectJobConditions['deliveryPricingMode'] })}>
+                        <select className="ui-input mt-1 h-9" value={jobConditions.deliveryPricingMode} onChange={(e) => patchJobConditions({ deliveryPricingMode: e.target.value as ProjectJobConditions['deliveryPricingMode'], deliveryAutoCalculated: false })}>
                           <option value="included">Included / No Charge</option>
                           <option value="flat">Flat Amount</option>
                           <option value="percent">Percent of Base</option>
                         </select>
                       </label>
                       <label className="text-[11px] font-medium text-slate-700">Delivery Value
-                        <input type="number" step="0.01" className="ui-input mt-1 h-9" value={jobConditions.deliveryValue} onChange={(e) => patchJobConditions({ deliveryValue: Number(e.target.value) || 0 })} />
+                        <input type="number" step="0.01" className="ui-input mt-1 h-9" value={jobConditions.deliveryValue} onChange={(e) => patchJobConditions({ deliveryValue: Number(e.target.value) || 0, deliveryAutoCalculated: false })} />
                       </label>
+                      <label className="text-[11px] font-medium text-slate-700">Lead Time (business days)
+                        <input type="number" min={0} className="ui-input mt-1 h-9" value={jobConditions.deliveryLeadDays} onChange={(e) => patchJobConditions({ deliveryLeadDays: Number(e.target.value) || 0, deliveryAutoCalculated: false })} />
+                      </label>
+                      <div className="md:col-span-4 rounded-xl border border-dashed border-slate-300 bg-white/80 px-3 py-2 text-[11px] text-slate-600">
+                        <span className="font-semibold text-slate-900">Auto delivery:</span> {jobConditions.deliveryRequired ? `${formatCurrencySafe(jobConditions.deliveryValue)} and ${jobConditions.deliveryLeadDays} business day${jobConditions.deliveryLeadDays === 1 ? '' : 's'} from the job address.` : 'Add or recalculate the address to auto-fill delivery.'}
+                        <button type="button" onClick={() => applyWorkspaceDeliveryRecommendation(jobConditions.travelDistanceMiles, { force: true })} className="ml-2 font-semibold text-blue-700 hover:text-blue-800">Refresh recommendation</button>
+                      </div>
                     </div>
                   </div>
 
@@ -1056,11 +1260,17 @@ export function ProjectWorkspace() {
                       <label className="text-[11px] font-medium text-slate-700">Labor Multiplier<input type="number" step="0.01" className="ui-input mt-1 h-8" value={jobConditions.remoteTravelMultiplier} onChange={(e) => patchJobConditions({ remoteTravelMultiplier: Number(e.target.value) || 0 })} /></label>
                     </div>
                     <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
-                      <label className="text-xs text-slate-700 flex items-center gap-2"><input type="checkbox" checked={jobConditions.afterHoursWork} onChange={(e) => patchJobConditions({ afterHoursWork: e.target.checked })} />After-hours Work</label>
-                      <label className="text-[11px] font-medium text-slate-700">Labor Multiplier<input type="number" step="0.01" className="ui-input mt-1 h-8" value={jobConditions.afterHoursMultiplier} onChange={(e) => patchJobConditions({ afterHoursMultiplier: Number(e.target.value) || 0 })} /></label>
+                      <label className="text-xs text-slate-700 flex items-center gap-2"><input type="checkbox" checked={jobConditions.nightWork} onChange={(e) => patchJobConditions({ nightWork: e.target.checked })} />Night Work</label>
+                      <p className="text-[11px] text-slate-500">Applies automatically across all scoped install items.</p>
+                      <label className="text-[11px] font-medium text-slate-700">Labor Cost Multiplier<input type="number" step="0.01" className="ui-input mt-1 h-8" value={jobConditions.nightWorkLaborCostMultiplier} onChange={(e) => patchJobConditions({ nightWorkLaborCostMultiplier: Number(e.target.value) || 0 })} /></label>
+                      <label className="text-[11px] font-medium text-slate-700">Labor Hours Multiplier<input type="number" step="0.01" className="ui-input mt-1 h-8" value={jobConditions.nightWorkLaborMinutesMultiplier} onChange={(e) => patchJobConditions({ nightWorkLaborMinutesMultiplier: Number(e.target.value) || 0 })} /></label>
                     </div>
                     <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
-                      <label className="text-xs text-slate-700 flex items-center gap-2"><input type="checkbox" checked={jobConditions.phasedWork} onChange={(e) => patchJobConditions({ phasedWork: e.target.checked })} />Phased Work</label>
+                      <label className="text-xs text-slate-700 flex items-center gap-2"><input type="checkbox" checked={jobConditions.phasedWork} onChange={(e) => promptForPhasedWork(e.target.checked)} />Phased Work</label>
+                      {jobConditions.phasedWork ? <label className="text-[11px] font-medium text-slate-700">Phase Count<input type="number" min={2} className="ui-input mt-1 h-8" value={jobConditions.phasedWorkPhases} onChange={(e) => {
+                        const phaseCount = Math.max(2, Number(e.target.value) || 2);
+                        patchJobConditions({ phasedWorkPhases: phaseCount, phasedWorkMultiplier: recommendedPhasedWorkMultiplier(phaseCount) });
+                      }} /></label> : null}
                       <label className="text-[11px] font-medium text-slate-700">Labor Multiplier<input type="number" step="0.01" className="ui-input mt-1 h-8" value={jobConditions.phasedWorkMultiplier} onChange={(e) => patchJobConditions({ phasedWorkMultiplier: Number(e.target.value) || 0 })} /></label>
                     </div>
                     <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2 md:col-span-2 xl:col-span-1">
@@ -1084,28 +1294,32 @@ export function ProjectWorkspace() {
 
             <aside className="space-y-3 xl:sticky xl:top-[88px]">
               <section className="rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm p-3.5">
-                <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500 font-semibold">Assumptions / Impact Summary</p>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
-                    <p className="text-slate-500">Installers</p>
-                    <p className="font-semibold text-slate-900">{jobConditions.installerCount}</p>
-                  </div>
+                <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500 font-semibold">Estimate Drivers</p>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                   <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
                     <p className="text-slate-500">Distance</p>
                     <p className="font-semibold text-slate-900">{jobConditions.travelDistanceMiles !== null ? `${formatNumberSafe(jobConditions.travelDistanceMiles, 1)} mi` : 'n/a'}</p>
                   </div>
                   <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
-                    <p className="text-slate-500">Labor Multiplier</p>
-                    <p className="font-semibold text-slate-900">x{formatNumberSafe(summary?.conditionLaborMultiplier || 1, 2)}</p>
+                    <p className="text-slate-500">Crew Size</p>
+                    <p className="font-semibold text-slate-900">{formatNumberSafe(jobConditions.installerCount, 0)}</p>
                   </div>
                   <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
-                    <p className="text-slate-500">Condition Adj.</p>
-                    <p className="font-semibold text-slate-900">{formatCurrencySafe(summary?.conditionAdjustmentAmount)}</p>
+                    <p className="text-slate-500">Night Work</p>
+                    <p className="font-semibold text-slate-900">{jobConditions.nightWork ? 'Active' : 'Standard Hours'}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
+                    <p className="text-slate-500">Delivery</p>
+                    <p className="font-semibold text-slate-900">{jobConditions.deliveryRequired ? 'Required' : 'Not Required'}</p>
                   </div>
                   <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 col-span-2">
-                    <p className="text-slate-500">Adjusted Labor Subtotal</p>
-                    <p className="font-semibold text-slate-900">{formatCurrencySafe(summary?.adjustedLaborSubtotal)}</p>
+                    <p className="text-slate-500">Labor Basis</p>
+                    <p className="font-semibold text-slate-900">Union wage baseline{jobConditions.prevailingWage ? ' + prevailing premium' : ''}</p>
                   </div>
+                </div>
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-xs text-slate-600">
+                  <p className="font-semibold text-slate-900">Travel status</p>
+                  <p className="mt-1">{travelStatusMessage}</p>
                 </div>
               </section>
 
@@ -1119,6 +1333,19 @@ export function ProjectWorkspace() {
                   </div>
                 ) : (
                   <p className="mt-2 text-xs text-slate-500">No project-level assumptions are active.</p>
+                )}
+              </section>
+
+              <section className="rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm p-3.5">
+                <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500 font-semibold">Key Job Conditions</p>
+                {estimateDriverTags.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {estimateDriverTags.map((tag) => (
+                      <span key={tag} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-700">{tag}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-slate-500">No special job conditions are active yet.</p>
                 )}
               </section>
 
@@ -1136,7 +1363,7 @@ export function ProjectWorkspace() {
                   <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500 font-semibold">Proposal Notes Preview</p>
                   <button onClick={() => setActiveTab('proposal')} className="text-[11px] font-medium text-blue-700 hover:text-blue-800">Open</button>
                 </div>
-                <p className="text-xs text-slate-600">Union, prevailing wage, phased work, and special access conditions are available for proposal assumptions and clarifications.</p>
+                <p className="text-xs text-slate-600">Prevailing wage, night work, phased work, and special access conditions are available for proposal assumptions and install review notes.</p>
               </section>
 
               <section className="rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm p-3.5">
@@ -1178,33 +1405,27 @@ export function ProjectWorkspace() {
 
         {activeTab === 'takeoff' && (
           <div className="space-y-3 min-w-0">
-              <div className="relative overflow-hidden rounded-[28px] border border-amber-200/70 bg-[radial-gradient(circle_at_top_left,rgba(255,246,220,0.95)_0%,rgba(255,252,245,0.98)_46%,rgba(255,255,255,0.98)_100%)] p-5 shadow-[0_22px_48px_rgba(180,131,27,0.08)]">
-                <div className="pointer-events-none absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(circle_at_center,rgba(183,121,31,0.08)_0%,rgba(183,121,31,0)_72%)]" />
-                <div className="relative flex flex-wrap items-start justify-between gap-4">
-                  <div className="max-w-3xl">
+              <div className="rounded-[22px] border border-amber-200/70 bg-[linear-gradient(180deg,rgba(255,252,245,0.98)_0%,rgba(255,255,255,0.98)_100%)] p-4 shadow-[0_14px_32px_rgba(180,131,27,0.08)]">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="ui-chip-soft">Takeoff workspace</span>
-                      <span className="ui-chip-soft">{activeRoomLines.length} visible lines</span>
-                      <span className="ui-chip-soft">{rooms.length} rooms</span>
+                      <span className="ui-chip-soft">{workspaceOrganizeMode === 'item' ? 'Organized by item' : 'Organized by room'}</span>
+                      <span className="ui-chip-soft">{workspaceScopeMode === 'all' ? 'All rooms combined' : roomNamesById[activeRoomId] || 'Active room'}</span>
                     </div>
-                    <h3 className="mt-3 text-[28px] font-semibold tracking-[-0.04em] text-slate-950 md:text-[34px]">Import, clean up, assign</h3>
-                    <p className="mt-2 max-w-2xl text-[13px] leading-6 text-slate-600">This is the cleanup pass before pricing. Normalize descriptions, confirm quantities, keep the active room in focus, and resolve source mapping before you switch to estimate mode.</p>
-                    <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
-                      <span className="rounded-full bg-white/80 px-3 py-1.5 text-slate-600 shadow-sm ring-1 ring-amber-200/70">Active room {roomNamesById[activeRoomId] || 'Unassigned'}</span>
-                      <span className="rounded-full bg-white/80 px-3 py-1.5 text-slate-600 shadow-sm ring-1 ring-amber-200/70">Room subtotal {formatCurrencySafe(roomSubtotal)}</span>
-                      <span className="rounded-full bg-white/80 px-3 py-1.5 text-slate-600 shadow-sm ring-1 ring-amber-200/70">Parser-first review</span>
-                    </div>
+                    <h3 className="mt-2 text-[20px] font-semibold tracking-[-0.03em] text-slate-950">Cleanup and scope control</h3>
+                    <p className="mt-1 text-[12px] text-slate-600">Trim parser noise, combine rooms when needed, and inspect the takeoff by room or by item before pricing.</p>
                   </div>
-                  <div className="grid min-w-[280px] gap-3 sm:grid-cols-2">
-                    <div className="rounded-[24px] border border-amber-200/80 bg-[linear-gradient(180deg,#fff8e6_0%,#fff1cb_100%)] p-4 shadow-sm sm:col-span-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-700">Takeoff focus</p>
-                      <p className="mt-2 text-[24px] font-semibold tracking-[-0.04em] text-slate-950">{roomNamesById[activeRoomId] || 'Unassigned'}</p>
-                      <div className="mt-3 flex items-center justify-between text-[11px] text-slate-600">
-                        <span>{activeRoomLines.length} visible lines</span>
-                        <span>{formatCurrencySafe(roomSubtotal)}</span>
-                      </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="rounded-full bg-white p-1 shadow-sm ring-1 ring-amber-200/70">
+                      <button onClick={() => setWorkspaceOrganizeMode('room')} className={`h-8 rounded-full px-3 text-[11px] font-semibold ${workspaceOrganizeMode === 'room' ? 'bg-amber-600 text-white' : 'text-slate-600 hover:bg-amber-50'}`}>By Room</button>
+                      <button onClick={() => { setWorkspaceOrganizeMode('item'); setWorkspaceScopeMode('all'); }} className={`h-8 rounded-full px-3 text-[11px] font-semibold ${workspaceOrganizeMode === 'item' ? 'bg-amber-600 text-white' : 'text-slate-600 hover:bg-amber-50'}`}>By Item</button>
                     </div>
-                    <button onClick={() => void addManualLine()} className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,#b7791f_0%,#8d5b12_100%)] px-4 text-[11px] font-semibold text-white shadow-[0_12px_24px_rgba(183,121,31,0.22)] hover:brightness-[1.03]">
+                    <div className="rounded-full bg-white p-1 shadow-sm ring-1 ring-amber-200/70">
+                      <button onClick={() => setWorkspaceScopeMode('active')} className={`h-8 rounded-full px-3 text-[11px] font-semibold ${workspaceScopeMode === 'active' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>Active Room</button>
+                      <button onClick={() => setWorkspaceScopeMode('all')} className={`h-8 rounded-full px-3 text-[11px] font-semibold ${workspaceScopeMode === 'all' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>All Rooms</button>
+                    </div>
+                    <button onClick={() => void addManualLine()} className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,#b7791f_0%,#8d5b12_100%)] px-4 text-[11px] font-semibold text-white shadow-[0_12px_24px_rgba(183,121,31,0.22)] hover:brightness-[1.03]">
                       <Sparkles className="h-3.5 w-3.5" /> Add Manual Line
                     </button>
                   </div>
@@ -1228,11 +1449,11 @@ export function ProjectWorkspace() {
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
                       <p className="text-[12px] font-semibold text-slate-900">Rooms</p>
-                      <p className="mt-1 text-[11px] text-slate-500">Treat the active room like a workspace lane, not just a filter.</p>
+                      <p className="mt-1 text-[11px] text-slate-500">Pick a room focus fast, or switch to all rooms and combine by product.</p>
                     </div>
                     <div className="rounded-2xl bg-white px-3 py-2 text-right shadow-sm ring-1 ring-amber-200/70">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-700">Active room total</p>
-                      <p className="mt-1 text-[16px] font-semibold tracking-[-0.03em] text-slate-900">{formatCurrencySafe(roomSubtotal)}</p>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-700">Visible scope total</p>
+                      <p className="mt-1 text-[16px] font-semibold tracking-[-0.03em] text-slate-900">{formatCurrencySafe(workspaceSubtotal)}</p>
                     </div>
                   </div>
                   <div className="flex min-w-0 gap-2 overflow-x-auto pb-1">
@@ -1260,19 +1481,20 @@ export function ProjectWorkspace() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                  <div className="rounded-[24px] bg-[linear-gradient(180deg,#fff8e6_0%,#fff1cb_100%)] p-4 shadow-sm ring-1 ring-amber-200/80"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-amber-700">Active Room</p><Layers3 className="h-4 w-4 text-amber-700" /></div><p className="mt-3 truncate text-[22px] font-semibold tracking-[-0.04em] text-slate-950">{roomNamesById[activeRoomId] || 'Unassigned'}</p><p className="mt-1 text-[11px] text-slate-600">Current cleanup lane</p></div>
-                  <div className="rounded-[24px] bg-white p-4 shadow-sm ring-1 ring-slate-200/80"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-slate-500">Visible Lines</p><Calculator className="h-4 w-4 text-slate-400" /></div><p className="mt-3 text-[24px] font-semibold tracking-[-0.04em] text-slate-950">{activeRoomLines.length}</p><p className="mt-1 text-[11px] text-slate-500">In active room</p></div>
+                  <div className="rounded-[24px] bg-[linear-gradient(180deg,#fff8e6_0%,#fff1cb_100%)] p-4 shadow-sm ring-1 ring-amber-200/80"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-amber-700">View Focus</p><Layers3 className="h-4 w-4 text-amber-700" /></div><p className="mt-3 truncate text-[22px] font-semibold tracking-[-0.04em] text-slate-950">{workspaceScopeMode === 'all' ? 'All Rooms' : roomNamesById[activeRoomId] || 'Unassigned'}</p><p className="mt-1 text-[11px] text-slate-600">{workspaceOrganizeMode === 'item' ? 'Grouped by product' : 'Room-first cleanup lane'}</p></div>
+                  <div className="rounded-[24px] bg-white p-4 shadow-sm ring-1 ring-slate-200/80"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-slate-500">Visible Lines</p><Calculator className="h-4 w-4 text-slate-400" /></div><p className="mt-3 text-[24px] font-semibold tracking-[-0.04em] text-slate-950">{scopedWorkspaceLines.length}</p><p className="mt-1 text-[11px] text-slate-500">In the current view</p></div>
                   <div className="rounded-[24px] bg-white p-4 shadow-sm ring-1 ring-slate-200/80"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-slate-500">Rooms</p><CalendarClock className="h-4 w-4 text-slate-400" /></div><p className="mt-3 text-[24px] font-semibold tracking-[-0.04em] text-slate-950">{rooms.length}</p><p className="mt-1 text-[11px] text-slate-500">Across the project</p></div>
-                  <div className="rounded-[24px] bg-[linear-gradient(180deg,#10284f_0%,#0a224d_100%)] p-4 text-white shadow-[0_18px_40px_rgba(10,34,77,0.18)]"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-slate-300">Room Total</p><Wallet className="h-4 w-4 text-blue-200" /></div><p className="mt-3 text-[24px] font-semibold tracking-[-0.05em]">{formatCurrencySafe(roomSubtotal)}</p><p className="mt-1 text-[11px] text-slate-300">Current room subtotal</p></div>
+                  <div className="rounded-[24px] bg-[linear-gradient(180deg,#10284f_0%,#0a224d_100%)] p-4 text-white shadow-[0_18px_40px_rgba(10,34,77,0.18)]"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-slate-300">Visible Total</p><Wallet className="h-4 w-4 text-blue-200" /></div><p className="mt-3 text-[24px] font-semibold tracking-[-0.05em]">{formatCurrencySafe(workspaceSubtotal)}</p><p className="mt-1 text-[11px] text-slate-300">{workspaceQuantity} total units in view</p></div>
                 </div>
 
               <EstimateGrid
-                lines={activeRoomLines}
+                lines={scopedWorkspaceLines}
                 rooms={rooms}
                 categories={categories}
                 roomNamesById={roomNamesById}
                 pricingMode={pricingMode}
                 viewMode="takeoff"
+                organizeBy={workspaceOrganizeMode}
                 laborMultiplier={summary?.conditionLaborMultiplier || 1}
                 selectedLineId={selectedLineId}
                 onSelectLine={openLineEditor}
@@ -1285,41 +1507,25 @@ export function ProjectWorkspace() {
 
         {activeTab === 'estimate' && (
           <div className="space-y-2 min-w-0">
-              <div className="relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(231,239,255,0.92)_0%,rgba(255,255,255,0.98)_42%,rgba(244,248,252,0.95)_100%)] p-5 shadow-[0_24px_56px_rgba(15,23,42,0.08)]">
-                <div className="pointer-events-none absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(circle_at_center,rgba(15,118,110,0.09)_0%,rgba(15,118,110,0)_72%)]" />
-                <div className="relative flex flex-wrap items-start justify-between gap-4">
-                  <div className="max-w-3xl">
+              <div className="rounded-[22px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(248,250,252,0.98)_0%,rgba(255,255,255,0.98)_100%)] p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)]">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="ui-chip-soft">Estimate workspace</span>
                       <span className="ui-chip-soft">{pricingMode.replaceAll('_', ' ')}</span>
-                      <span className="ui-chip-soft">{lines.length} scoped lines</span>
+                      <span className="ui-chip-soft">{workspaceOrganizeMode === 'item' ? 'Organized by item' : 'Organized by room'}</span>
                     </div>
-                    <h3 className="mt-3 text-[28px] font-semibold tracking-[-0.04em] text-slate-950 md:text-[34px]">Project Estimate</h3>
-                    <p className="mt-2 max-w-2xl text-[13px] leading-6 text-slate-600">Keep scope decisions, pricing adjustments, and room organization in one place. The active room and core estimate drivers stay visible so you can move quickly without losing context.</p>
-                    <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
-                      <span className="rounded-full bg-white/80 px-3 py-1.5 text-slate-600 shadow-sm ring-1 ring-slate-200/80">Active room {roomNamesById[activeRoomId] || 'Unassigned'}</span>
-                      <span className="rounded-full bg-white/80 px-3 py-1.5 text-slate-600 shadow-sm ring-1 ring-slate-200/80">{activeRoomLines.length} line items visible</span>
-                      <span className="rounded-full bg-white/80 px-3 py-1.5 text-slate-600 shadow-sm ring-1 ring-slate-200/80">{rooms.length} rooms in scope</span>
-                    </div>
+                    <h3 className="mt-2 text-[20px] font-semibold tracking-[-0.03em] text-slate-950">Pricing and rollup view</h3>
+                    <p className="mt-1 text-[12px] text-slate-600">Price the active room or switch to all rooms and roll the estimate up by product totals.</p>
                   </div>
-                  <div className="grid min-w-[280px] gap-3 self-stretch sm:grid-cols-2">
-                    <div className="rounded-[24px] border border-slate-200/70 bg-[linear-gradient(180deg,#0f274f_0%,#0a224d_100%)] p-4 text-white shadow-[0_18px_44px_rgba(10,34,77,0.2)] sm:col-span-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-300">Estimated Total</p>
-                      <p className="mt-2 text-[30px] font-semibold tracking-[-0.05em]">{formatCurrencySafe(summary?.baseBidTotal)}</p>
-                      <div className="mt-3 flex items-center justify-between text-[11px] text-slate-300">
-                        <span>Room subtotal {formatCurrencySafe(roomSubtotal)}</span>
-                        <span>{formatNumberSafe(summary?.totalLaborHours || 0, 1)} hrs</span>
-                      </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="rounded-full bg-white p-1 shadow-sm ring-1 ring-slate-200/80">
+                      <button onClick={() => setWorkspaceOrganizeMode('room')} className={`h-8 rounded-full px-3 text-[11px] font-semibold ${workspaceOrganizeMode === 'room' ? 'bg-[var(--brand)] text-white' : 'text-slate-600 hover:bg-slate-50'}`}>By Room</button>
+                      <button onClick={() => { setWorkspaceOrganizeMode('item'); setWorkspaceScopeMode('all'); }} className={`h-8 rounded-full px-3 text-[11px] font-semibold ${workspaceOrganizeMode === 'item' ? 'bg-[var(--brand)] text-white' : 'text-slate-600 hover:bg-slate-50'}`}>By Item</button>
                     </div>
-                    <div className="rounded-2xl bg-white/78 p-3 shadow-sm ring-1 ring-slate-200/80 backdrop-blur">
-                      <p className="text-[10px] font-semibold tracking-[0.08em] text-slate-500 uppercase">Assumptions</p>
-                      <p className="mt-1 text-[18px] font-semibold tracking-[-0.03em] text-slate-900">{summary?.conditionAssumptions?.length || 0}</p>
-                      <p className="mt-1 text-[11px] text-slate-500">Active pricing conditions</p>
-                    </div>
-                    <div className="rounded-2xl bg-white/78 p-3 shadow-sm ring-1 ring-slate-200/80 backdrop-blur">
-                      <p className="text-[10px] font-semibold tracking-[0.08em] text-slate-500 uppercase">Crew plan</p>
-                      <p className="mt-1 text-[18px] font-semibold tracking-[-0.03em] text-slate-900">{jobConditions.installerCount}</p>
-                      <p className="mt-1 text-[11px] text-slate-500">Installer{jobConditions.installerCount === 1 ? '' : 's'} planned</p>
+                    <div className="rounded-full bg-white p-1 shadow-sm ring-1 ring-slate-200/80">
+                      <button onClick={() => setWorkspaceScopeMode('active')} className={`h-8 rounded-full px-3 text-[11px] font-semibold ${workspaceScopeMode === 'active' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>Active Room</button>
+                      <button onClick={() => setWorkspaceScopeMode('all')} className={`h-8 rounded-full px-3 text-[11px] font-semibold ${workspaceScopeMode === 'all' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>All Rooms</button>
                     </div>
                   </div>
                 </div>
@@ -1346,11 +1552,11 @@ export function ProjectWorkspace() {
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
                       <p className="text-[12px] font-semibold text-slate-900">Rooms</p>
-                      <p className="mt-1 text-[11px] text-slate-500">Switch rooms quickly and keep the active subtotal in view.</p>
+                      <p className="mt-1 text-[11px] text-slate-500">Switch rooms quickly, or flip to all rooms for project-wide pricing and totals.</p>
                     </div>
                     <div className="rounded-2xl bg-white px-3 py-2 text-right shadow-sm ring-1 ring-slate-200/70">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Active Room Total</p>
-                      <p className="mt-1 text-[16px] font-semibold tracking-[-0.03em] text-slate-900">{formatCurrencySafe(roomSubtotal)}</p>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Visible Scope Total</p>
+                      <p className="mt-1 text-[16px] font-semibold tracking-[-0.03em] text-slate-900">{formatCurrencySafe(workspaceSubtotal)}</p>
                     </div>
                   </div>
                   <div className="flex min-w-0 gap-2 overflow-x-auto pb-1">
@@ -1383,11 +1589,12 @@ export function ProjectWorkspace() {
                   <div className="rounded-[24px] bg-[linear-gradient(180deg,#ffffff_0%,#fff8eb_100%)] p-4 shadow-sm ring-1 ring-amber-200/80"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-slate-500">Markup + Tax</p><Sparkles className="h-4 w-4 text-amber-600" /></div><p className="mt-3 text-[26px] font-semibold tracking-[-0.04em] text-slate-950">{formatCurrencySafe((summary?.taxAmount || 0) + (summary?.overheadAmount || 0) + (summary?.profitAmount || 0) + (summary?.burdenAmount || 0))}</p><p className="mt-1 text-[11px] text-slate-500">Burden, overhead, profit, and tax</p></div>
                   <div className="rounded-[24px] bg-[linear-gradient(180deg,#ffffff_0%,#f4f8ff_100%)] p-4 shadow-sm ring-1 ring-blue-200/80"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-slate-500">Total Hours</p><Clock3 className="h-4 w-4 text-blue-700" /></div><p className="mt-3 text-[28px] font-semibold tracking-[-0.04em] text-slate-950">{formatNumberSafe(summary?.totalLaborHours || 0, 1)}</p><p className="mt-1 text-[11px] text-slate-500">Crew planning metric</p></div>
                   <div className="rounded-[24px] bg-[linear-gradient(180deg,#ffffff_0%,#f7f8fb_100%)] p-4 shadow-sm ring-1 ring-slate-200/80"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-slate-500">Duration</p><CalendarClock className="h-4 w-4 text-slate-500" /></div><p className="mt-3 text-[28px] font-semibold tracking-[-0.04em] text-slate-950">{formatNumberSafe(summary?.durationDays || 0, 0)}</p><p className="mt-1 text-[11px] text-slate-500">Estimated field days</p></div>
-                  <div className="rounded-[24px] bg-[linear-gradient(180deg,#10284f_0%,#0a224d_100%)] p-4 text-white shadow-[0_18px_40px_rgba(10,34,77,0.2)]"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-slate-300">Grand Total</p><Calculator className="h-4 w-4 text-blue-200" /></div><p className="mt-3 text-[30px] font-semibold tracking-[-0.05em]">{formatCurrencySafe(summary?.baseBidTotal)}</p><p className="mt-1 text-[11px] text-slate-300">Active room {formatCurrencySafe(roomSubtotal)}</p></div>
+                  <div className="rounded-[24px] bg-[linear-gradient(180deg,#10284f_0%,#0a224d_100%)] p-4 text-white shadow-[0_18px_40px_rgba(10,34,77,0.2)]"><div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-slate-300">Grand Total</p><Calculator className="h-4 w-4 text-blue-200" /></div><p className="mt-3 text-[30px] font-semibold tracking-[-0.05em]">{formatCurrencySafe(summary?.baseBidTotal)}</p><p className="mt-1 text-[11px] text-slate-300">Visible scope {formatCurrencySafe(workspaceSubtotal)}</p></div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                  <span className="rounded-full bg-white px-3 py-1.5 shadow-sm ring-1 ring-slate-200/80">{activeRoomLines.length} line items in active room</span>
+                  <span className="rounded-full bg-white px-3 py-1.5 shadow-sm ring-1 ring-slate-200/80">{scopedWorkspaceLines.length} line items in the current view</span>
+                  <span className="rounded-full bg-white px-3 py-1.5 shadow-sm ring-1 ring-slate-200/80">{workspaceQuantity} total units visible</span>
                   <span className="rounded-full bg-white px-3 py-1.5 shadow-sm ring-1 ring-slate-200/80">{selectedScopeCategories.length || categories.filter((category) => category !== 'all').length} scope categories active</span>
                   {selectedLine ? <span className="rounded-full bg-[var(--brand-soft)] px-3 py-1.5 text-blue-800 shadow-sm ring-1 ring-blue-200/80">Line in review: {selectedLine.description}</span> : <span className="rounded-full bg-white px-3 py-1.5 shadow-sm ring-1 ring-slate-200/80">Click any row to open the line editor</span>}
                   {(summary?.conditionAssumptions?.length || 0) > 0 ? <span className="rounded-full bg-[var(--accent-teal-soft)] px-3 py-1.5 text-teal-800 shadow-sm ring-1 ring-teal-200/70 inline-flex items-center gap-1"><Layers3 className="h-3.5 w-3.5" /> {summary?.conditionAssumptions?.length} active assumptions</span> : null}
@@ -1395,12 +1602,13 @@ export function ProjectWorkspace() {
               </div>
 
               <EstimateGrid
-                lines={activeRoomLines}
+                lines={scopedWorkspaceLines}
                 rooms={rooms}
                 categories={categories}
                 roomNamesById={roomNamesById}
                 pricingMode={pricingMode}
                 viewMode="estimate"
+                organizeBy={workspaceOrganizeMode}
                 laborMultiplier={summary?.conditionLaborMultiplier || 1}
                 selectedLineId={selectedLineId}
                 onSelectLine={openLineEditor}
@@ -1513,16 +1721,23 @@ export function ProjectWorkspace() {
                   <button
                     onClick={() => void generateProposalDraft('default_short')}
                     disabled={proposalDrafting !== null}
-                    className="inline-flex h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                    className="inline-flex h-10 items-center justify-center rounded-full bg-[linear-gradient(135deg,var(--brand)_0%,#164fa8_100%)] px-4 text-[11px] font-semibold text-white shadow-[0_12px_28px_rgba(11,61,145,0.22)] hover:brightness-[1.03] disabled:opacity-50"
                   >
-                    {proposalDrafting === 'default_short' ? 'Drafting Short Proposal...' : 'AI Short Proposal Pack'}
+                    {proposalDrafting === 'default_short' ? 'Drafting Short Proposal...' : 'Use Short Proposal Default'}
                   </button>
                   <button
                     onClick={() => void generateProposalDraft('terms_and_conditions')}
                     disabled={proposalDrafting !== null}
                     className="inline-flex h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
                   >
-                    {proposalDrafting === 'terms_and_conditions' ? 'Improving Terms + Conditions...' : 'AI Terms + Conditions'}
+                    {proposalDrafting === 'terms_and_conditions' ? 'Refreshing Terms...' : 'Refresh Terms Only'}
+                  </button>
+                  <button
+                    onClick={() => void generateInstallReviewEmail()}
+                    disabled={installReviewGenerating}
+                    className="inline-flex h-10 items-center justify-center rounded-full border border-blue-200 bg-blue-50 px-4 text-[11px] font-semibold text-blue-700 shadow-sm hover:bg-blue-100 disabled:opacity-50"
+                  >
+                    {installReviewGenerating ? 'Generating Install Review...' : 'Generate Install Review Email'}
                   </button>
                   <button
                     onClick={() => void saveProposalWording()}
@@ -1537,7 +1752,7 @@ export function ProjectWorkspace() {
                     Reset To Defaults
                   </button>
                   <button onClick={() => void printProposalDocument()} className="inline-flex h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50">Print</button>
-                  <button onClick={exportProposal} className="inline-flex h-10 items-center gap-1.5 rounded-full bg-[linear-gradient(135deg,var(--brand)_0%,#164fa8_100%)] px-4 text-[11px] font-semibold text-white shadow-[0_12px_28px_rgba(11,61,145,0.22)] hover:brightness-[1.03]"><Download className="h-3.5 w-3.5" />Export</button>
+                  <button onClick={exportProposal} className="inline-flex h-10 items-center gap-1.5 rounded-full bg-[linear-gradient(135deg,var(--brand)_0%,#164fa8_100%)] px-4 text-[11px] font-semibold text-white shadow-[0_12px_28px_rgba(11,61,145,0.22)] hover:brightness-[1.03]"><Download className="h-3.5 w-3.5" />Export PDF</button>
                 </div>
               </div>
 
@@ -1548,9 +1763,9 @@ export function ProjectWorkspace() {
                   <p className="mt-1 text-[11px] text-slate-500">Bound to the current estimate output</p>
                 </div>
                 <div className="rounded-[22px] bg-[var(--brand-soft)] p-4 shadow-sm ring-1 ring-blue-200/80">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-800">Included Lines</p>
-                  <p className="mt-2 text-[28px] font-semibold tracking-[-0.04em] text-slate-950">{lines.length}</p>
-                  <p className="mt-1 text-[11px] text-slate-600">Proposal content reflects the live takeoff and estimate.</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-800">Grouped Products</p>
+                  <p className="mt-2 text-[28px] font-semibold tracking-[-0.04em] text-slate-950">{proposalGroupedItemCount}</p>
+                  <p className="mt-1 text-[11px] text-slate-600">Proposal scope combines matching products across all rooms.</p>
                 </div>
                 <div className="rounded-[22px] bg-amber-50/80 p-4 shadow-sm ring-1 ring-amber-200/80">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">Draft Source</p>
@@ -1562,6 +1777,64 @@ export function ProjectWorkspace() {
 
             <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)] items-start">
               <section className="space-y-4">
+                <div className="rounded-[28px] border border-slate-200/80 bg-white/90 p-4 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Internal Install Review</p>
+                      <h4 className="mt-1 text-base font-semibold tracking-tight text-slate-900">Estimator to install handoff email</h4>
+                      <p className="mt-1 text-[12px] text-slate-500">Generate an internal install review email from the live estimate, current project conditions, and grouped scope summary.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => void generateInstallReviewEmail()}
+                        disabled={installReviewGenerating}
+                        className="inline-flex h-9 items-center justify-center rounded-full border border-slate-200 bg-white px-3.5 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        {installReviewGenerating ? 'Refreshing...' : installReviewDraft ? 'Regenerate' : 'Generate'}
+                      </button>
+                      <button
+                        onClick={() => void copyInstallReviewEmailBody()}
+                        disabled={!installReviewDraft}
+                        className="inline-flex h-9 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-3.5 text-[11px] font-semibold text-emerald-700 shadow-sm hover:bg-emerald-100 disabled:opacity-50"
+                      >
+                        Copy Email
+                      </button>
+                    </div>
+                  </div>
+                  {installReviewDraft ? (
+                    <div className="mt-4 space-y-3">
+                      <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Subject</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">{installReviewDraft.subject}</p>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Crew</p>
+                          <p className="mt-1 text-[22px] font-semibold tracking-[-0.04em] text-slate-950">{installReviewDraft.summary.crewSize ?? 'TBD'}</p>
+                        </div>
+                        <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Hours</p>
+                          <p className="mt-1 text-[22px] font-semibold tracking-[-0.04em] text-slate-950">{formatNumberSafe(installReviewDraft.summary.estimatedHours || 0, 1)}</p>
+                        </div>
+                        <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Days</p>
+                          <p className="mt-1 text-[22px] font-semibold tracking-[-0.04em] text-slate-950">{formatNumberSafe(installReviewDraft.summary.estimatedDays || 0, 1)}</p>
+                        </div>
+                      </div>
+                      <textarea
+                        readOnly
+                        rows={20}
+                        className="w-full rounded-[22px] border border-slate-200 bg-white px-4 py-4 text-sm leading-6 text-slate-700 outline-none"
+                        value={installReviewDraft.body}
+                      />
+                    </div>
+                  ) : (
+                    <div className="mt-4 rounded-[22px] border border-dashed border-slate-300 bg-slate-50/70 px-4 py-6 text-sm text-slate-500">
+                      Generate the internal install review email after scope and project conditions are set.
+                    </div>
+                  )}
+                </div>
+
                 <div className="rounded-[28px] border border-slate-200/80 bg-white/90 p-4 shadow-sm">
                   <div className="mb-4">
                     <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Editable Proposal Copy</p>

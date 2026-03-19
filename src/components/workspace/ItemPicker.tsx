@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Layers3, Plus, Search, Trash2 } from 'lucide-react';
+import { api } from '../../services/api';
 import { CatalogItem } from '../../types';
 import { BundleRecord, RoomRecord } from '../../shared/types/estimator';
 import { formatCurrencySafe, formatNumberSafe } from '../../utils/numberFormat';
@@ -43,6 +44,7 @@ function createDraftId(): string {
 export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, search, category, items, onClose, onSearch, onCategory, onAddItems, onApplyBundle }: Props) {
   const [draftItems, setDraftItems] = useState<DraftItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [catalogQtyById, setCatalogQtyById] = useState<Record<string, number>>({});
   const [bulkRoomId, setBulkRoomId] = useState('');
   const [bundleRoomId, setBundleRoomId] = useState('');
   const [manualDescription, setManualDescription] = useState('');
@@ -59,6 +61,7 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
     setBulkRoomId(fallbackRoomId);
     setBundleRoomId(fallbackRoomId);
     setManualRoomId(fallbackRoomId);
+    setCatalogQtyById({});
     setDraftItems([]);
     setSelectedIds([]);
     setManualDescription('');
@@ -69,11 +72,16 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
 
   const selectedCount = selectedIds.length;
   const queueTotal = draftItems.length;
+  const queuedUnits = useMemo(
+    () => draftItems.reduce((sum, item) => sum + Math.max(0, Number(item.qty || 0)), 0),
+    [draftItems]
+  );
 
   if (!open) return null;
 
   function stageCatalogItem(item: CatalogItem) {
     const roomId = bulkRoomId || activeRoomId || rooms[0]?.id || '';
+    const qty = Math.max(1, Number(catalogQtyById[item.id] || 1));
     setDraftItems((prev) => ([
       ...prev,
       {
@@ -81,7 +89,7 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
         roomId,
         description: item.description,
         unit: item.uom,
-        qty: 1,
+        qty,
         notes: '',
         sourceType: 'catalog',
         sku: item.sku,
@@ -92,6 +100,37 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
         catalogItemId: item.id,
       },
     ]));
+  }
+
+  async function stageBundleDraft(bundleId: string) {
+    if (!bundleRoomId || bundleApplyingId) return;
+    const bundle = bundles.find((entry) => entry.id === bundleId);
+    if (!bundle) return;
+
+    setBundleApplyingId(bundleId);
+    try {
+      const bundleItems = await api.getV1BundleItems(bundleId);
+      setDraftItems((prev) => ([
+        ...prev,
+        ...bundleItems.map((item) => ({
+          id: createDraftId(),
+          roomId: bundleRoomId,
+          description: item.description,
+          unit: 'EA',
+          qty: Math.max(1, Number(item.qty || 1)),
+          notes: [bundle.bundleName, item.notes || ''].filter(Boolean).join(' · '),
+          sourceType: item.catalogItemId ? 'catalog' : 'manual',
+          sku: item.sku,
+          category: bundle.category,
+          subcategory: null,
+          materialCost: Number(item.materialCost || 0),
+          laborMinutes: Number(item.laborMinutes || 0),
+          catalogItemId: item.catalogItemId,
+        })),
+      ]));
+    } finally {
+      setBundleApplyingId(null);
+    }
   }
 
   function addManualDraft() {
@@ -204,10 +243,20 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
                       <p className="mt-2 text-xs text-slate-600">Mat {formatCurrencySafe(item.baseMaterialCost)} • {formatNumberSafe(item.baseLaborMinutes, 1)} labor min • {item.uom}</p>
                       <div className="mt-3 flex items-center justify-between gap-2">
                         <p className="text-[11px] text-slate-500">Stages into the queue without closing the modal.</p>
-                        <button onClick={() => stageCatalogItem(item)} className="inline-flex h-8 items-center gap-1 rounded-md border border-blue-300 bg-blue-50 px-2.5 text-[11px] font-semibold text-blue-800 hover:bg-blue-100">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min={1}
+                            value={Math.max(1, Number(catalogQtyById[item.id] || 1))}
+                            onChange={(e) => setCatalogQtyById((prev) => ({ ...prev, [item.id]: Math.max(1, Number(e.target.value) || 1) }))}
+                            className="h-8 w-16 rounded-md border border-slate-300 px-2 text-[11px]"
+                            aria-label={`Quantity for ${item.description}`}
+                          />
+                          <button onClick={() => stageCatalogItem(item)} className="inline-flex h-8 items-center gap-1 rounded-md border border-blue-300 bg-blue-50 px-2.5 text-[11px] font-semibold text-blue-800 hover:bg-blue-100">
                           <Plus className="h-3.5 w-3.5" />
-                          Stage Item
-                        </button>
+                            {`Stage ${Math.max(1, Number(catalogQtyById[item.id] || 1))} ${Math.max(1, Number(catalogQtyById[item.id] || 1)) === 1 ? 'Item' : 'Items'}`}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -228,7 +277,7 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
                       </select>
                     </div>
                     <textarea value={manualNotes} onChange={(e) => setManualNotes(e.target.value)} rows={2} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Optional notes" />
-                    <button onClick={addManualDraft} className="h-8 rounded-md border border-slate-300 px-3 text-[11px] font-semibold hover:bg-slate-50">Stage Manual Row</button>
+                    <button onClick={addManualDraft} className="h-8 rounded-md border border-slate-300 px-3 text-[11px] font-semibold hover:bg-slate-50">{`Stage ${Math.max(1, manualQty)} Manual ${Math.max(1, manualQty) === 1 ? 'Item' : 'Items'}`}</button>
                   </div>
                 </div>
 
@@ -246,12 +295,12 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
                     </select>
                     <div className="max-h-48 space-y-1.5 overflow-y-auto pr-0.5">
                       {bundles.map((bundle) => (
-                        <button key={bundle.id} onClick={() => void applyBundleFromModal(bundle.id)} disabled={bundleApplyingId === bundle.id || !bundleRoomId} className="w-full rounded-lg border border-slate-300 p-2 text-left hover:border-blue-300 hover:bg-blue-50/40 disabled:opacity-50">
+                        <button key={bundle.id} onClick={() => void stageBundleDraft(bundle.id)} disabled={bundleApplyingId === bundle.id || !bundleRoomId} className="w-full rounded-lg border border-slate-300 p-2 text-left hover:border-blue-300 hover:bg-blue-50/40 disabled:opacity-50">
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-xs font-semibold text-slate-800">{bundle.bundleName}</span>
                             <span className="text-[11px] text-slate-500">{bundle.category || 'General'}</span>
                           </div>
-                          <p className="mt-1 text-[11px] text-slate-500">{bundleApplyingId === bundle.id ? 'Applying bundle...' : 'Add this bundle to the selected room'}</p>
+                          <p className="mt-1 text-[11px] text-slate-500">{bundleApplyingId === bundle.id ? 'Staging bundle...' : 'Stage this bundle into the queue for review first'}</p>
                         </button>
                       ))}
                       {bundles.length === 0 ? <p className="text-xs text-slate-500">No bundles available.</p> : null}
@@ -315,7 +364,7 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs text-slate-600">The modal stays open after adding so you can keep building the estimate.</p>
                 <button onClick={() => void commitDraftItems()} disabled={draftItems.length === 0 || saving} className="inline-flex h-10 items-center rounded-md bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
-                  {saving ? 'Adding Items...' : `Add ${draftItems.length} Item${draftItems.length === 1 ? '' : 's'} To Estimate`}
+                  {saving ? 'Adding Items...' : `Add ${queuedUnits} Unit${queuedUnits === 1 ? '' : 's'} To Estimate`}
                 </button>
               </div>
             </div>

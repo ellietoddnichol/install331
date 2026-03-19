@@ -4,6 +4,7 @@ import { ArrowUpDown, Archive, Filter, Plus, Search } from 'lucide-react';
 import { format } from 'date-fns';
 import { api } from '../services/api';
 import { ProjectRecord } from '../shared/types/estimator';
+import { getCanonicalProjectDateTimestamp } from '../shared/utils/projectDates';
 
 type SortValue = 'newest' | 'oldest' | 'name';
 type ProjectFilterValue = 'all' | 'active' | 'Draft' | 'Submitted' | 'Awarded' | 'Lost' | 'completed' | 'Archived' | 'due-soon' | 'draft-proposals';
@@ -57,8 +58,8 @@ export function Projects() {
       if (status === 'all') return true;
       if (status === 'active') return project.status !== 'Archived';
       if (status === 'due-soon') {
-        if (!project.dueDate) return false;
-        const due = new Date(project.dueDate).getTime();
+        const due = getCanonicalProjectDateTimestamp(project);
+        if (due === null) return false;
         const now = Date.now();
         const inSevenDays = now + 7 * 24 * 60 * 60 * 1000;
         return due >= now && due <= inSevenDays;

@@ -1,5 +1,6 @@
 import { estimatorDb } from '../db/connection.ts';
-import { CatalogItem } from '../../types.ts';
+import type { CatalogItem } from '../../types.ts';
+import { ensureTakeoffCatalogSeeded } from '../services/intake/takeoffCatalogRegistry.ts';
 
 function mapCatalogRow(row: any): CatalogItem {
   return {
@@ -24,6 +25,7 @@ function mapCatalogRow(row: any): CatalogItem {
 }
 
 export function listActiveCatalogItems(): CatalogItem[] {
+  ensureTakeoffCatalogSeeded();
   const rows = estimatorDb
     .prepare('SELECT * FROM catalog_items WHERE active = 1 ORDER BY category, description')
     .all();

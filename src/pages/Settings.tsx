@@ -19,6 +19,7 @@ export function Settings() {
   }>>([]);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [backfillingRegistry, setBackfillingRegistry] = useState(false);
 
   useEffect(() => {
     void Promise.all([api.getV1Settings(), api.getCatalogSyncStatus(), api.getCatalogSyncRuns(8)]).then(([data, status, runs]) => {
@@ -37,7 +38,7 @@ export function Settings() {
     setSaving(true);
     try {
       const saved = await api.updateV1Settings(settings);
-      setSettings(saved);
+      setSettings(ensureProposalDefaults(saved));
       alert('Settings saved.');
     } catch (error: any) {
       alert(`Failed to save settings: ${error.message}`);
@@ -65,6 +66,28 @@ export function Settings() {
       }
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function backfillTakeoffRegistry() {
+    setBackfillingRegistry(true);
+    try {
+      const result = await api.backfillV1TakeoffRegistry();
+      const [refreshedStatus, refreshedRuns] = await Promise.all([api.getCatalogSyncStatus(), api.getCatalogSyncRuns(8)]);
+      setSyncStatus(refreshedStatus);
+      setSyncRuns(refreshedRuns);
+      alert(`Takeoff registry backfill complete: ${result.itemsBackfilled} items upserted to ${result.tabName}.`);
+    } catch (error: any) {
+      alert(`Takeoff registry backfill failed: ${error.message}`);
+      try {
+        const [refreshedStatus, refreshedRuns] = await Promise.all([api.getCatalogSyncStatus(), api.getCatalogSyncRuns(8)]);
+        setSyncStatus(refreshedStatus);
+        setSyncRuns(refreshedRuns);
+      } catch (_e) {
+        // Best effort status refresh.
+      }
+    } finally {
+      setBackfillingRegistry(false);
     }
   }
 
@@ -96,6 +119,9 @@ export function Settings() {
           <p className="ui-subtitle mt-1">Company profile, proposal defaults, and catalog sync administration.</p>
         </div>
         <div className="flex gap-2">
+          <button onClick={() => void backfillTakeoffRegistry()} disabled={backfillingRegistry || syncing} className="ui-btn-secondary disabled:opacity-50">
+            {backfillingRegistry ? 'Backfilling...' : 'Backfill Takeoff Registry'}
+          </button>
           <button onClick={() => void syncSheets()} disabled={syncing} className="ui-btn-secondary disabled:opacity-50">
             {syncing ? 'Syncing...' : 'Sync Google Sheets'}
           </button>
@@ -133,6 +159,9 @@ export function Settings() {
         {!!syncStatus?.message && (
           <p className="text-xs text-slate-600 border border-slate-200 rounded p-2 bg-slate-50">{syncStatus.message}</p>
         )}
+        <p className="text-xs text-slate-500">
+          Use <span className="font-medium text-slate-700">Backfill Takeoff Registry</span> to mirror the app-side takeoff model registry into the Google Sheets ITEMS tab.
+        </p>
         {!!syncStatus?.warnings?.length && (
           <div className="border border-amber-200 bg-amber-50/40 rounded p-2">
             <p className="text-xs font-medium text-amber-800 mb-1">Warnings</p>
@@ -216,10 +245,13 @@ export function Settings() {
           </label>
         </section>
 
-        <section className="ui-surface p-4 space-y-3">
-          <h2 className="ui-label">Estimate Defaults</h2>
+        <section className="ui-surface p-4 space-y-4">
+          <div>
+            <h2 className="ui-label">Estimate Defaults</h2>
+            <p className="mt-1 text-xs text-slate-500">These defaults drive the starting estimate values used across the app. The base labor rate is the starting hourly labor cost before project-specific multipliers are applied.</p>
+          </div>
           <div className="grid grid-cols-2 gap-2">
-            <label className="text-xs text-slate-600 block">Default Labor Rate / Hr
+            <label className="text-xs text-slate-600 block">Base Labor Rate / Hr
               <input type="number" className="ui-input mt-1" value={settings.defaultLaborRatePerHour} onChange={(e) => setSettings({ ...settings, defaultLaborRatePerHour: Number(e.target.value) || 0 })} />
             </label>
             <label className="text-xs text-slate-600 block">Default Tax %
@@ -235,21 +267,28 @@ export function Settings() {
               <input type="number" className="ui-input mt-1" value={settings.defaultLaborBurdenPercent} onChange={(e) => setSettings({ ...settings, defaultLaborBurdenPercent: Number(e.target.value) || 0 })} />
             </label>
           </div>
-          <label className="text-xs text-slate-600 block">Proposal Intro
-            <textarea rows={4} className="ui-textarea mt-1" value={settings.proposalIntro} onChange={(e) => setSettings({ ...settings, proposalIntro: e.target.value })} />
-          </label>
-          <label className="text-xs text-slate-600 block">Proposal Terms
-            <textarea rows={4} className="ui-textarea mt-1" value={settings.proposalTerms} onChange={(e) => setSettings({ ...settings, proposalTerms: e.target.value })} />
-          </label>
-          <label className="text-xs text-slate-600 block">Proposal Exclusions
-            <textarea rows={3} className="ui-textarea mt-1" value={settings.proposalExclusions} onChange={(e) => setSettings({ ...settings, proposalExclusions: e.target.value })} />
-          </label>
-          <label className="text-xs text-slate-600 block">Proposal Clarifications
-            <textarea rows={3} className="ui-textarea mt-1" value={settings.proposalClarifications} onChange={(e) => setSettings({ ...settings, proposalClarifications: e.target.value })} />
-          </label>
-          <label className="text-xs text-slate-600 block">Signature Label
-            <input className="ui-input mt-1" value={settings.proposalAcceptanceLabel} onChange={(e) => setSettings({ ...settings, proposalAcceptanceLabel: e.target.value })} />
-          </label>
+
+          <div className="border-t border-slate-200 pt-4 space-y-3">
+            <div>
+              <h2 className="ui-label">Proposal Defaults</h2>
+              <p className="mt-1 text-xs text-slate-500">These fields control the default proposal copy used in the proposal workspace and exported proposal documents.</p>
+            </div>
+            <label className="text-xs text-slate-600 block">Proposal Intro
+              <textarea rows={4} className="ui-textarea mt-1" value={settings.proposalIntro} onChange={(e) => setSettings({ ...settings, proposalIntro: e.target.value })} />
+            </label>
+            <label className="text-xs text-slate-600 block">Proposal Terms
+              <textarea rows={4} className="ui-textarea mt-1" value={settings.proposalTerms} onChange={(e) => setSettings({ ...settings, proposalTerms: e.target.value })} />
+            </label>
+            <label className="text-xs text-slate-600 block">Proposal Exclusions
+              <textarea rows={3} className="ui-textarea mt-1" value={settings.proposalExclusions} onChange={(e) => setSettings({ ...settings, proposalExclusions: e.target.value })} />
+            </label>
+            <label className="text-xs text-slate-600 block">Proposal Clarifications
+              <textarea rows={3} className="ui-textarea mt-1" value={settings.proposalClarifications} onChange={(e) => setSettings({ ...settings, proposalClarifications: e.target.value })} />
+            </label>
+            <label className="text-xs text-slate-600 block">Signature Label
+              <input className="ui-input mt-1" value={settings.proposalAcceptanceLabel} onChange={(e) => setSettings({ ...settings, proposalAcceptanceLabel: e.target.value })} />
+            </label>
+          </div>
         </section>
       </div>
     </div>

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { ProjectRecord } from '../shared/types/estimator';
+import { getCanonicalProjectDate, getCanonicalProjectDateTimestamp } from '../shared/utils/projectDates';
 import { format } from 'date-fns';
 
 type DashboardDrilldown = 'active' | 'due-soon' | 'draft-proposals' | 'submitted';
@@ -50,13 +51,13 @@ export function Dashboard() {
 
   const dueSoon = projects
     .filter((project) => {
-      if (!project.dueDate) return false;
-      const due = new Date(project.dueDate).getTime();
+      const due = getCanonicalProjectDateTimestamp(project);
+      if (due === null) return false;
       const now = Date.now();
       const inSevenDays = now + 7 * 24 * 60 * 60 * 1000;
       return due >= now && due <= inSevenDays;
     })
-    .sort((a, b) => new Date(a.dueDate || 0).getTime() - new Date(b.dueDate || 0).getTime())
+    .sort((a, b) => (getCanonicalProjectDateTimestamp(a) || 0) - (getCanonicalProjectDateTimestamp(b) || 0))
     .slice(0, 5);
 
   const draftProposals = projects.filter((project) => project.status === 'Draft').slice(0, 5);
@@ -114,8 +115,13 @@ export function Dashboard() {
     title: string;
     items: ProjectRecord[];
     emptyText: string;
-    dateField: 'createdAt' | 'dueDate' | 'updatedAt';
+    dateField: 'createdAt' | 'projectDate' | 'updatedAt';
   }) {
+    function resolveDateValue(project: ProjectRecord): string | null | undefined {
+      if (dateField === 'projectDate') return getCanonicalProjectDate(project);
+      return project[dateField] as string | null | undefined;
+    }
+
     return (
       <section className="ui-surface p-4 space-y-3">
         <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
@@ -131,7 +137,7 @@ export function Dashboard() {
               >
                 <p className="text-sm font-medium text-slate-900">{project.projectName}</p>
                 <p className="text-xs text-slate-500">
-                  {project.clientName || 'No client'} · {project.status} · {formatDateOrNA(project[dateField] as string | null | undefined)}
+                  {project.clientName || 'No client'} · {project.status} · {formatDateOrNA(resolveDateValue(project))}
                 </p>
               </button>
             ))}
@@ -147,7 +153,7 @@ export function Dashboard() {
         <div>
           <p className="ui-label">Operations Snapshot</p>
           <h1 className="ui-title mt-1">Dashboard</h1>
-          <p className="ui-subtitle mt-1">What needs attention right now across bids, due dates, and proposal progress.</p>
+          <p className="ui-subtitle mt-1">What needs attention right now across bid due dates, active work, and proposal progress.</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -221,8 +227,8 @@ export function Dashboard() {
           <SmallList
             title="Bids Due Soon"
             items={dueSoon}
-            emptyText="No bid due dates in the next 7 days."
-            dateField="dueDate"
+            emptyText="No bid due dates fall in the next 7 days."
+            dateField="projectDate"
           />
           <SmallList
             title="Draft Proposals"
@@ -256,7 +262,7 @@ export function Dashboard() {
 
       <section className="ui-surface px-4 py-3 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-slate-600">
         <div className="flex items-center gap-2"><Flag className="w-4 h-4 text-slate-400" /> Keep draft estimates moving to submitted.</div>
-        <div className="flex items-center gap-2"><CalendarClock className="w-4 h-4 text-slate-400" /> Review due dates daily to avoid bid misses.</div>
+        <div className="flex items-center gap-2"><CalendarClock className="w-4 h-4 text-slate-400" /> Review bid due dates daily to avoid scheduling misses.</div>
         <div className="flex items-center gap-2"><FileClock className="w-4 h-4 text-slate-400" /> Prioritize proposals waiting on scope cleanup.</div>
       </section>
     </div>

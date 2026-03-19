@@ -1,4 +1,4 @@
-import { IntakeConfidenceSummary, IntakeParseDiagnostics, IntakeProjectMetadata, IntakeReviewLine, IntakeSourceKind } from '../../shared/types/intake.ts';
+import type { IntakeConfidenceSummary, IntakeParseDiagnostics, IntakeProjectMetadata, IntakeReviewLine, IntakeSourceKind } from '../../shared/types/intake.ts';
 
 function average(values: number[]): number {
   if (!values.length) return 0;
@@ -32,12 +32,32 @@ export function buildIntakeDiagnostics(input: {
   const matchedLines = input.reviewLines.filter((line) => line.matchStatus === 'matched').length;
   const needsMatchLines = input.reviewLines.filter((line) => line.matchStatus === 'needs_match').length;
   const confidenceSummary = buildConfidenceSummary(input.metadata, input.reviewLines);
+  const metadataMap: Array<[string, string | undefined]> = [
+    ['projectName', input.metadata.projectName],
+    ['projectNumber', input.metadata.projectNumber],
+    ['bidPackage', input.metadata.bidPackage],
+    ['client', input.metadata.client],
+    ['generalContractor', input.metadata.generalContractor],
+    ['address', input.metadata.address],
+    ['bidDate', input.metadata.bidDate],
+    ['proposalDate', input.metadata.proposalDate],
+    ['estimator', input.metadata.estimator],
+  ];
+  const metadataFound = metadataMap.filter(([, value]) => Boolean(String(value || '').trim())).map(([key]) => key);
+  const metadataMissing = metadataMap.filter(([, value]) => !String(value || '').trim()).map(([key]) => key);
+  const confidenceNarrative = confidenceSummary.overall >= 0.8
+    ? 'High confidence parse with strong metadata and line coverage.'
+    : confidenceSummary.overall >= 0.6
+      ? 'Moderate confidence parse. Review unmatched lines and any missing metadata.'
+      : 'Low confidence parse. Review metadata and parsed lines before creating records.';
 
   return {
     parserStrategy: input.parseStrategy,
     parseStrategy: input.parseStrategy,
     sourceKind: input.sourceKind,
     metadataSources: input.metadata.sources,
+    metadataFound,
+    metadataMissing,
     warnings: Array.from(new Set(input.warnings.filter(Boolean))),
     totalLines: input.reviewLines.length,
     completeLines: input.reviewLines.filter((line) => line.completeness === 'complete').length,
@@ -45,6 +65,7 @@ export function buildIntakeDiagnostics(input: {
     needsMatchLines,
     modelUsed: input.modelUsed,
     confidenceSummary,
+    confidenceNarrative,
     webEnrichmentUsed: Boolean(input.webEnrichmentUsed),
   };
 }

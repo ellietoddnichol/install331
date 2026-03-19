@@ -2,7 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { IntakeProjectAssumption, IntakeProposalAssist } from '../../shared/types/intake.ts';
+import type { IntakeProjectAssumption, IntakeProposalAssist } from '../../shared/types/intake.ts';
 import { intakeGeminiResponseSchema, INTAKE_GEMINI_MODEL } from './structuredExtractionSchemas.ts';
 
 export interface GeminiExtractionLine {
@@ -19,6 +19,7 @@ export interface GeminiExtractionLine {
 export interface GeminiExtractionResult {
   projectName: string;
   projectNumber: string;
+  bidPackage: string;
   client: string;
   generalContractor: string;
   address: string;
@@ -93,6 +94,7 @@ function sanitizeResult(value: any): GeminiExtractionResult {
   return {
     projectName: asText(value?.projectName),
     projectNumber: asText(value?.projectNumber),
+    bidPackage: asText(value?.bidPackage),
     client: asText(value?.client),
     generalContractor: asText(value?.generalContractor),
     address: asText(value?.address),
@@ -167,6 +169,7 @@ export async function extractIntakeFromGemini(input: ExtractInput): Promise<Gemi
     '',
     `Source Type: ${input.sourceType}`,
     `File Name: ${input.fileName}`,
+    'Return bidPackage when the document identifies a bid package or package number separately from the project number.',
     input.extractedText ? `Extracted Text Preview:\n${input.extractedText.slice(0, 14000)}` : '',
     input.normalizedRows?.length
       ? `Normalized Rows JSON (deterministic parse):\n${JSON.stringify(input.normalizedRows.slice(0, 500))}`

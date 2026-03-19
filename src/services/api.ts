@@ -1,6 +1,6 @@
 
 import { Project, CatalogItem, UserProfile, EstimateResult } from '../types';
-import { BundleRecord, CatalogSyncStatusRecord, ModifierRecord, ProjectFileRecord, ProjectRecord, RoomRecord, SettingsRecord, TakeoffLineRecord } from '../shared/types/estimator';
+import { BundleRecord, CatalogSyncStatusRecord, EstimateSummary, InstallReviewEmailDraft, ModifierRecord, ProjectFileRecord, ProjectRecord, RoomRecord, SettingsRecord, TakeoffLineRecord } from '../shared/types/estimator';
 import { IntakeParseRequest, IntakeParseResult } from '../shared/types/intake';
 
 const API_BASE = '/api';
@@ -163,39 +163,17 @@ export const api = {
     const res = await fetch(`${API_BASE}/v1/takeoff/lines/${lineId}`, { method: 'DELETE' });
     await handleResponse<{ data: { deleted: boolean } }>(res);
   },
-  async getV1Summary(projectId: string): Promise<{
-    materialSubtotal: number;
-    laborSubtotal: number;
-    adjustedLaborSubtotal: number;
-    totalLaborHours: number;
-    durationDays: number;
-    lineSubtotal: number;
-    conditionAdjustmentAmount: number;
-    conditionLaborMultiplier: number;
-    burdenAmount: number;
-    overheadAmount: number;
-    profitAmount: number;
-    taxAmount: number;
-    baseBidTotal: number;
-    conditionAssumptions: string[];
-  }> {
+  async getV1Summary(projectId: string): Promise<EstimateSummary> {
     const res = await fetch(`${API_BASE}/v1/takeoff/summary/${projectId}`);
-    const payload = await handleResponse<{ data: {
-      materialSubtotal: number;
-      laborSubtotal: number;
-      adjustedLaborSubtotal: number;
-      totalLaborHours: number;
-      durationDays: number;
-      lineSubtotal: number;
-      conditionAdjustmentAmount: number;
-      conditionLaborMultiplier: number;
-      burdenAmount: number;
-      overheadAmount: number;
-      profitAmount: number;
-      taxAmount: number;
-      baseBidTotal: number;
-      conditionAssumptions: string[];
-    } }>(res);
+    const payload = await handleResponse<{ data: EstimateSummary }>(res);
+    return payload.data;
+  },
+  async generateV1InstallReviewEmail(projectId: string): Promise<InstallReviewEmailDraft> {
+    const res = await fetch(`${API_BASE}/v1/takeoff/install-review-email/${encodeURIComponent(projectId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const payload = await handleResponse<{ data: InstallReviewEmailDraft }>(res);
     return payload.data;
   },
   async repriceV1ProjectTakeoff(projectId: string): Promise<TakeoffLineRecord[]> {
@@ -210,22 +188,7 @@ export const api = {
     mode: 'scope_summary' | 'proposal_text' | 'terms_and_conditions' | 'default_short';
     project: ProjectRecord;
     lines: TakeoffLineRecord[];
-    summary: {
-      materialSubtotal: number;
-      laborSubtotal: number;
-      adjustedLaborSubtotal: number;
-      totalLaborHours: number;
-      durationDays: number;
-      lineSubtotal: number;
-      conditionAdjustmentAmount: number;
-      conditionLaborMultiplier: number;
-      burdenAmount: number;
-      overheadAmount: number;
-      profitAmount: number;
-      taxAmount: number;
-      baseBidTotal: number;
-      conditionAssumptions: string[];
-    } | null;
+    summary: EstimateSummary | null;
     settings: Partial<SettingsRecord>;
   }): Promise<Partial<SettingsRecord>> {
     const res = await fetch(`${API_BASE}/v1/settings/proposal-draft`, {
@@ -396,6 +359,25 @@ export const api = {
       modifiersSynced: number;
       bundlesSynced: number;
       bundleItemsSynced: number;
+      warnings: string[];
+      syncedAt: string;
+    } }>(res);
+    return payload.data;
+  },
+  async backfillV1TakeoffRegistry(): Promise<{
+    message: string;
+    spreadsheetId: string;
+    tabName: string;
+    itemsBackfilled: number;
+    warnings: string[];
+    syncedAt: string;
+  }> {
+    const res = await fetch(`${API_BASE}/v1/settings/backfill-takeoff-registry`, { method: 'POST' });
+    const payload = await handleResponse<{ data: {
+      message: string;
+      spreadsheetId: string;
+      tabName: string;
+      itemsBackfilled: number;
       warnings: string[];
       syncedAt: string;
     } }>(res);

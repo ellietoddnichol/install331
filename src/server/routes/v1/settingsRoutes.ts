@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { getCatalogSyncStatus, getSettings, listCatalogSyncRuns, updateSettings } from '../../repos/settingsRepo.ts';
 import { recalculateAllLinePricing } from '../../repos/modifiersRepo.ts';
-import { syncCatalogFromGoogleSheets } from '../../services/googleSheetsCatalogSync.ts';
+import { backfillTakeoffRegistryToGoogleSheets, syncCatalogFromGoogleSheets } from '../../services/googleSheetsCatalogSync.ts';
 import { generateProposalDraftFromGemini } from '../../services/geminiProposalDraft.ts';
 
 export const settingsRouter = Router();
@@ -45,5 +45,16 @@ settingsRouter.post('/sync-catalog', async (_req, res) => {
     return res.json({ data: result });
   } catch (error: any) {
     return res.status(500).json({ error: error.message || 'Catalog sync failed.' });
+  }
+});
+
+settingsRouter.post('/backfill-takeoff-registry', async (_req, res) => {
+  try {
+    const result = await backfillTakeoffRegistryToGoogleSheets();
+    return res.json({ data: result });
+  } catch (error: any) {
+    const message = error.message || 'Takeoff registry backfill failed.';
+    const status = /missing|not configured/i.test(message) ? 503 : 500;
+    return res.status(status).json({ error: message });
   }
 });

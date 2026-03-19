@@ -170,7 +170,7 @@
 
 @media print {
   @page {
-    size: A4;
+    size: Letter;
     margin: 0.5in;
   }
 
@@ -193,7 +193,30 @@
     border: none !important;
     box-shadow: none !important;
     max-width: 100% !important;
+    width: auto !important;
+    min-height: auto !important;
+    margin: 0 auto !important;
     padding: 0 !important;
+  }
+  .proposal-document {
+    width: auto !important;
+    min-height: auto !important;
+  }
+  .proposal-section,
+  .proposal-avoid-break,
+  table,
+  tr,
+  td,
+  th {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .proposal-page-break {
+    break-before: page;
+    page-break-before: always;
+  }
+  thead {
+    display: table-header-group;
   }
   main {
     overflow: visible !important;

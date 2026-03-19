@@ -1,5 +1,9 @@
 export type IntakeSourceType = 'spreadsheet' | 'pdf' | 'document';
 
+export type UploadFileType = 'excel' | 'pdf' | 'csv' | 'unknown';
+
+export type UploadParseStatus = 'success' | 'review_required' | 'manual_template_required' | 'failed';
+
 export type IntakeSourceKind =
   | 'spreadsheet-row'
   | 'spreadsheet-matrix'
@@ -12,6 +16,157 @@ export type IntakeSourceKind =
 export type IntakeMatchConfidence = 'strong' | 'possible' | 'none';
 
 export type IntakeMatchStatus = 'matched' | 'suggested' | 'needs_match';
+
+export type CatalogMatchMethod = 'exact' | 'alias' | 'model' | 'dimension' | 'fuzzy' | 'unmatched';
+
+export interface MatrixItemHeader {
+  columnIndex: number;
+  columnLetter: string;
+  rawHeader: string;
+}
+
+export interface CatalogMatchCandidate {
+  catalogItemId?: string | null;
+  matchedName?: string | null;
+  description?: string | null;
+  sku?: string | null;
+  category?: string | null;
+  unit?: string | null;
+  manufacturer?: string | null;
+  model?: string | null;
+  materialCost?: number | null;
+  laborMinutes?: number | null;
+  matchMethod: CatalogMatchMethod;
+  confidence: number;
+  reasons: string[];
+  parsedFamily?: string | null;
+  parsedModelTokens?: string[];
+  parsedDimensions?: number[];
+  familyOnly?: boolean;
+  catalogCoverageGap?: boolean;
+}
+
+export interface UploadSourceRef {
+  fileName: string;
+  sheetName?: string;
+  rowNumber?: number;
+  sourceColumn?: string;
+  pageNumber?: number;
+  chunkId?: string;
+}
+
+export interface ExtractedSpreadsheetRow {
+  sourceSheet: string;
+  sourceSheetHidden: boolean;
+  sourceRowNumber: number;
+  sourceColumn?: string;
+  rawRow: Record<string, unknown>;
+  rawHeader?: string | null;
+  normalizedSearchText?: string | null;
+  parsedTokens?: string[];
+  structureType?: 'flat' | 'matrix';
+  catalogMatchCandidates?: CatalogMatchCandidate[];
+  mappedFields: {
+    roomName?: string;
+    itemDescription?: string;
+    quantity?: number | null;
+    unit?: string | null;
+    manufacturer?: string | null;
+    model?: string | null;
+    finish?: string | null;
+    notes?: string | null;
+    cost?: number | null;
+  };
+  parsingNotes: string[];
+}
+
+export interface ExtractedPdfBlock {
+  type: 'paragraph' | 'table' | 'line' | 'kv' | 'unknown';
+  text: string;
+  bbox?: number[];
+  confidence?: number;
+}
+
+export interface ExtractedPdfPage {
+  pageNumber: number;
+  text: string;
+  blocks: ExtractedPdfBlock[];
+}
+
+export interface ExtractedPdfDocument {
+  pages: ExtractedPdfPage[];
+  documentText: string;
+  extractionWarnings: string[];
+}
+
+export interface PdfExtractionProvider {
+  extract(file: Buffer): Promise<ExtractedPdfDocument>;
+}
+
+export interface NormalizedIntakeItem {
+  sourceType: 'excel' | 'pdf' | 'csv';
+  sourceRef: UploadSourceRef;
+  itemType: string | null;
+  category: string | null;
+  roomName: string | null;
+  description: string;
+  quantity: number | null;
+  unit: string | null;
+  manufacturer: string | null;
+  model: string | null;
+  finish: string | null;
+  modifiers: string[];
+  bundleCandidates: string[];
+  notes: string[];
+  alternate: boolean;
+  exclusion: boolean;
+  confidence: number;
+  rawHeader?: string | null;
+  normalizedSearchText?: string | null;
+  parsedTokens?: string[];
+  structureType?: 'flat' | 'matrix';
+  catalogMatchCandidates?: CatalogMatchCandidate[];
+  reviewRequired?: boolean;
+}
+
+export interface ValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+  correctedItems?: NormalizedIntakeItem[];
+}
+
+export interface ParseConfidenceSummary {
+  overallConfidence: number;
+  itemConfidenceAverage: number;
+  lowConfidenceItems: string[];
+  recommendedAction: 'auto-import' | 'review-before-import' | 'manual-template';
+}
+
+export interface UploadParseResult {
+  status: UploadParseStatus;
+  fileType: UploadFileType;
+  extractedItems: NormalizedIntakeItem[];
+  validation: ValidationResult;
+  confidence: ParseConfidenceSummary;
+  parseWarnings: string[];
+  sourceSummary: {
+    fileName: string;
+    sheetsProcessed?: string[];
+    pagesProcessed?: number[];
+  };
+  parserMetadata: {
+    originalFileName: string;
+    mimeType: string;
+    uploadedAt: string;
+    fileSize: number;
+    parserStrategy: string;
+    parseStatus: UploadParseStatus;
+    confidenceScore: number;
+    warnings: string[];
+    errors: string[];
+  };
+}
 
 export type IntakeAssumptionKind =
   | 'pricing_basis'
@@ -43,6 +198,7 @@ export interface IntakeProjectAssumption {
 export interface IntakeProjectMetadata {
   projectName: string;
   projectNumber: string;
+  bidPackage?: string;
   client: string;
   generalContractor: string;
   address: string;
@@ -118,6 +274,8 @@ export interface IntakeParseDiagnostics {
   parseStrategy: string;
   sourceKind: IntakeSourceKind;
   metadataSources: string[];
+  metadataFound: string[];
+  metadataMissing: string[];
   warnings: string[];
   totalLines: number;
   completeLines: number;
@@ -125,10 +283,22 @@ export interface IntakeParseDiagnostics {
   needsMatchLines: number;
   modelUsed: string;
   confidenceSummary: IntakeConfidenceSummary;
+  confidenceNarrative: string;
   webEnrichmentUsed: boolean;
 }
 
 export interface IntakeParseResult {
+  status?: UploadParseStatus;
+  fileType?: UploadFileType;
+  extractedItems?: NormalizedIntakeItem[];
+  validation?: ValidationResult;
+  confidence?: ParseConfidenceSummary;
+  parseWarnings?: string[];
+  sourceSummary?: {
+    fileName: string;
+    sheetsProcessed?: string[];
+    pagesProcessed?: number[];
+  };
   sourceType: IntakeSourceType;
   sourceKind: IntakeSourceKind;
   project: IntakeProjectMetadata;

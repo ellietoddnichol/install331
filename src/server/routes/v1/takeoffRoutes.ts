@@ -3,6 +3,7 @@ import { createTakeoffLine, deleteTakeoffLine, listTakeoffLines, updateTakeoffLi
 import { recalculateProjectLinePricing } from '../../repos/modifiersRepo.ts';
 import { getProject } from '../../repos/projectsRepo.ts';
 import { calculateEstimateSummary } from '../../services/estimateEngineV1.ts';
+import { generateInstallReviewEmailDraft } from '../../services/installReviewEmailService.ts';
 
 export const takeoffRouter = Router();
 
@@ -77,4 +78,16 @@ takeoffRouter.get('/summary/:projectId', (req, res) => {
 
   const lines = listTakeoffLines(project.id);
   return res.json({ data: calculateEstimateSummary(project, lines) });
+});
+
+takeoffRouter.post('/install-review-email/:projectId', async (req, res) => {
+  const project = getProject(req.params.projectId);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const lines = listTakeoffLines(project.id);
+  const summary = calculateEstimateSummary(project, lines);
+  const draft = await generateInstallReviewEmailDraft({ project, lines, summary });
+  return res.json({ data: draft });
 });

@@ -1,12 +1,13 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { BookOpen, FolderOpen, LayoutDashboard, LogOut, Settings, Wrench } from 'lucide-react';
+import { BookOpen, CircleHelp, FolderOpen, LayoutDashboard, LogOut, Settings, Wrench } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 const NAV_ITEMS = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/projects', label: 'Projects', icon: FolderOpen },
   { path: '/catalog', label: 'Catalog', icon: BookOpen },
+  { path: '/help', label: 'Help', icon: CircleHelp },
   { path: '/settings', label: 'Settings', icon: Settings },
 ];
 

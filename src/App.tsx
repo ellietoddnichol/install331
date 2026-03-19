@@ -8,6 +8,7 @@ import { Projects } from './pages/Projects';
 import { ProjectWorkspace } from './pages/ProjectWorkspace';
 import { ProjectIntake } from './pages/ProjectIntake';
 import { Catalog } from './pages/Catalog';
+import { Help } from './pages/Help';
 import { Settings } from './pages/Settings';
 import { SignIn } from './pages/SignIn';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -40,6 +41,7 @@ function AppRoutes() {
                 <Route path="/project/new" element={<ProjectIntake />} />
                 <Route path="/project/:id" element={<ProjectWorkspace />} />
                 <Route path="/catalog" element={<Catalog />} />
+                <Route path="/help" element={<Help />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>

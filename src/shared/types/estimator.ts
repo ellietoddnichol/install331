@@ -2,6 +2,17 @@ export type ProjectStatus = 'Draft' | 'Submitted' | 'Awarded' | 'Lost' | 'Archiv
 export type PricingMode = 'material_only' | 'labor_only' | 'labor_and_material';
 export type DeliveryPricingMode = 'included' | 'flat' | 'percent';
 
+export interface ProjectConditions {
+  unionLaborBaseline: true;
+  nightWork: boolean;
+}
+
+export interface GlobalModifierImpact {
+  laborCostMultiplier?: number;
+  laborMinutesMultiplier?: number;
+  notes?: string[];
+}
+
 export interface ProjectJobConditions {
   locationLabel: string;
   travelDistanceMiles: number | null;
@@ -11,7 +22,7 @@ export interface ProjectJobConditions {
   unionWageMultiplier: number;
   prevailingWage: boolean;
   prevailingWageMultiplier: number;
-  laborRateBasis: 'standard' | 'union' | 'prevailing';
+  laborRateBasis: 'union' | 'prevailing';
   laborRateMultiplier: number;
   floors: number;
   floorMultiplierPerFloor: number;
@@ -22,12 +33,18 @@ export interface ProjectJobConditions {
   restrictedAccessMultiplier: number;
   afterHoursWork: boolean;
   afterHoursMultiplier: number;
+  nightWork: boolean;
+  nightWorkLaborCostMultiplier: number;
+  nightWorkLaborMinutesMultiplier: number;
   phasedWork: boolean;
+  phasedWorkPhases: number;
   phasedWorkMultiplier: number;
   deliveryDifficulty: 'standard' | 'constrained' | 'difficult';
   deliveryRequired: boolean;
   deliveryPricingMode: DeliveryPricingMode;
   deliveryValue: number;
+  deliveryLeadDays: number;
+  deliveryAutoCalculated: boolean;
   smallJobFactor: boolean;
   smallJobMultiplier: number;
   mobilizationComplexity: 'low' | 'medium' | 'high';
@@ -177,6 +194,41 @@ export interface SettingsRecord {
   proposalClarifications: string;
   proposalAcceptanceLabel: string;
   updatedAt: string;
+}
+
+export interface EstimateSummary {
+  materialSubtotal: number;
+  laborSubtotal: number;
+  adjustedLaborSubtotal: number;
+  totalLaborHours: number;
+  durationDays: number;
+  lineSubtotal: number;
+  conditionAdjustmentAmount: number;
+  conditionLaborMultiplier: number;
+  conditionLaborHoursMultiplier: number;
+  burdenAmount: number;
+  overheadAmount: number;
+  profitAmount: number;
+  taxAmount: number;
+  baseBidTotal: number;
+  conditionAssumptions: string[];
+  projectConditions: ProjectConditions;
+}
+
+export interface InstallReviewEmailDraft {
+  subject: string;
+  body: string;
+  summary: {
+    projectName: string;
+    location?: string | null;
+    crewSize?: number | null;
+    estimatedHours?: number | null;
+    estimatedDays?: number | null;
+    materialTotal: number;
+    laborTotal: number;
+    proposalTotal: number;
+    projectConditions: string[];
+  };
 }
 
 export interface CatalogSyncStatusRecord {

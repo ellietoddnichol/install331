@@ -4,7 +4,10 @@ export function toSafeNumber(value: unknown, fallback = 0): number {
 }
 
 export function formatNumberSafe(value: unknown, fractionDigits = 2): string {
-  return toSafeNumber(value).toFixed(fractionDigits);
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(toSafeNumber(value));
 }
 
 export function formatCurrencySafe(value: unknown, fractionDigits = 2): string {

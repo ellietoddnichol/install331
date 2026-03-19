@@ -26,6 +26,8 @@ export function ImportParsePanel({ catalog, projectId, roomId, onFinalize, varia
   const acceptedLines = useMemo(() => reviewLines.filter((line) => line.reviewStatus === 'accepted'), [reviewLines]);
   const pendingLines = useMemo(() => reviewLines.filter((line) => line.reviewStatus === 'pending'), [reviewLines]);
   const rejectedLines = useMemo(() => reviewLines.filter((line) => line.reviewStatus === 'rejected'), [reviewLines]);
+  const parsedQuantityTotal = useMemo(() => Number(reviewLines.reduce((total, line) => total + Number(line.qty || 0), 0).toFixed(2)), [reviewLines]);
+  const acceptedQuantityTotal = useMemo(() => Number(acceptedLines.reduce((total, line) => total + Number(line.qty || 0), 0).toFixed(2)), [acceptedLines]);
 
   function normalizeLine(rawLine: string): ReviewLine {
     const qtyMatch = rawLine.match(/^(\d+(?:\.\d+)?)\s+/);
@@ -85,7 +87,8 @@ export function ImportParsePanel({ catalog, projectId, roomId, onFinalize, varia
 
       setReviewLines(parsed);
       setStatus('ready');
-      setStatusMessage(`${parsed.length} lines parsed. Review and accept before importing.`);
+      const quantityTotal = Number(parsed.reduce((total, line) => total + Number(line.qty || 0), 0).toFixed(2));
+      setStatusMessage(`${parsed.length} lines parsed totaling ${quantityTotal} units. Review and accept before importing.`);
     } catch (error: any) {
       setStatus('error');
       setStatusMessage(`Parse failed: ${error.message}`);
@@ -193,7 +196,7 @@ export function ImportParsePanel({ catalog, projectId, roomId, onFinalize, varia
               </div>
               <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
                 <span className="rounded-full bg-white px-3 py-1.5 shadow-sm ring-1 ring-slate-200/80">Room target required</span>
-                <span className="rounded-full bg-[var(--brand-soft)] px-3 py-1.5 text-blue-800 shadow-sm ring-1 ring-blue-200/80">Accepted {acceptedLines.length}</span>
+                <span className="rounded-full bg-[var(--brand-soft)] px-3 py-1.5 text-blue-800 shadow-sm ring-1 ring-blue-200/80">Accepted {acceptedLines.length} lines / {acceptedQuantityTotal} units</span>
               </div>
             </div>
           ) : null}
@@ -263,6 +266,7 @@ export function ImportParsePanel({ catalog, projectId, roomId, onFinalize, varia
             </div>
             <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
               <span className="rounded-full bg-white px-3 py-1.5 shadow-sm ring-1 ring-slate-200/80">{reviewLines.length} parsed lines</span>
+              <span className="rounded-full bg-white px-3 py-1.5 shadow-sm ring-1 ring-slate-200/80">{parsedQuantityTotal} total units</span>
               <span className="rounded-full bg-slate-100 px-3 py-1.5">Room-scoped import</span>
             </div>
           </div>

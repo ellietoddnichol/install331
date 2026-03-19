@@ -1,5 +1,5 @@
-import { CatalogItem } from '../../types.ts';
-import { IntakeCatalogMatch, IntakeMatchConfidence } from '../../shared/types/intake.ts';
+import type { CatalogItem } from '../../types.ts';
+import type { IntakeCatalogMatch, IntakeMatchConfidence } from '../../shared/types/intake.ts';
 
 interface CatalogMatchInput {
   itemCode?: string;
@@ -127,6 +127,10 @@ export function prepareCatalogMatch(input: CatalogMatchInput, catalog: CatalogIt
   const notes = String(input.notes || '').trim();
   const unit = normalizeText(input.unit);
   const queryTokens = tokenize(`${itemCode} ${itemName} ${description} ${category} ${notes}`);
+  const itemNameText = normalizeText(itemName);
+  const itemNameTokens = tokenize(itemName);
+  const descriptionText = normalizeText(description);
+  const descriptionInputTokens = tokenize(description);
 
   if (!queryTokens.length && !itemCode) {
     return { catalogMatch: null, suggestedMatch: null };
@@ -152,9 +156,17 @@ export function prepareCatalogMatch(input: CatalogMatchInput, catalog: CatalogIt
       ? Number(itemCodeCompact.includes(itemSkuCompact) || itemSkuCompact.includes(itemCodeCompact))
       : 0;
     const skuFamilyMatch = itemCodeFamily && itemSkuFamily ? Number(itemCodeFamily === itemSkuFamily) : 0;
+    const itemNameOverlap = overlapScore(itemNameTokens, descriptionTokens);
+    const itemNameContains = itemNameText && itemDescription
+      ? Number(itemNameText.includes(itemDescription) || itemDescription.includes(itemNameText))
+      : 0;
     const descriptionOverlap = overlapScore(queryTokens, descriptionTokens);
     const descriptionContains = inputDescription && itemDescription
       ? Number(inputDescription.includes(itemDescription) || itemDescription.includes(inputDescription))
+      : 0;
+    const descriptionFieldOverlap = overlapScore(descriptionInputTokens, descriptionTokens);
+    const descriptionFieldContains = descriptionText && itemDescription
+      ? Number(descriptionText.includes(itemDescription) || itemDescription.includes(descriptionText))
       : 0;
     const categoryOverlap = overlapScore(tokenize(category), categoryTokens);
     const searchOverlap = overlapScore(queryTokens, searchTokens);
@@ -166,8 +178,12 @@ export function prepareCatalogMatch(input: CatalogMatchInput, catalog: CatalogIt
         (aliasExact * 0.3) +
         (skuContained * 0.12) +
         (skuFamilyMatch * 0.14) +
+        (itemNameOverlap * 0.42) +
+        (itemNameContains * 0.22) +
         (descriptionOverlap * 0.48) +
         (descriptionContains * 0.16) +
+        (descriptionFieldOverlap * 0.2) +
+        (descriptionFieldContains * 0.08) +
         (categoryOverlap * 0.14) +
         (searchOverlap * 0.22) +
         (manufacturerModelOverlap * 0.08) +
@@ -189,6 +205,9 @@ export function prepareCatalogMatch(input: CatalogMatchInput, catalog: CatalogIt
     else if (aliasExact) reasons.push('Exact alias / search-key match');
     else if (skuContained) reasons.push('Partial item code / SKU overlap');
     else if (skuFamilyMatch) reasons.push('Item code family aligns with catalog SKU');
+    if (itemNameContains) reasons.push('Item name closely matches catalog description');
+    else if (itemNameOverlap >= 0.55) reasons.push('Item name strongly overlaps catalog description');
+    else if (itemNameOverlap >= 0.3) reasons.push('Item name partially overlaps catalog description');
     if (descriptionContains) reasons.push('Description text closely contains catalog language');
     if (descriptionOverlap >= 0.55) reasons.push('Description tokens strongly overlap');
     else if (descriptionOverlap >= 0.3) reasons.push('Description tokens partially overlap');

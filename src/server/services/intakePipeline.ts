@@ -1,8 +1,8 @@
 import * as xlsx from 'xlsx';
 import { randomUUID } from 'crypto';
 import { parse as parseCsv } from 'csv-parse/sync';
-import { CatalogItem } from '../../types.ts';
-import {
+import type { CatalogItem } from '../../types.ts';
+import type {
   IntakeParseRequest,
   IntakeParseResult,
   IntakeProjectAssumption,
@@ -13,12 +13,17 @@ import {
   IntakeSourceType,
 } from '../../shared/types/intake.ts';
 import { listActiveCatalogItems } from '../repos/catalogRepo.ts';
-import { extractIntakeFromGemini } from './geminiParsingService.ts';
-import { prepareCatalogMatch } from './catalogMatchService.ts';
 import { buildIntakeDiagnostics } from './intakeDiagnosticsService.ts';
 import { buildProposalAssist, extractAssumptionsFromText, inferPricingBasis, mergeAssumptions } from './proposalAssistService.ts';
 import { detectSpreadsheetHeaderRow, extractSpreadsheetPreludeText } from './spreadsheetInterpretationService.ts';
 import { INTAKE_GEMINI_MODEL } from './structuredExtractionSchemas.ts';
+import { classifyIntakeSourceType, deriveDocumentSourceKind } from './fileClassifierService.ts';
+import { extractDocumentWithGemini, extractSpreadsheetWithGemini } from './geminiExtractionService.ts';
+import { mergeResolvedMetadata as mergeResolvedMetadataFromService, extractMetadataFromText as extractMetadataFromTextFromService, normalizeDateValue as normalizeDateValueFromService } from './metadataExtractorService.ts';
+import { buildRoomCandidates as buildRoomCandidatesFromService, toReviewLines as toReviewLinesFromService } from './matchPreparationService.ts';
+import { prepareCatalogMatch } from './catalogMatchService.ts';
+import { classifyParsedChunk as classifyParsedChunkFromService, normalizeExtractedCategory as normalizeExtractedCategoryFromService, shouldKeepNormalizedLine as shouldKeepNormalizedLineFromService } from './rowClassifierService.ts';
+import { parseSpreadsheetInput, extractSpreadsheetStructuredMetadata, type NormalizedIntakeLine as NormalizedIntakeLineFromService } from './spreadsheetInterpreterService.ts';
 
 interface NormalizedIntakeLine {
   roomName: string;
@@ -455,10 +460,16 @@ function expandMatrixHeaderItem(header: string): { itemCode: string; itemName: s
 }
 
 function looksLikeItemCode(value: string): boolean {
-  const text = asText(value).toUpperCase();
+  const raw = asText(value);
+  const text = raw.toUpperCase();
   if (!text) return false;
   if (text.length > 24) return false;
   if (!/^[A-Z0-9][A-Z0-9\-./ ]+$/.test(text)) return false;
+  if (/[a-z]{3,}/.test(raw)) return false;
+
+  const tokens = raw.split(/\s+/).filter(Boolean);
+  if (tokens.length > 3) return false;
+
   return /\d/.test(text) || /[-/]/.test(text) || /^[A-Z]{2,6}$/.test(text);
 }
 
@@ -497,6 +508,12 @@ function classifySource(fileName: string, mimeType: string, explicit?: IntakeSou
   }
   if (lowerName.endsWith('.pdf') || lowerMime.includes('pdf')) return 'pdf';
   return 'document';
+}
+
+function shouldSkipSpreadsheetSheet(sheetName: string): boolean {
+  const normalized = normalizeComparableText(sheetName);
+  if (!normalized) return false;
+  return /^(readme|instructions|instruction|notes|legend|cover|summary|how to use|help)$/.test(normalized);
 }
 
 function detectSpreadsheetColumns(headers: string[]) {
@@ -647,12 +664,17 @@ function parseSpreadsheetRows(rows: Array<Array<string | number | boolean | null
     const dataRows = tableRows.slice(1);
     for (let rowIndex = 0; rowIndex < dataRows.length; rowIndex += 1) {
       const row = dataRows[rowIndex];
-      const classification = classifyParsedChunk(row, headerRowIndex + rowIndex + 1, preludeMetadata);
-      if (classification.kind !== 'actual_scope_line') continue;
       const rawItem = mapping.item !== null ? asText(row[mapping.item]) : '';
       const rawDescription = mapping.description !== null ? asText(row[mapping.description]) : '';
       const rawCategory = mapping.category !== null ? asText(row[mapping.category]) : '';
       const explicitItemCode = mapping.itemCode !== null ? asText(row[mapping.itemCode]) : '';
+      const quantityText = mapping.qty !== null ? asText(row[mapping.qty]) : '';
+      const explicitUnit = mapping.unit !== null ? asText(row[mapping.unit]) : '';
+      const roomName = mapping.room !== null ? normalizeRoomName(row[mapping.room]) : 'General Scope';
+
+      if (!rawItem && !rawDescription && !rawCategory && !quantityText) continue;
+      if (looksLikeHeaderChunk(row.map((cell) => asText(cell)))) continue;
+
       const inferredItemCode = explicitItemCode || (looksLikeItemCode(rawItem) ? rawItem : '');
       const expandedItem = inferredItemCode ? expandMatrixHeaderItem(inferredItemCode) : null;
       const catalogHint = inferredItemCode ? inferFromCatalogByCode(catalog, inferredItemCode) : null;
@@ -663,9 +685,8 @@ function parseSpreadsheetRows(rows: Array<Array<string | number | boolean | null
       const category = normalizeExtractedCategory(rawCategory, `${inferredItemCode} ${itemName} ${description}`) || expandedItem?.category || catalogHint?.category || '';
       if (!itemName && !description && !category) continue;
       const parsedQuantity = mapping.qty !== null ? parsePositiveNumberWithDefault(row[mapping.qty], 1) : { value: 1, defaulted: true };
-      const explicitUnit = mapping.unit !== null ? asText(row[mapping.unit]) : '';
       outputRows.push({
-        roomName: mapping.room !== null ? normalizeRoomName(row[mapping.room]) : 'General Scope',
+        roomName,
         category: category || inferCategory(`${inferredItemCode} ${itemName} ${description}`),
         itemCode: inferredItemCode,
         itemName: itemName || description,
@@ -937,58 +958,22 @@ function deriveSourceKindFromDocument(fileName: string, mimeType: string, text: 
 export async function parseIntakeRequest(input: IntakeParseRequest): Promise<IntakeParseResult> {
   const fileName = asText(input.fileName) || 'upload';
   const mimeType = asText(input.mimeType) || 'application/octet-stream';
-  const sourceType = classifySource(fileName, mimeType, input.sourceType);
+  const sourceType = classifyIntakeSourceType(fileName, mimeType, input.sourceType);
   const matchCatalog = input.matchCatalog !== false;
   const catalog = matchCatalog ? listActiveCatalogItems() : [];
   const warnings: string[] = [];
 
   if (sourceType === 'spreadsheet') {
     if (!input.dataBase64) throw new Error('dataBase64 is required for spreadsheet parsing.');
-    const parsedSheets: StructuredSpreadsheetResult[] = [];
-
-    if (fileName.toLowerCase().endsWith('.csv') || mimeType.toLowerCase().includes('csv')) {
-      const csvText = Buffer.from(input.dataBase64, 'base64').toString('utf8');
-      const rows = parseCsv(csvText, {
-        relax_column_count: true,
-        skip_empty_lines: true,
-        trim: true,
-      }) as Array<Array<string | number | boolean | null | undefined>>;
-      const parsed = parseSpreadsheetRows(rows, fileName, catalog);
-      if (parsed) parsedSheets.push(parsed);
-    } else {
-      const workbook = xlsx.read(Buffer.from(input.dataBase64, 'base64'), { type: 'buffer' });
-
-      workbook.SheetNames.forEach((sheetName) => {
-        const sheet = workbook.Sheets[sheetName];
-        const rows = xlsx.utils.sheet_to_json<Array<string | number | boolean | null | undefined>>(sheet, { header: 1, defval: '' });
-        const parsed = parseSpreadsheetRows(rows, `${fileName}:${sheetName}`, catalog);
-        if (parsed) parsedSheets.push(parsed);
-      });
-    }
-
-    const deterministicRows = parsedSheets.flatMap((sheet) => sheet.rows);
-    const flattenedText = parsedSheets.map((sheet) => sheet.flattenedText).filter(Boolean).join('\n');
-    const preludeText = parsedSheets.map((sheet) => sheet.preludeText).filter(Boolean).join('\n');
-    const structuredMetadata: Partial<IntakeProjectMetadata> = {
-      projectName: mostCommon(parsedSheets.map((sheet) => sheet.metadata.projectName || '')),
-      projectNumber: mostCommon(parsedSheets.map((sheet) => sheet.metadata.projectNumber || '')),
-      client: mostCommon(parsedSheets.map((sheet) => sheet.metadata.client || '')),
-      generalContractor: mostCommon(parsedSheets.map((sheet) => sheet.metadata.generalContractor || '')),
-      address: mostCommon(parsedSheets.map((sheet) => sheet.metadata.address || '')),
-      bidDate: mostCommon(parsedSheets.map((sheet) => sheet.metadata.bidDate || '')),
-      proposalDate: mostCommon(parsedSheets.map((sheet) => sheet.metadata.proposalDate || '')),
-      estimator: mostCommon(parsedSheets.map((sheet) => sheet.metadata.estimator || '')),
-      sourceFiles: [fileName],
-      assumptions: mergeAssumptions(parsedSheets.flatMap((sheet) => sheet.metadata.assumptions || []), extractAssumptionsFromText(`${preludeText}\n${flattenedText}`)),
-      pricingBasis: inferPricingBasis(`${preludeText}\n${flattenedText}`, deterministicRows.map((row) => row.unit)),
-    };
+    const parsedSheets = parseSpreadsheetInput({ fileName, mimeType, dataBase64: input.dataBase64, catalog });
+    const { deterministicRows, flattenedText, preludeText, metadata: structuredMetadata } = extractSpreadsheetStructuredMetadata(parsedSheets, fileName);
 
     if (!deterministicRows.length) {
       warnings.push('Spreadsheet structure was weak; falling back to text extraction heuristics.');
       const fallbackText = flattenedText || decodeDocumentText(input.dataBase64, fileName, mimeType);
       const fallbackLines = detectScopeLinesFromText(fallbackText, fileName);
-      const metadata = mergeMetadata(extractMetadataFromText(fallbackText), structuredMetadata, ['spreadsheet-fallback', 'text-heuristics']);
-      const reviewLines = toReviewLines(fallbackLines, catalog, matchCatalog);
+      const metadata = mergeResolvedMetadataFromService(extractMetadataFromTextFromService(fallbackText), structuredMetadata, ['spreadsheet-fallback', 'text-heuristics']);
+      const reviewLines = toReviewLinesFromService(fallbackLines as unknown as NormalizedIntakeLineFromService[], catalog, matchCatalog);
       const proposalAssist = buildProposalAssist({
         metadata,
         assumptions: metadata.assumptions,
@@ -999,7 +984,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
         sourceKind: 'spreadsheet-unstructured',
         project: metadata,
         projectMetadata: metadata,
-        rooms: buildRoomCandidates(reviewLines),
+        rooms: buildRoomCandidatesFromService(reviewLines),
         parsedLines: reviewLines,
         reviewLines,
         warnings,
@@ -1008,12 +993,12 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
       };
     }
 
-    let normalizedLines = deterministicRows;
+    let normalizedLines = deterministicRows as unknown as NormalizedIntakeLineFromService[];
     let metadataSources = ['spreadsheet-structure'];
 
     try {
       const gemini = await withTimeout(
-        extractIntakeFromGemini({
+        extractSpreadsheetWithGemini({
           fileName,
           mimeType,
           sourceType: 'spreadsheet',
@@ -1036,7 +1021,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
       warnings.push(...filterSpreadsheetGeminiWarnings(gemini.warnings));
       const geminiLines = gemini.parsedLines.map((line) => ({
         roomName: normalizeRoomName(line.roomArea || 'General'),
-        category: normalizeExtractedCategory(line.category, `${line.itemName} ${line.description}`),
+        category: normalizeExtractedCategoryFromService(line.category, `${line.itemName} ${line.description}`),
         itemCode: line.itemCode || '',
         itemName: line.itemName || line.description || '',
         description: line.description || line.itemName || '',
@@ -1049,7 +1034,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
         confidence: 0.88,
         parserTag: 'gemini-spreadsheet',
         warnings: [],
-      })).filter((line, index) => shouldKeepNormalizedLine(line, index, structuredMetadata));
+      })).filter((line, index) => shouldKeepNormalizedLineFromService(line, index, structuredMetadata));
 
       const alignmentSafe = geminiLines.length === deterministicRows.length && deterministicRows.every((row, index) => lineAlignmentLooksSafe(row, gemini.parsedLines[index]));
       if (alignmentSafe) {
@@ -1076,15 +1061,16 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
         warnings.push('Gemini spreadsheet enrichment was returned, but the row order or quantities did not align cleanly with the spreadsheet parse, so the deterministic spreadsheet parse was kept.');
       }
 
-      const metadata = mergeMetadata(
+      const metadata = mergeResolvedMetadataFromService(
         {
           projectName: gemini.projectName,
           projectNumber: gemini.projectNumber,
+          bidPackage: gemini.bidPackage || gemini.projectNumber,
           client: gemini.client,
           generalContractor: gemini.generalContractor,
           address: gemini.address,
-          bidDate: normalizeDate(gemini.bidDate),
-          proposalDate: normalizeDate(gemini.proposalDate),
+          bidDate: normalizeDateValueFromService(gemini.bidDate),
+          proposalDate: normalizeDateValueFromService(gemini.proposalDate),
           estimator: gemini.estimator,
           sourceFiles: [fileName],
           assumptions: gemini.assumptions,
@@ -1093,8 +1079,8 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
         structuredMetadata,
         [...metadataSources, 'text-heuristics']
       );
-      const reviewLines = toReviewLines(normalizedLines, catalog, matchCatalog);
-      const enrichedMetadata = mergeMetadata(metadata, extractMetadataFromText(`${preludeText}\n${flattenedText}`), [...metadata.sources, 'text-heuristics']);
+      const reviewLines = toReviewLinesFromService(normalizedLines, catalog, matchCatalog);
+      const enrichedMetadata = mergeResolvedMetadataFromService(metadata, extractMetadataFromTextFromService(`${preludeText}\n${flattenedText}`), [...metadata.sources, 'text-heuristics']);
       const proposalAssist = buildProposalAssist({
         metadata: enrichedMetadata,
         assumptions: mergeAssumptions(enrichedMetadata.assumptions, gemini.assumptions),
@@ -1106,7 +1092,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
         sourceKind: parsedSheets[0]?.sourceKind || 'spreadsheet-row',
         project: enrichedMetadata,
         projectMetadata: enrichedMetadata,
-        rooms: buildRoomCandidates(reviewLines),
+        rooms: buildRoomCandidatesFromService(reviewLines),
         parsedLines: reviewLines,
         reviewLines,
         warnings: Array.from(new Set(warnings)),
@@ -1115,8 +1101,8 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
       };
     } catch (error: any) {
       warnings.push(error.message || 'Gemini enrichment failed for spreadsheet parsing.');
-      const metadata = mergeMetadata(structuredMetadata, extractMetadataFromText(`${preludeText}\n${flattenedText}`), ['spreadsheet-structure', 'text-heuristics']);
-      const reviewLines = toReviewLines(normalizedLines, catalog, matchCatalog);
+      const metadata = mergeResolvedMetadataFromService(structuredMetadata, extractMetadataFromTextFromService(`${preludeText}\n${flattenedText}`), ['spreadsheet-structure', 'text-heuristics']);
+      const reviewLines = toReviewLinesFromService(normalizedLines, catalog, matchCatalog);
       const proposalAssist = buildProposalAssist({
         metadata,
         assumptions: metadata.assumptions,
@@ -1127,7 +1113,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
         sourceKind: parsedSheets[0]?.sourceKind || 'spreadsheet-row',
         project: metadata,
         projectMetadata: metadata,
-        rooms: buildRoomCandidates(reviewLines),
+        rooms: buildRoomCandidatesFromService(reviewLines),
         parsedLines: reviewLines,
         reviewLines,
         warnings: Array.from(new Set(warnings)),
@@ -1138,12 +1124,12 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
   }
 
   const extractedText = input.extractedText || (input.dataBase64 ? decodeDocumentText(input.dataBase64, fileName, mimeType) : '');
-  const heuristicMetadata = extractMetadataFromText(extractedText);
-  const sourceKind = deriveSourceKindFromDocument(fileName, mimeType, extractedText);
+  const heuristicMetadata = extractMetadataFromTextFromService(extractedText);
+  const sourceKind = deriveDocumentSourceKind(fileName, mimeType, extractedText);
   const fallbackLines = detectScopeLinesFromText(extractedText, fileName);
 
   try {
-    const gemini = await extractIntakeFromGemini({
+    const gemini = await extractDocumentWithGemini({
       fileName,
       mimeType,
       sourceType,
@@ -1154,7 +1140,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
     warnings.push(...gemini.warnings);
     const geminiLines: NormalizedIntakeLine[] = gemini.parsedLines.map((line) => ({
       roomName: normalizeRoomName(line.roomArea || 'General'),
-      category: normalizeExtractedCategory(line.category, `${line.itemName} ${line.description}`),
+      category: normalizeExtractedCategoryFromService(line.category, `${line.itemName} ${line.description}`),
       itemCode: line.itemCode || '',
       itemName: line.itemName || line.description || '',
       description: line.description || line.itemName || '',
@@ -1167,21 +1153,22 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
       confidence: 0.9,
       parserTag: sourceType === 'pdf' ? 'gemini-pdf' : 'gemini-document',
       warnings: [],
-    })).filter((line, index) => shouldKeepNormalizedLine(line, index, heuristicMetadata));
+    })).filter((line, index) => shouldKeepNormalizedLineFromService(line, index, heuristicMetadata));
 
     const usableGeminiLines = geminiLines.filter((line) => line.description && line.quantity > 0);
     const normalizedLines = usableGeminiLines.length ? usableGeminiLines : fallbackLines;
     if (!usableGeminiLines.length) warnings.push('Gemini did not return enough structured lines; fallback text extraction was used for review.');
 
-    const metadata = mergeMetadata(
+    const metadata = mergeResolvedMetadataFromService(
       {
         projectName: gemini.projectName,
         projectNumber: gemini.projectNumber,
+        bidPackage: gemini.bidPackage || gemini.projectNumber,
         client: gemini.client,
         generalContractor: gemini.generalContractor,
         address: gemini.address,
-        bidDate: normalizeDate(gemini.bidDate),
-        proposalDate: normalizeDate(gemini.proposalDate),
+        bidDate: normalizeDateValueFromService(gemini.bidDate),
+        proposalDate: normalizeDateValueFromService(gemini.proposalDate),
         estimator: gemini.estimator,
         sourceFiles: [fileName],
         assumptions: gemini.assumptions,
@@ -1190,7 +1177,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
       heuristicMetadata,
       ['gemini', 'text-heuristics']
     );
-    const reviewLines = toReviewLines(normalizedLines, catalog, matchCatalog);
+    const reviewLines = toReviewLinesFromService(normalizedLines as unknown as NormalizedIntakeLineFromService[], catalog, matchCatalog);
     const proposalAssist = buildProposalAssist({
       metadata,
       assumptions: metadata.assumptions,
@@ -1202,7 +1189,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
       sourceKind,
       project: metadata,
       projectMetadata: metadata,
-      rooms: buildRoomCandidates(reviewLines),
+      rooms: buildRoomCandidatesFromService(reviewLines),
       parsedLines: reviewLines,
       reviewLines,
       warnings: Array.from(new Set(warnings)),
@@ -1211,8 +1198,8 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
     };
   } catch (error: any) {
     warnings.push(error.message || 'Gemini extraction failed; fallback text parsing used.');
-    const metadata = mergeMetadata({ ...heuristicMetadata, sourceFiles: [fileName] }, {}, ['text-heuristics']);
-    const reviewLines = toReviewLines(fallbackLines, catalog, matchCatalog);
+    const metadata = mergeResolvedMetadataFromService({ ...heuristicMetadata, sourceFiles: [fileName] }, {}, ['text-heuristics']);
+    const reviewLines = toReviewLinesFromService(fallbackLines as unknown as NormalizedIntakeLineFromService[], catalog, matchCatalog);
     const proposalAssist = buildProposalAssist({
       metadata,
       assumptions: metadata.assumptions,
@@ -1223,7 +1210,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
       sourceKind,
       project: metadata,
       projectMetadata: metadata,
-      rooms: buildRoomCandidates(reviewLines),
+      rooms: buildRoomCandidatesFromService(reviewLines),
       parsedLines: reviewLines,
       reviewLines,
       warnings: Array.from(new Set(warnings)),

@@ -1,25 +1,25 @@
 import { SettingsRecord } from '../types/estimator';
 
 export const DEFAULT_PROPOSAL_INTRO = [
-  'Thank you for the opportunity to provide pricing for the included scope.',
-  'This proposal covers the listed items based on the current bid information provided.',
+  'We are pleased to submit pricing for the listed scope of work.',
+  'This proposal is based on the current bid documents, field conditions represented at bid time, and the inclusions shown in the attached schedule.',
 ].join('\n\n');
 
 export const DEFAULT_PROPOSAL_TERMS = [
   'Pricing is valid for 30 days.',
-  'Work outside this scope will be handled by change order.',
+  'Work outside this scope will be handled by written change order.',
   'Pricing assumes normal working hours and standard site access.',
 ].join('\n');
 
 export const DEFAULT_PROPOSAL_EXCLUSIONS = [
-  'Permits, testing, and bonds unless specifically included.',
-  'Patch, paint, and repairs unless specifically included.',
-  'Electrical, backing, and structural support unless specifically included.',
+  'Permits, testing, bonds, and fees unless specifically included.',
+  'Patch, paint, finish repair, and other trade work unless specifically included.',
+  'Electrical, blocking, backing, and structural support unless specifically included.',
 ].join('\n');
 
 export const DEFAULT_PROPOSAL_CLARIFICATIONS = [
   'Pricing is based on the current bid documents provided.',
-  'Final field verification is required before release or installation.',
+  'Final field verification is required before fabrication, release, or installation.',
   'Scope or quantity changes may require revised pricing.',
 ].join('\n');
 

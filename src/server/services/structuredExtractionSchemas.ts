@@ -1,12 +1,13 @@
 import { Type } from '@google/genai';
 
-export const INTAKE_GEMINI_MODEL = 'gemini-2.5-flash';
+export const INTAKE_GEMINI_MODEL = process.env.INTAKE_GEMINI_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
 export const intakeGeminiResponseSchema = {
   type: Type.OBJECT,
   properties: {
     projectName: { type: Type.STRING },
     projectNumber: { type: Type.STRING },
+    bidPackage: { type: Type.STRING },
     client: { type: Type.STRING },
     generalContractor: { type: Type.STRING },
     address: { type: Type.STRING },

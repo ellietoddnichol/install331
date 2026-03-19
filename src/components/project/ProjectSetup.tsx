@@ -10,6 +10,10 @@ interface Props {
   onUpdate: (project: Project) => void;
 }
 
+function getLegacyProjectDate(project: Project): string {
+  return project.bidDate || project.dueDate || '';
+}
+
 export function ProjectSetup({ project, onUpdate }: Props) {
   const [calculatingDistance, setCalculatingDistance] = useState(false);
   const [distance, setDistance] = useState<number | null>(null);
@@ -50,6 +54,14 @@ export function ProjectSetup({ project, onUpdate }: Props) {
     onUpdate({
       ...project,
       settings: { ...project.settings, [field]: value }
+    });
+  };
+
+  const handleProjectDateChange = (value: string) => {
+    onUpdate({
+      ...project,
+      bidDate: value,
+      dueDate: value,
     });
   };
 
@@ -163,22 +175,13 @@ export function ProjectSetup({ project, onUpdate }: Props) {
                 onBlur={handleAddressBlur}
               />
             </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Bid Date</label>
+            <div className="col-span-2">
+              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Bid Due Date</label>
               <input
                 type="date"
                 className="w-full px-4 py-3 bg-gray-50 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all"
-                value={project.bidDate || ''}
-                onChange={(e) => handleChange('bidDate', e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Due Date</label>
-              <input
-                type="date"
-                className="w-full px-4 py-3 bg-gray-50 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all"
-                value={project.dueDate || ''}
-                onChange={(e) => handleChange('dueDate', e.target.value)}
+                value={getLegacyProjectDate(project)}
+                onChange={(e) => handleProjectDateChange(e.target.value)}
               />
             </div>
           </div>

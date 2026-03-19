@@ -1,22 +1,5 @@
-import { ProjectRecord, TakeoffLineRecord } from '../../shared/types/estimator.ts';
+import { EstimateSummary, ProjectRecord, TakeoffLineRecord } from '../../shared/types/estimator.ts';
 import { computeProjectConditionEffects, normalizeProjectJobConditions } from '../../shared/utils/jobConditions.ts';
-
-export interface EstimateSummary {
-  materialSubtotal: number;
-  laborSubtotal: number;
-  adjustedLaborSubtotal: number;
-  totalLaborHours: number;
-  durationDays: number;
-  lineSubtotal: number;
-  conditionAdjustmentAmount: number;
-  conditionLaborMultiplier: number;
-  burdenAmount: number;
-  overheadAmount: number;
-  profitAmount: number;
-  taxAmount: number;
-  baseBidTotal: number;
-  conditionAssumptions: string[];
-}
 
 export function calculateEstimateSummary(project: ProjectRecord, lines: TakeoffLineRecord[]): EstimateSummary {
   const pricingMode = project.pricingMode || 'labor_and_material';
@@ -35,7 +18,7 @@ export function calculateEstimateSummary(project: ProjectRecord, lines: TakeoffL
     : laborSubtotal + effects.laborAdjustmentAmount;
   const totalLaborHours = pricingMode === 'material_only'
     ? 0
-    : rawLaborHours * effects.laborMultiplier;
+    : Number((rawLaborHours * effects.laborHoursMultiplier).toFixed(2));
   const crewHoursPerDay = Math.max(1, jobConditions.installerCount) * 8;
   const durationDays = totalLaborHours > 0 ? Math.max(1, Math.ceil(totalLaborHours / crewHoursPerDay)) : 0;
 
@@ -55,12 +38,14 @@ export function calculateEstimateSummary(project: ProjectRecord, lines: TakeoffL
     durationDays,
     lineSubtotal,
     conditionAdjustmentAmount: effects.totalConditionAdjustment,
-    conditionLaborMultiplier: effects.laborMultiplier,
+    conditionLaborMultiplier: effects.laborCostMultiplier,
+    conditionLaborHoursMultiplier: effects.laborHoursMultiplier,
     burdenAmount,
     overheadAmount,
     profitAmount,
     taxAmount,
     baseBidTotal,
     conditionAssumptions: effects.assumptions,
+    projectConditions: effects.projectConditions,
   };
 }

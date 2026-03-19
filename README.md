@@ -48,6 +48,17 @@ Core variables:
 - `GOOGLE_SERVICE_ACCOUNT`
 - `GEMINI_API_KEY` (optional)
 
+Upload parsing variables:
+
+- `UPLOAD_PDF_PROVIDER`
+	Values: `fallback-text`, `google-document-ai`, `azure-document-intelligence`
+- `UPLOAD_LLM_NORMALIZATION`
+	Set to `false` to disable chunk-level LLM normalization and use deterministic parsing only
+- `UPLOAD_LLM_MODEL`
+	Reserved for future provider/model selection wiring
+- `INTAKE_GEMINI_MODEL`
+	Existing model override used by chunk-level normalization helpers when Gemini is enabled
+
 ## Current API Surfaces
 
 Legacy API remains available under `/api/*` while rebuild proceeds.
@@ -60,6 +71,32 @@ New rebuild API (Phase 1) is available under `/api/v1/*`:
 - `/api/v1/takeoff/lines`
 - `/api/v1/takeoff/summary/:projectId`
 - `/api/v1/settings`
+
+## Upload Parsing Architecture
+
+The upload parser now routes files through a hybrid pipeline centered on deterministic extraction first and model-assisted normalization second.
+
+Core services:
+
+- `src/server/services/uploadRouter.ts`
+	Top-level router that detects file type, selects strategy, runs validation/confidence, and adapts the result back into the existing intake review contract.
+- `src/server/services/intake/excelParser.ts`
+	Native Excel/CSV parser that inspects workbook sheets, detects header sections, propagates merged cells, and preserves sheet/row provenance.
+- `src/server/services/intake/pdfParser.ts`
+	Abstracted PDF extraction layer with a provider interface and a fallback text extractor/chunker.
+- `src/server/services/intake/normalizer.ts`
+	Deterministic normalization plus optional chunk-level LLM interpretation for PDF chunks.
+- `src/server/services/intake/validator.ts`
+	Post-normalization checks for missing quantities, modifier misclassification, room headers, duplicates, and other review warnings.
+- `src/server/services/intake/confidence.ts`
+	Overall/item confidence scoring that recommends auto-import, review, or manual-template fallback.
+
+Notes:
+
+- Excel files are parsed natively before any model use.
+- PDF files are text/layout extracted first, then chunked for normalization.
+- Low-confidence rows are preserved for review rather than dropped.
+- TODO: wire external provider credentials for Google Document AI or Azure Document Intelligence when those services are enabled.
 
 ## Database Notes
 

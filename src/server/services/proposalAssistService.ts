@@ -1,4 +1,4 @@
-import { IntakeProjectAssumption, IntakeProjectMetadata, IntakeProposalAssist } from '../../shared/types/intake.ts';
+import type { IntakeProjectAssumption, IntakeProjectMetadata, IntakeProposalAssist } from '../../shared/types/intake.ts';
 
 function asText(value: unknown): string {
   return String(value ?? '').trim();
