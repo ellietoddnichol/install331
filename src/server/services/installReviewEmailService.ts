@@ -3,6 +3,7 @@ import { EstimateSummary, InstallReviewEmailDraft, ProjectRecord, TakeoffLineRec
 import { buildProposalLineItems } from '../../shared/utils/proposalDocument.ts';
 import { buildProjectConditionSummaryLines, getProjectConditions } from '../../shared/utils/jobConditions.ts';
 import { formatCurrencySafe, formatNumberSafe } from '../../utils/numberFormat.ts';
+import { buildGeminiSummaryPrompt } from './geminiSummaryPrompt.ts';
 
 interface InstallReviewInsights {
 	considerations: string[];
@@ -121,32 +122,22 @@ async function generateGeminiInsights(input: InstallReviewEmailInput): Promise<I
 	if (!apiKey) return null;
 
 	const ai = new GoogleGenAI({ apiKey });
-	const prompt = [
-		'You are helping an install estimator prepare an internal install review email.',
-		'Write concise internal operations bullets only.',
-		'Do not use sales language.',
-		'Do not restate pricing totals or scope lines in paragraph form.',
-		'Do not invent missing project details.',
-		'If uncertain, say verify with field conditions.',
-		'Do not mention union wage as an adder or modifier.',
-		'',
-		`Project: ${input.project.projectName}`,
-		`Location: ${summarizeLocation(input.project)}`,
-		`Bid Due Date: ${input.project.bidDate || input.project.proposalDate || input.project.dueDate || 'Not provided'}`,
-		`Crew Size: ${input.project.jobConditions.installerCount}`,
-		`Estimated Install Hours: ${formatNumberSafe(input.summary.totalLaborHours || 0, 1)}`,
-		`Estimated Days On Site: ${formatNumberSafe(input.summary.durationDays || 0, 1)}`,
-		`Material Total: ${formatCurrencySafe(input.summary.materialSubtotal || 0)}`,
-		`Labor Total: ${formatCurrencySafe(input.summary.adjustedLaborSubtotal || input.summary.laborSubtotal || 0)}`,
-		`Proposal Total: ${formatCurrencySafe(input.summary.baseBidTotal || 0)}`,
-		`Project Conditions: ${JSON.stringify(buildProjectConditionSummaryLines(input.project.jobConditions))}`,
-		`Scope Summary: ${JSON.stringify(buildScopeLines(input.lines))}`,
-		`Special Notes: ${JSON.stringify([asText(input.project.specialNotes), asText(input.project.notes)].filter(Boolean))}`,
-		'',
-		'Return JSON only with:',
-		'- considerations: 4 to 6 concise install-risk bullets',
-		'- reviewQuestions: 5 concise install-review questions that cover crew size, timeline, missing scope, risks, and night work/access when relevant',
-	].join('\n');
+	const prompt = buildGeminiSummaryPrompt({
+		mode: 'install_review',
+		projectName: input.project.projectName,
+		clientName: input.project.clientName || '',
+		location: summarizeLocation(input.project),
+		bidDate: input.project.bidDate || input.project.proposalDate || input.project.dueDate || 'Not provided',
+		crewSize: input.project.jobConditions.installerCount,
+		totalLaborHours: formatNumberSafe(input.summary.totalLaborHours || 0, 1),
+		totalDays: formatNumberSafe(input.summary.durationDays || 0, 1),
+		materialTotal: formatCurrencySafe(input.summary.materialSubtotal || 0),
+		laborTotal: formatCurrencySafe(input.summary.adjustedLaborSubtotal || input.summary.laborSubtotal || 0),
+		proposalTotal: formatCurrencySafe(input.summary.baseBidTotal || 0),
+		assumptions: buildProjectConditionSummaryLines(input.project.jobConditions),
+		scopeLines: buildScopeLines(input.lines),
+		specialNotes: [asText(input.project.specialNotes), asText(input.project.notes)].filter(Boolean),
+	});
 
 	const response = await ai.models.generateContent({
 		model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
@@ -233,6 +224,7 @@ export async function generateInstallReviewEmailDraft(input: InstallReviewEmailI
 		summary: {
 			projectName: input.project.projectName,
 			location,
+			timeline: input.project.bidDate || input.project.proposalDate || input.project.dueDate || null,
 			crewSize,
 			estimatedHours: Number(input.summary.totalLaborHours || 0),
 			estimatedDays: Number(input.summary.durationDays || 0),

@@ -60,6 +60,15 @@ export function splitProposalTextLines(value: string | null | undefined): string
     .filter(Boolean);
 }
 
+function compactProposalItemName(value: string): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (!normalized) return '';
+  const sentenceBreak = normalized.search(/[.;:](\s|$)/);
+  const base = sentenceBreak > 0 ? normalized.slice(0, sentenceBreak) : normalized;
+  if (base.length <= 88) return base;
+  return `${base.slice(0, 85).trim()}...`;
+}
+
 export function toSentenceCase(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return '';
@@ -122,7 +131,7 @@ export function buildProposalLineItems(lines: TakeoffLineRecord[]): ProposalLine
 
   lines.forEach((line) => {
     const section = getProposalSectionLabel(line);
-    const description = String(line.description || '').trim();
+    const description = compactProposalItemName(String(line.description || ''));
     const unit = String(line.unit || 'EA').trim() || 'EA';
     if (!description) return;
 
@@ -171,7 +180,7 @@ export function buildProposalScheduleSections(
 
   lines.forEach((line) => {
     const section = getProposalSectionLabel(line);
-    const description = String(line.description || '').trim();
+    const description = compactProposalItemName(String(line.description || ''));
     const unit = String(line.unit || 'EA').trim() || 'EA';
     if (!description) return;
 

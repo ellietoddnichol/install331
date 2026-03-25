@@ -76,6 +76,7 @@ test('union labor is baseline and does not surface as a modifier', () => {
   const summary = calculateEstimateSummary(project, [buildLine()]);
   const conditionLines = buildProjectConditionSummaryLines(project.jobConditions);
 
+  assert.equal(summary.totalLaborMinutes, 60);
   assert.equal(summary.conditionLaborMultiplier, 1);
   assert.equal(summary.projectConditions.unionLaborBaseline, true);
   assert.equal(summary.conditionAssumptions.some((line) => /union wage/i.test(line)), false);
@@ -102,6 +103,7 @@ test('night work applies globally to labor totals and labor hours', () => {
   assert.equal(summary.laborSubtotal, 150);
   assert.equal(summary.adjustedLaborSubtotal, 180);
   assert.ok(Math.abs(summary.totalLaborHours - 1.65) < 1e-9);
+  assert.ok(Math.abs(summary.totalLaborMinutes - 99) < 1e-6);
   assert.equal(summary.conditionLaborMultiplier, 1.2);
   assert.equal(summary.conditionLaborHoursMultiplier, 1.1);
   assert.equal(summary.projectConditions.nightWork, true);

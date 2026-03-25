@@ -1,4 +1,4 @@
-import type { CatalogItem } from '../../types.ts';
+import type { CatalogItem } from '../../../types.ts';
 import type { CatalogMatchCandidate, IntakeCatalogMatch, NormalizedIntakeItem } from '../../../shared/types/intake.ts';
 import { normalizeComparableText } from '../metadataExtractorService.ts';
 import { interpretTakeoffHeader } from './headerInterpreter.ts';

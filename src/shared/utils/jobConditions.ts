@@ -66,7 +66,6 @@ export function normalizeProjectJobConditions(input?: Partial<ProjectJobConditio
   const phasedWorkPhases = Number(merged.phasedWorkPhases);
   const deliveryLeadDays = Number(merged.deliveryLeadDays);
   const nightWork = Boolean((merged as Partial<ProjectJobConditions>).nightWork ?? merged.afterHoursWork);
-  const prevailingWage = Boolean(merged.prevailingWage || merged.laborRateBasis === 'prevailing');
   const numeric = (value: unknown, fallback: number) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
@@ -75,8 +74,8 @@ export function normalizeProjectJobConditions(input?: Partial<ProjectJobConditio
   return {
     ...merged,
     unionWage: false,
-    prevailingWage,
-    laborRateBasis: prevailingWage ? 'prevailing' : 'union',
+    prevailingWage: false,
+    laborRateBasis: 'union',
     laborRateMultiplier: Number.isFinite(laborRateMultiplier) && laborRateMultiplier > 0 ? laborRateMultiplier : 1,
     floors: Number.isFinite(floors) && floors > 0 ? Math.round(floors) : 1,
     installerCount: Number.isFinite(installerCount) && installerCount > 0 ? Math.round(installerCount) : 1,
@@ -231,10 +230,6 @@ export function computeProjectConditionEffects(
   let directAdjustmentAmount = 0;
   const assumptions: string[] = [];
 
-  if (job.prevailingWage || job.laborRateBasis === 'prevailing') {
-    multipliers = addSharedMultiplierAdjustment(true, job.prevailingWageMultiplier, multipliers, assumptions, `Prevailing wage labor premium applied (x${formatNumberSafe(1 + job.prevailingWageMultiplier, 2)}).`);
-  }
-
   if (job.floors > 1) {
     const floorIncrement = (job.floors - 1) * job.floorMultiplierPerFloor;
     multipliers = addSharedMultiplierAdjustment(true, floorIncrement, multipliers, assumptions, `Multi-floor execution adjustment (${job.floors} floors at ${formatPercentSafe(job.floorMultiplierPerFloor * 100)} per added floor).`);
@@ -381,7 +376,6 @@ export function buildProjectConditionSummaryLines(jobConditions?: Partial<Projec
   const job = normalizeProjectJobConditions(jobConditions);
   const lines: string[] = [];
 
-  if (job.prevailingWage || job.laborRateBasis === 'prevailing') lines.push(`Prevailing wage requirements were included at x${formatNumberSafe(1 + job.prevailingWageMultiplier, 2)} labor.`);
   if (job.nightWork) {
     if (job.nightWorkLaborCostMultiplier !== 0 && job.nightWorkLaborMinutesMultiplier !== 0) {
       lines.push(`Night work applies to all scoped items at x${formatNumberSafe(1 + job.nightWorkLaborCostMultiplier, 2)} labor cost and x${formatNumberSafe(1 + job.nightWorkLaborMinutesMultiplier, 2)} labor hours.`);

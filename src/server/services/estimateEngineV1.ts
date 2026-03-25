@@ -6,7 +6,8 @@ export function calculateEstimateSummary(project: ProjectRecord, lines: TakeoffL
   const jobConditions = normalizeProjectJobConditions(project.jobConditions);
   const rawMaterialSubtotal = lines.reduce((sum, line) => sum + (line.materialCost * line.qty), 0);
   const rawLaborSubtotal = lines.reduce((sum, line) => sum + (line.laborCost * line.qty), 0);
-  const rawLaborHours = lines.reduce((sum, line) => sum + ((line.laborMinutes * line.qty) / 60), 0);
+  const rawLaborMinutes = lines.reduce((sum, line) => sum + (Number(line.laborMinutes || 0) * Number(line.qty || 0)), 0);
+  const rawLaborHours = rawLaborMinutes / 60;
 
   const materialSubtotal = pricingMode === 'labor_only' ? 0 : rawMaterialSubtotal;
   const laborSubtotal = pricingMode === 'material_only' ? 0 : rawLaborSubtotal;
@@ -16,9 +17,12 @@ export function calculateEstimateSummary(project: ProjectRecord, lines: TakeoffL
   const adjustedLaborSubtotal = pricingMode === 'material_only'
     ? 0
     : laborSubtotal + effects.laborAdjustmentAmount;
+  const totalLaborMinutes = pricingMode === 'material_only'
+    ? 0
+    : Number((rawLaborMinutes * effects.laborHoursMultiplier).toFixed(2));
   const totalLaborHours = pricingMode === 'material_only'
     ? 0
-    : Number((rawLaborHours * effects.laborHoursMultiplier).toFixed(2));
+    : Number((totalLaborMinutes / 60).toFixed(2));
   const crewHoursPerDay = Math.max(1, jobConditions.installerCount) * 8;
   const durationDays = totalLaborHours > 0 ? Math.max(1, Math.ceil(totalLaborHours / crewHoursPerDay)) : 0;
 
@@ -34,6 +38,7 @@ export function calculateEstimateSummary(project: ProjectRecord, lines: TakeoffL
     materialSubtotal,
     laborSubtotal,
     adjustedLaborSubtotal,
+    totalLaborMinutes,
     totalLaborHours,
     durationDays,
     lineSubtotal,

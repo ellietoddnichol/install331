@@ -1,8 +1,19 @@
 import { Router } from 'express';
 import { archiveProject, createProject, deleteProject, getProject, listProjects, updateProject } from '../../repos/projectsRepo.ts';
 import { createProjectFile, deleteProjectFile, getProjectFile, listProjectFiles } from '../../repos/projectFilesRepo.ts';
+import { calculateDistanceMiles } from '../../services/distanceService.ts';
 
 export const projectsRouter = Router();
+
+projectsRouter.get('/distance', async (req, res) => {
+  const address = String(req.query.address || '').trim();
+  const originAddress = String(req.query.originAddress || '').trim();
+  if (!address) {
+    return res.status(400).json({ error: 'address is required' });
+  }
+  const miles = await calculateDistanceMiles(address, originAddress || undefined);
+  return res.json({ data: { miles } });
+});
 
 projectsRouter.get('/', (_req, res) => {
   res.json({ data: listProjects() });

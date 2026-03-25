@@ -200,6 +200,8 @@ export interface EstimateSummary {
   materialSubtotal: number;
   laborSubtotal: number;
   adjustedLaborSubtotal: number;
+  /** Sum of (line labor minutes × qty), adjusted by project labor-hours multiplier (e.g. night work). */
+  totalLaborMinutes: number;
   totalLaborHours: number;
   durationDays: number;
   lineSubtotal: number;
@@ -221,6 +223,7 @@ export interface InstallReviewEmailDraft {
   summary: {
     projectName: string;
     location?: string | null;
+    timeline?: string | null;
     crewSize?: number | null;
     estimatedHours?: number | null;
     estimatedDays?: number | null;

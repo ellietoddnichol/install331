@@ -22,7 +22,7 @@ export function RoomManager({
   onDeleteRoom,
 }: Props) {
   return (
-    <section className="bg-gradient-to-b from-white to-slate-50/30 border border-slate-200 rounded-xl p-2 h-[calc(100vh-170px)] flex flex-col shadow-sm">
+    <section className="border border-slate-200 rounded-lg p-2 h-[calc(100vh-170px)] flex flex-col bg-white shadow-sm">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Rooms / Areas</h3>
         <span className="text-[10px] text-slate-400">{rooms.length}</span>
@@ -34,7 +34,7 @@ export function RoomManager({
             key={room.id}
             className={`group rounded-lg border transition-colors ${
               activeRoomId === room.id
-                ? 'border-blue-300 bg-blue-50/70 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.08)]'
+                ? 'border-blue-300 bg-blue-50/60'
                 : 'border-slate-200/80 bg-white hover:border-slate-300'
             }`}
           >
@@ -52,11 +52,11 @@ export function RoomManager({
         ))}
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white/90 p-2">
+      <div className="rounded-md border border-slate-200 bg-white p-2">
         <button onClick={onOpenCreateRoom} className="h-8 w-full rounded-md bg-blue-700 text-white text-[11px] font-semibold inline-flex items-center justify-center gap-1.5 hover:bg-blue-800 shadow-sm">
           <Plus className="w-3.5 h-3.5" /> Add Room
         </button>
-        <p className="mt-2 text-[10px] leading-4 text-slate-500">Name the room first, then optionally drop in a starter line item during creation.</p>
+        <p className="mt-2 text-[10px] leading-4 text-slate-500">Name the room, then add lines.</p>
       </div>
     </section>
   );

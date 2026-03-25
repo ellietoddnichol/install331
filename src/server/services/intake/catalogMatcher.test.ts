@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { CatalogItem } from '../../types.ts';
+import type { CatalogItem } from '../../../types.ts';
 import { matchMatrixHeaderToCatalog } from './catalogMatcher.ts';
 
 const catalog: CatalogItem[] = [

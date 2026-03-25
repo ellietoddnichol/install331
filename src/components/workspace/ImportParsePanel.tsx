@@ -172,7 +172,7 @@ export function ImportParsePanel({ catalog, projectId, roomId, onFinalize, varia
   const reviewHeightClass = variant === 'expanded' ? 'max-h-[52vh]' : 'max-h-44';
   const containerClass = variant === 'expanded'
     ? 'space-y-4'
-    : 'space-y-3 rounded-[22px] border border-slate-200/80 bg-white/85 p-3 shadow-sm';
+    : 'space-y-3 rounded-[16px] border border-slate-200/80 bg-white p-3 shadow-sm';
   const textAreaRows = variant === 'expanded' ? 10 : 4;
 
   const statusTone = status === 'error'
@@ -186,13 +186,13 @@ export function ImportParsePanel({ catalog, projectId, roomId, onFinalize, varia
   const content = (
     <div className={containerClass}>
       <div className={variant === 'expanded' ? 'grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_320px]' : 'space-y-3'}>
-        <section className={variant === 'expanded' ? 'rounded-[26px] border border-slate-200/80 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] p-4 shadow-sm' : 'space-y-3'}>
+        <section className={variant === 'expanded' ? 'rounded-[18px] border border-slate-200/80 bg-white p-4 shadow-sm' : 'space-y-3'}>
           {variant === 'expanded' ? (
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Parser Workspace</p>
                 <h3 className="mt-1 text-lg font-semibold tracking-tight text-slate-950">Upload, inspect, and stage scope lines</h3>
-                <p className="mt-1 max-w-2xl text-sm text-slate-600">Paste scope text or upload a flat file, then confirm which lines should become takeoff entries before they reach the estimate.</p>
+                <p className="mt-1 max-w-2xl text-sm text-slate-600">Paste or upload scope lines, then confirm what to import.</p>
               </div>
               <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
                 <span className="rounded-full bg-white px-3 py-1.5 shadow-sm ring-1 ring-slate-200/80">Room target required</span>
@@ -201,7 +201,7 @@ export function ImportParsePanel({ catalog, projectId, roomId, onFinalize, varia
             </div>
           ) : null}
 
-          <div className="rounded-[22px] border border-slate-200/80 bg-white/90 p-3 shadow-sm">
+          <div className="rounded-[14px] border border-slate-200/80 bg-white p-3 shadow-sm">
             <div className="mb-2 flex items-center justify-between gap-3">
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Raw Scope Input</p>
               {uploadedFileName ? <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600">{uploadedFileName}</span> : null}
@@ -211,11 +211,11 @@ export function ImportParsePanel({ catalog, projectId, roomId, onFinalize, varia
               onChange={(e) => setRawText(e.target.value)}
               placeholder="Paste bid scope lines here..."
               rows={textAreaRows}
-              className="min-h-[140px] w-full rounded-[18px] border border-slate-200 bg-slate-50/70 px-3 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100"
+              className="min-h-[120px] w-full rounded-[12px] border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100"
             />
             <div className="mt-3 flex flex-wrap gap-2">
-              <button onClick={handleParseText} className="inline-flex h-9 items-center justify-center rounded-full bg-[linear-gradient(135deg,var(--brand)_0%,#164fa8_100%)] px-4 text-[11px] font-semibold text-white shadow-[0_10px_24px_rgba(11,61,145,0.22)] hover:brightness-[1.03]">Parse Text</button>
-              <label className="inline-flex h-9 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-50">
+              <button onClick={handleParseText} className="ui-btn-primary inline-flex h-9 items-center justify-center rounded-full px-4 text-[11px] font-semibold">Parse Text</button>
+              <label className="inline-flex h-9 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50">
                 Upload File
                 <input type="file" accept=".txt,.csv" className="hidden" onChange={(e) => handleFileUpload(e.target.files?.[0])} />
               </label>
@@ -226,31 +226,31 @@ export function ImportParsePanel({ catalog, projectId, roomId, onFinalize, varia
         </section>
 
         <aside className={variant === 'expanded' ? 'space-y-3' : 'grid grid-cols-2 gap-2'}>
-          <div className="rounded-[22px] border border-slate-200/80 bg-white/90 p-3 shadow-sm">
+          <div className="rounded-[14px] border border-slate-200/80 bg-white p-3 shadow-sm">
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Review Queue</p>
             <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-2xl bg-[var(--brand-soft)] px-2 py-3">
+              <div className="rounded-xl bg-[var(--brand-soft)] px-2 py-3">
                 <p className="text-[18px] font-semibold tracking-[-0.04em] text-slate-950">{acceptedLines.length}</p>
                 <p className="text-[10px] font-medium uppercase tracking-wide text-blue-800">Include</p>
               </div>
-              <div className="rounded-2xl bg-amber-50 px-2 py-3">
+              <div className="rounded-xl bg-amber-50 px-2 py-3">
                 <p className="text-[18px] font-semibold tracking-[-0.04em] text-slate-950">{pendingLines.length}</p>
                 <p className="text-[10px] font-medium uppercase tracking-wide text-amber-700">Review</p>
               </div>
-              <div className="rounded-2xl bg-slate-100 px-2 py-3">
+              <div className="rounded-xl bg-slate-100 px-2 py-3">
                 <p className="text-[18px] font-semibold tracking-[-0.04em] text-slate-950">{rejectedLines.length}</p>
                 <p className="text-[10px] font-medium uppercase tracking-wide text-slate-600">Ignore</p>
               </div>
             </div>
           </div>
 
-          <div className="rounded-[22px] border border-slate-200/80 bg-white/90 p-3 shadow-sm">
+          <div className="rounded-[14px] border border-slate-200/80 bg-white p-3 shadow-sm">
             <div className="flex items-center justify-between gap-2">
               <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Parser Status</p>
               <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${statusTone}`}>{status}</span>
             </div>
             <p className="mt-3 text-xs leading-5 text-slate-600">{statusMessage || 'Accepted lines will be created as takeoff items when finalized.'}</p>
-            <div className="mt-3 rounded-2xl bg-slate-50/80 p-3 text-[11px] leading-5 text-slate-500">
+            <div className="mt-3 rounded-xl bg-slate-50 p-3 text-[11px] leading-5 text-slate-500">
               Keep metadata, headers, and setup text out of the final import by leaving only true scope lines marked as Include.
             </div>
           </div>
@@ -258,8 +258,8 @@ export function ImportParsePanel({ catalog, projectId, roomId, onFinalize, varia
       </div>
 
       {reviewLines.length > 0 && (
-        <section className="overflow-hidden rounded-[24px] border border-slate-200/80 bg-white/90 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 bg-[linear-gradient(180deg,#fcfdff_0%,#f5f8fd_100%)] px-4 py-3">
+        <section className="overflow-hidden rounded-[16px] border border-slate-200/80 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 bg-slate-50 px-4 py-3">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Parsed Review Table</p>
               <h4 className="mt-1 text-sm font-semibold text-slate-900">Confirm each line before import</h4>

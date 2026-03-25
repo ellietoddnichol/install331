@@ -1150,6 +1150,15 @@ export function ProjectIntake() {
     })();
   }, []);
 
+  useEffect(() => {
+    const address = String(projectDraft.address || '').trim();
+    if (!address || address.length < 8) return;
+    const timer = setTimeout(() => {
+      void refreshDraftDistance(address, true);
+    }, 650);
+    return () => clearTimeout(timer);
+  }, [projectDraft.address]);
+
   const availableProjectSources = useMemo(
     () => projects.filter((project) => project.id !== sourceProjectId),
     [projects, sourceProjectId]
@@ -2161,9 +2170,9 @@ export function ProjectIntake() {
           <ArrowLeft className="w-4 h-4" />
         </button>
         <div>
-          <p className="ui-label">New Project Workflow</p>
+          <p className="ui-label">New Project</p>
           <h1 className="text-2xl font-semibold text-slate-900 mt-1">Create New Project</h1>
-          <p className="text-sm text-slate-500">Choose a creation path, parse source data, and confirm rooms/items before project creation.</p>
+          <p className="text-sm text-slate-500">Choose a start type and confirm project details.</p>
         </div>
       </div>
 
@@ -2189,10 +2198,10 @@ export function ProjectIntake() {
           <h2 className="text-sm font-semibold text-slate-800">How do you want to start?</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
             {[
-              { key: 'blank', label: 'Blank Project', desc: 'Start with a clean project and add rooms and lines manually.', icon: PlusCircle },
-              { key: 'takeoff', label: 'Create from Takeoff', desc: 'Upload a takeoff and review matched items before creating.', icon: FolderInput },
-              { key: 'document', label: 'Create from Document', desc: 'Upload a scope or bid document and review extracted items.', icon: FileUp },
-              { key: 'template', label: 'Use Template', desc: 'Start from a standard template and adjust during review.', icon: WandSparkles },
+              { key: 'blank', label: 'Blank Project', desc: 'Start clean and add scope manually.', icon: PlusCircle },
+              { key: 'takeoff', label: 'Create from Takeoff', desc: 'Upload takeoff and review matched items.', icon: FolderInput },
+              { key: 'document', label: 'Create from Document', desc: 'Upload source document and review extracted items.', icon: FileUp },
+              { key: 'template', label: 'Use Template', desc: 'Start from a template and adjust.', icon: WandSparkles },
             ].map((option) => {
               const active = mode === option.key;
               return (
@@ -2247,8 +2256,8 @@ export function ProjectIntake() {
                     <Upload className="w-4 h-4 text-slate-500" />
                     <p className="text-sm font-medium text-slate-800">Upload Takeoff File</p>
                   </div>
-                  <p className="text-xs text-slate-500 mb-2">Upload a PDF, Excel, or CSV takeoff file.</p>
-                  <p className="text-xs text-slate-500 mb-3">Drag and drop here, or browse for a file.</p>
+                  <p className="text-xs text-slate-500 mb-2">Upload PDF, Excel, or CSV.</p>
+                  <p className="text-xs text-slate-500 mb-3">Drag and drop, or browse.</p>
                   <input
                     type="file"
                     accept=".pdf,.xlsx,.xls,.csv"
@@ -2342,7 +2351,7 @@ export function ProjectIntake() {
               <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Rooms / Areas</p>
-                  <h3 className="text-sm font-semibold text-slate-900 mt-1">Decide how the project will be organized before you create it.</h3>
+                  <h3 className="text-sm font-semibold text-slate-900 mt-1">Choose how to organize this project.</h3>
                 </div>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input type="checkbox" checked={blankUsesRooms} onChange={(e) => setBlankUsesRooms(e.target.checked)} />
@@ -2358,10 +2367,10 @@ export function ProjectIntake() {
                       placeholder={'Lobby\nMain Restroom\nBreak Room'}
                       className="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
                     />
-                    <span className="block text-[11px] text-slate-500">Enter one room per line. If left blank, a starter room will be created for you.</span>
+                    <span className="block text-[11px] text-slate-500">One room per line. Leave blank to auto-create one room.</span>
                   </label>
                 ) : (
-                  <p className="text-xs text-slate-500">The project will start with one project-wide scope bucket instead of room-by-room organization.</p>
+                  <p className="text-xs text-slate-500">Project starts with one project-wide scope bucket.</p>
                 )}
               </div>
             </div>
@@ -2383,7 +2392,7 @@ export function ProjectIntake() {
           {(step === 3 || step === 4) && (
             <div className="ui-surface p-5 space-y-3">
               <h2 className="text-sm font-semibold text-slate-800">{step === 3 ? 'Project Basics' : 'Pricing + Scope Setup'}</h2>
-              <p className="text-xs text-slate-500">{step === 3 ? 'Capture the required intake details before pricing and review.' : 'Set pricing basis, active scope categories, and job conditions before project creation.'}</p>
+              <p className="text-xs text-slate-500">{step === 3 ? 'Enter required project details.' : 'Set pricing, active scope, and job conditions.'}</p>
               <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.9fr)]">
                 <div className="space-y-4">
                   {step === 3 ? (
@@ -2413,7 +2422,7 @@ export function ProjectIntake() {
                         onChange={(e) => {
                           patchProjectDraft({ address: e.target.value });
                           setDistanceError(null);
-                          setDistanceMessage('Address updated. Recalculate travel distance.');
+                          setDistanceMessage('Address updated. Calculating travel distance...');
                           patchDraftJobConditions({ travelDistanceMiles: null });
                         }}
                       />
@@ -2428,9 +2437,9 @@ export function ProjectIntake() {
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Pricing</p>
-                      <p className="mt-1 text-xs text-slate-500">Set markups, crew assumptions, and adders now.</p>
+                      <p className="mt-1 text-xs text-slate-500">Set markups, crew size, and adders.</p>
                     </div>
-                    <span className="rounded-full bg-white px-3 py-1 text-[11px] font-medium text-slate-600 shadow-sm ring-1 ring-slate-200">Settings defaults loaded</span>
+                    <span className="rounded-full bg-white px-3 py-1 text-[11px] font-medium text-slate-600 shadow-sm ring-1 ring-slate-200">Defaults loaded</span>
                   </div>
                   <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                     <label className="text-xs text-slate-600">Price Mode
@@ -2453,7 +2462,7 @@ export function ProjectIntake() {
 
                 <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Scope Categories</p>
-                  <p className="mt-1 text-xs text-slate-500">Pick the scope buckets this job should keep active.</p>
+                  <p className="mt-1 text-xs text-slate-500">Select active scope categories.</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {scopeCategoryOptions.map((category) => {
                       const active = (projectDraft.selectedScopeCategories || []).includes(category);
@@ -2531,7 +2540,7 @@ export function ProjectIntake() {
                       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Travel Distance</p>
                       <p className="mt-1 text-xs text-slate-500">Office: {OFFICE_ADDRESS}</p>
                     </div>
-                    <button type="button" onClick={() => void refreshDraftDistance()} className="ui-btn-secondary h-9 px-3 text-[11px]" disabled={distanceCalculating}>{distanceCalculating ? 'Calculating...' : 'Calc Miles'}</button>
+                    {distanceCalculating ? <span className="text-[11px] font-semibold text-blue-700">Calculating...</span> : null}
                   </div>
                   <div className="mt-3 rounded-2xl bg-slate-50/80 p-3 text-sm text-slate-700 ring-1 ring-slate-200/80">
                     <p className="font-medium text-slate-900">{normalizeProjectJobConditions(projectDraft.jobConditions).travelDistanceMiles !== null ? `${formatNumberSafe(normalizeProjectJobConditions(projectDraft.jobConditions).travelDistanceMiles, 1)} miles from office.` : distanceMessage}</p>
@@ -2596,7 +2605,6 @@ export function ProjectIntake() {
                   <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Job Adders</p>
                   <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                     {[
-                      ['prevailingWage', 'Prevailing wage'],
                       ['occupiedBuilding', 'Occupied building'],
                       ['restrictedAccess', 'Restricted access'],
                       ['nightWork', 'Night work'],
@@ -2651,7 +2659,6 @@ export function ProjectIntake() {
                     <div className="rounded-2xl bg-slate-50 px-3 py-3 text-xs text-slate-600 ring-1 ring-slate-200">
                       <p className="font-medium text-slate-900">Delivery recommendation</p>
                       <p className="mt-1">{normalizeProjectJobConditions(projectDraft.jobConditions).deliveryRequired ? `${formatNumberSafe(normalizeProjectJobConditions(projectDraft.jobConditions).travelDistanceMiles || 0, 1)} miles mapped to ${normalizeProjectJobConditions(projectDraft.jobConditions).deliveryLeadDays} business day${normalizeProjectJobConditions(projectDraft.jobConditions).deliveryLeadDays === 1 ? '' : 's'} and ${normalizeProjectJobConditions(projectDraft.jobConditions).deliveryPricingMode === 'flat' ? formatNumberSafe(normalizeProjectJobConditions(projectDraft.jobConditions).deliveryValue, 2) : normalizeProjectJobConditions(projectDraft.jobConditions).deliveryPricingMode}.` : 'Import or add the job address to auto-fill delivery cost and lead time.'}</p>
-                      <button type="button" className="mt-2 text-[11px] font-semibold text-blue-700 hover:text-blue-800" onClick={() => applyDraftDeliveryRecommendation(normalizeProjectJobConditions(projectDraft.jobConditions).travelDistanceMiles, { force: true })}>Refresh delivery recommendation</button>
                     </div>
                   </div>
 

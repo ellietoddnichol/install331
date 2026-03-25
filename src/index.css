@@ -119,6 +119,7 @@
     background: var(--brand);
     color: #fff;
     @apply h-9 rounded-md px-3 text-sm font-semibold transition;
+    box-shadow: none;
   }
 
   .ui-btn-primary:hover {
@@ -130,6 +131,7 @@
     border: 1px solid var(--line);
     color: #2b3648;
     @apply h-9 rounded-md px-3 text-sm font-medium transition;
+    box-shadow: none;
   }
 
   .ui-btn-secondary:hover {
@@ -141,10 +143,10 @@
   }
 
   .ui-chip-soft {
-    background: rgba(255, 255, 255, 0.72);
+    background: #fff;
     border: 1px solid rgba(216, 222, 232, 0.8);
     color: var(--text-muted);
-    @apply inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium backdrop-blur;
+    @apply inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium;
   }
 
   .ui-ghost-btn {
@@ -201,13 +203,49 @@
   .proposal-document {
     width: auto !important;
     min-height: auto !important;
+    font-size: 11.25px !important;
+    line-height: 1.35 !important;
   }
-  .proposal-section,
+  .proposal-document h1 {
+    font-size: 24px !important;
+    line-height: 1.15 !important;
+  }
+  .proposal-document h2 {
+    font-size: 10px !important;
+    line-height: 1.2 !important;
+  }
+  .proposal-document h3 {
+    font-size: 14px !important;
+    line-height: 1.25 !important;
+  }
+  .proposal-document p,
+  .proposal-document li {
+    line-height: 1.35 !important;
+  }
+  .proposal-document .mt-8 {
+    margin-top: 1rem !important;
+  }
+  .proposal-document .mt-12 {
+    margin-top: 1.4rem !important;
+  }
+  .proposal-document .py-4 {
+    padding-top: 0.7rem !important;
+    padding-bottom: 0.7rem !important;
+  }
+  .proposal-document .py-3 {
+    padding-top: 0.55rem !important;
+    padding-bottom: 0.55rem !important;
+  }
   .proposal-avoid-break,
-  table,
-  tr,
-  td,
-  th {
+  .proposal-line-item {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .proposal-section {
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+  .proposal-totals {
     break-inside: avoid;
     page-break-inside: avoid;
   }

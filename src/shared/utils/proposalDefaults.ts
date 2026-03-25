@@ -1,29 +1,18 @@
 import { SettingsRecord } from '../types/estimator';
 
-export const DEFAULT_PROPOSAL_INTRO = [
-  'We are pleased to submit pricing for the listed scope of work.',
-  'This proposal is based on the current bid documents, field conditions represented at bid time, and the inclusions shown in the attached schedule.',
-].join('\n\n');
+export const DEFAULT_PROPOSAL_INTRO =
+  'Furnish and install Division 10 per bid documents and field conditions. Quantities and pricing are summarized below.';
 
-export const DEFAULT_PROPOSAL_TERMS = [
-  'Pricing is valid for 30 days.',
-  'Work outside this scope will be handled by written change order.',
-  'Pricing assumes normal working hours and standard site access.',
-].join('\n');
+export const DEFAULT_PROPOSAL_TERMS =
+  'Valid 30 days. Material and labor shown separately. Duration in project totals (days/weeks).';
 
-export const DEFAULT_PROPOSAL_EXCLUSIONS = [
-  'Permits, testing, bonds, and fees unless specifically included.',
-  'Patch, paint, finish repair, and other trade work unless specifically included.',
-  'Electrical, blocking, backing, and structural support unless specifically included.',
-].join('\n');
+export const DEFAULT_PROPOSAL_EXCLUSIONS =
+  'Excludes permits, bonds, fees, patch/paint, other trades, and electrical/structural unless noted.';
 
-export const DEFAULT_PROPOSAL_CLARIFICATIONS = [
-  'Pricing is based on the current bid documents provided.',
-  'Final field verification is required before fabrication, release, or installation.',
-  'Scope or quantity changes may require revised pricing.',
-].join('\n');
+export const DEFAULT_PROPOSAL_CLARIFICATIONS =
+  'Items show name and qty. Scope changes may affect price. Field verify before fabrication/install.';
 
-export const DEFAULT_PROPOSAL_ACCEPTANCE_LABEL = 'Accepted By / Title';
+export const DEFAULT_PROPOSAL_ACCEPTANCE_LABEL = 'Accepted by / title';
 
 const PLACEHOLDER_INTROS = new Set(['custom intro', 'proposal intro', 'scope summary']);
 const PLACEHOLDER_TERMS = new Set(['custom terms', 'terms']);
