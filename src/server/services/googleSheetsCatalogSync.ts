@@ -208,9 +208,10 @@ function readServiceAccountFromFile(filePath: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-/** Fix Cloud Run / env mangling: quoted values, BOM, \\n vs newlines, \\r. */
+/** Fix Cloud Run / env mangling: quoted values, BOM, \\n vs newlines, \\r, zero-width chars. */
 function normalizePrivateKeyPem(raw: string): string {
   let key = String(raw || '').trim();
+  key = key.replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '');
   if (key.charCodeAt(0) === 0xfeff) key = key.slice(1).trim();
   if (
     (key.startsWith('"') && key.endsWith('"')) ||
@@ -225,6 +226,36 @@ function normalizePrivateKeyPem(raw: string): string {
   }
   key = key.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   return key;
+}
+
+/**
+ * Secret Manager sometimes stores the JSON as a JSON-encoded string (double quotes escaped).
+ * Accept either raw object JSON or one outer string containing the JSON.
+ */
+function parseServiceAccountEnvJson(raw: string, label: string): Record<string, unknown> {
+  let text = raw.trim().replace(/^\uFEFF/, '');
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      `${label} is not valid JSON (${msg}). Paste the service account key file exactly (starts with {"type":"service_account"). No markdown, no extra text.`
+    );
+  }
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      throw new Error(
+        `${label} was stored as a quoted string that is not valid inner JSON. In Secret Manager, paste the raw .json content once — not a string that contains escaped JSON.`
+      );
+    }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${label} must be one JSON object with type, client_email, and private_key.`);
+  }
+  return parsed as Record<string, unknown>;
 }
 
 function assertPrivateKeyLooksLikePem(key: string, sourceLabel: string): void {
@@ -252,6 +283,11 @@ function jwtFromServiceAccountJson(parsed: Record<string, unknown>, sourceLabel:
     throw new Error(`${sourceLabel}: missing client_email or private_key in service account JSON.`);
   }
   assertPrivateKeyLooksLikePem(key, sourceLabel);
+  if (key.length < 400) {
+    throw new Error(
+      `${sourceLabel}: private_key looks truncated (${key.length} chars). RSA keys are usually 1600+ characters. Re-download the key from IAM and replace the secret.`
+    );
+  }
   return new JWT({
     email,
     key,
@@ -278,15 +314,7 @@ function buildAuth(): JWT {
   const credentialFileHint = fileFromEnv || fileFromAdc;
 
   if (serviceAccountJson) {
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(serviceAccountJson) as Record<string, unknown>;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      throw new Error(
-        `GOOGLE_SERVICE_ACCOUNT is not valid JSON (${msg}). For Cloud Run, paste the full service-account JSON as one secret. For local dev, use GOOGLE_SERVICE_ACCOUNT_FILE=./your-sa.json instead.`
-      );
-    }
+    const parsed = parseServiceAccountEnvJson(serviceAccountJson, 'GOOGLE_SERVICE_ACCOUNT');
     return jwtFromServiceAccountJson(parsed, 'GOOGLE_SERVICE_ACCOUNT');
   }
 
@@ -313,7 +341,7 @@ function buildAuth(): JWT {
   }
 
   const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL;
-  const privateKey = (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+  const privateKey = normalizePrivateKeyPem(process.env.GOOGLE_PRIVATE_KEY || '');
 
   if (!clientEmail || !privateKey) {
     const diagnostics = [
@@ -336,6 +364,11 @@ function buildAuth(): JWT {
   }
 
   assertPrivateKeyLooksLikePem(privateKey, 'GOOGLE_PRIVATE_KEY');
+  if (privateKey.length < 400) {
+    throw new Error(
+      'GOOGLE_PRIVATE_KEY looks truncated. Use the full private_key from the JSON file, or switch to GOOGLE_SERVICE_ACCOUNT with the entire JSON secret.'
+    );
+  }
   return new JWT({
     email: clientEmail,
     key: privateKey,
