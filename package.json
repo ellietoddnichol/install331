@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test:intake": "tsx --test src/server/services/intake/**/*.test.ts"
+    "test:intake": "tsx --test src/server/services/intake/**/*.test.ts",
+    "extract-sa-pem": "node scripts/extract-service-account-pem.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
