@@ -193,19 +193,21 @@ function resolveGoogleCredentialFilePaths(rawPath: string): string[] {
 }
 
 function readServiceAccountFromFile(filePath: string): Record<string, unknown> {
-  let parsed: unknown;
+  let text: string;
   try {
-    parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    text = fs.readFileSync(filePath, 'utf8');
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Could not read Google credential file "${filePath}". ${msg}.`);
+  }
+  try {
+    return parseServiceAccountEnvJson(text, `Credential file ${filePath}`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(
-      `Could not read Google credential file "${filePath}". ${msg}. Use a service account JSON (type "service_account", client_email, private_key), not a Gemini API key file.`
+      `Could not read Google credential file "${filePath}". ${msg} Use a service account JSON (type "service_account", client_email, private_key), not a Gemini API key file.`
     );
   }
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error(`Invalid JSON in Google credential file "${filePath}".`);
-  }
-  return parsed as Record<string, unknown>;
 }
 
 /** Fix Cloud Run / env mangling: quoted values, BOM, \\n vs newlines, \\r, zero-width chars. */
@@ -228,12 +230,22 @@ function normalizePrivateKeyPem(raw: string): string {
   return key;
 }
 
+/** Remove accidental ```json fences from copy/paste into Secret Manager. */
+function stripMarkdownJsonFence(text: string): string {
+  let t = text.trim().replace(/^\uFEFF/, '');
+  if (!t.startsWith('```')) return t;
+  return t
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim();
+}
+
 /**
  * Secret Manager sometimes stores the JSON as a JSON-encoded string (double quotes escaped).
- * Accept either raw object JSON or one outer string containing the JSON.
+ * Accept either raw object JSON or one outer string containing the JSON (unwrap up to 4 levels).
  */
 function parseServiceAccountEnvJson(raw: string, label: string): Record<string, unknown> {
-  let text = raw.trim().replace(/^\uFEFF/, '');
+  let text = stripMarkdownJsonFence(raw);
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -243,14 +255,19 @@ function parseServiceAccountEnvJson(raw: string, label: string): Record<string, 
       `${label} is not valid JSON (${msg}). Paste the service account key file exactly (starts with {"type":"service_account"). No markdown, no extra text.`
     );
   }
-  if (typeof parsed === 'string') {
+  for (let depth = 0; depth < 4 && typeof parsed === 'string'; depth += 1) {
     try {
       parsed = JSON.parse(parsed);
     } catch {
       throw new Error(
-        `${label} was stored as a quoted string that is not valid inner JSON. In Secret Manager, paste the raw .json content once — not a string that contains escaped JSON.`
+        `${label} was stored as nested quoted JSON that failed to parse at depth ${depth + 1}. In Secret Manager, paste the raw .json file contents only (one object).`
       );
     }
+  }
+  if (typeof parsed === 'string') {
+    throw new Error(
+      `${label} is still a string after unwrapping — too many layers of JSON encoding. Paste the file from IAM once without extra quoting.`
+    );
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error(`${label} must be one JSON object with type, client_email, and private_key.`);
@@ -323,7 +340,7 @@ function decodeServiceAccountBase64(raw: string): Record<string, unknown> | null
   if (!trimmed) return null;
   try {
     const json = Buffer.from(trimmed, 'base64').toString('utf8');
-    return JSON.parse(json) as Record<string, unknown>;
+    return parseServiceAccountEnvJson(json, 'base64-decoded credentials');
   } catch {
     return null;
   }
@@ -332,6 +349,16 @@ function decodeServiceAccountBase64(raw: string): Record<string, unknown> | null
 function buildAuth(): JWT {
   const serviceAccountJson = process.env.GOOGLE_SERVICE_ACCOUNT?.trim();
   const serviceAccountBase64 = process.env.GOOGLE_SERVICE_ACCOUNT_BASE64?.trim();
+
+  if (process.env.GOOGLE_SHEETS_AUTH_DEBUG === '1') {
+    const raw = process.env.GOOGLE_SERVICE_ACCOUNT;
+    console.warn('[GOOGLE_SHEETS_AUTH_DEBUG] GOOGLE_SERVICE_ACCOUNT', {
+      defined: raw !== undefined,
+      length: raw?.length ?? 0,
+      firstCharCode: raw && raw.length > 0 ? raw.charCodeAt(0) : null,
+      startsWithBrace: raw ? raw.trimStart().startsWith('{') : false,
+    });
+  }
   const fileFromEnv = process.env.GOOGLE_SERVICE_ACCOUNT_FILE?.trim();
   const fileFromAdc = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
   const credentialFileHint = fileFromEnv || fileFromAdc;

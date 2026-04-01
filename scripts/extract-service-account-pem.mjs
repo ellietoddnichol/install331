@@ -5,7 +5,10 @@
  *
  *   node scripts/extract-service-account-pem.mjs path/to/sa.json
  *   node scripts/extract-service-account-pem.mjs path/to/sa.json > sa.pem
+ *   node scripts/extract-service-account-pem.mjs --fingerprint path/to/sa.json
+ *     (matches Cloud Run logs when GOOGLE_SHEETS_AUTH_DEBUG=1)
  */
+import crypto from 'crypto';
 import fs from 'fs';
 
 function normalizePrivateKeyPem(raw) {
@@ -26,9 +29,14 @@ function normalizePrivateKeyPem(raw) {
   return key.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
 }
 
-const file = process.argv[2];
+const args = process.argv.slice(2).filter(Boolean);
+const fingerprint = args.includes('--fingerprint');
+const positional = args.filter((a) => a !== '--fingerprint');
+const file = positional[0];
 if (!file) {
-  console.error('Usage: node scripts/extract-service-account-pem.mjs <service-account.json>');
+  console.error(
+    'Usage: node scripts/extract-service-account-pem.mjs [--fingerprint] <service-account.json>'
+  );
   process.exit(1);
 }
 
@@ -49,6 +57,15 @@ const pem = normalizePrivateKeyPem(parsed.private_key || '');
 if (!/BEGIN (RSA )?PRIVATE KEY/.test(pem) && !/BEGIN EC PRIVATE KEY/.test(pem)) {
   console.error('private_key does not look like PEM after normalization.');
   process.exit(1);
+}
+
+if (fingerprint) {
+  const fp = crypto.createHash('sha256').update(pem, 'utf8').digest('hex').slice(0, 16);
+  const kid = parsed.private_key_id != null ? String(parsed.private_key_id) : '(none)';
+  console.log(
+    `client_email=${parsed.client_email} private_key_len=${pem.length} private_key_sha256_16=${fp} private_key_id=${kid}`
+  );
+  process.exit(0);
 }
 
 process.stdout.write(`${pem}\n`);
