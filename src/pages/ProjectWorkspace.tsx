@@ -4,7 +4,6 @@ import {
   ArrowRight,
   Calculator,
   ChevronDown,
-  ClipboardList,
   Clock3,
   Download,
   FileUp,
@@ -44,6 +43,8 @@ import { ProposalPreview } from '../components/workspace/ProposalPreview';
 import { BundlePickerModal } from '../components/workspace/BundlePickerModal';
 import { formatCurrencySafe, formatKilobytesSafe, formatLaborDurationMinutes, formatNumberSafe } from '../utils/numberFormat';
 import { getDistanceInMiles } from '../utils/geo';
+import { CatalogCategorySelect } from '../components/intake/CatalogCategorySelect';
+import { useTransientNumericField } from '../hooks/useTransientNumericField';
 
 interface Summary {
   materialSubtotal: number;
@@ -152,7 +153,6 @@ export function ProjectWorkspace() {
   const [installReviewGenerating, setInstallReviewGenerating] = useState(false);
   const [distanceCalculating, setDistanceCalculating] = useState(false);
   const [distanceError, setDistanceError] = useState<string | null>(null);
-  const companyWebsite = 'https://www.brightenbuildersllc.com/';
 
   const statusActionLabel = useMemo(() => {
     if (!project) return 'Mark Submitted';
@@ -490,26 +490,58 @@ export function ProjectWorkspace() {
     return document.querySelector('[data-proposal-document="true"]') as HTMLElement | null;
   }
 
-  async function printProposalDocument() {
+  function printProposalDocument() {
     if (!project) return;
     const container = getProposalContainer();
     if (!container) return;
 
-    const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=1100,height=900');
-    if (!printWindow) {
-      window.alert('Unable to open the print window. Check popup settings and try again.');
+    const title = `proposal-${project.projectNumber || project.id.slice(0, 8)}`;
+    const html = buildProposalHtml(container, title);
+
+    const triggerPrintInWindow = (win: Window) => {
+      const go = () => {
+        win.focus();
+        win.print();
+      };
+      if (win.document.readyState === 'complete') {
+        setTimeout(go, 0);
+      } else {
+        win.addEventListener('load', () => setTimeout(go, 0), { once: true });
+      }
+    };
+
+    // `noopener` in the features string makes `window.open` return `null` in Chromium 88+ and
+    // Firefox 79+ even when popups are allowed — do not use it here; we need the Window handle.
+    const printWindow = window.open('about:blank', '_blank', 'popup=yes,width=1100,height=900');
+    if (printWindow) {
+      printWindow.document.open();
+      printWindow.document.write(html);
+      printWindow.document.close();
+      triggerPrintInWindow(printWindow);
       return;
     }
 
-    const title = `proposal-${project.projectNumber || project.id.slice(0, 8)}`;
-    printWindow.document.open();
-    printWindow.document.write(buildProposalHtml(container, title));
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.onload = () => {
-      printWindow.focus();
-      printWindow.print();
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('title', 'Print proposal');
+    iframe.style.cssText =
+      'position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none';
+    document.body.appendChild(iframe);
+    const idoc = iframe.contentDocument;
+    const iwin = iframe.contentWindow;
+    if (!idoc || !iwin) {
+      iframe.remove();
+      window.alert('Unable to prepare printing. Use Export to save HTML, then open it and print.');
+      return;
+    }
+    idoc.open();
+    idoc.write(html);
+    idoc.close();
+    const removeIframe = () => {
+      if (iframe.parentNode) iframe.remove();
     };
+    iwin.addEventListener('afterprint', removeIframe, { once: true });
+    setTimeout(removeIframe, 120_000);
+    triggerPrintInWindow(iwin);
   }
 
   async function exportProposal() {
@@ -669,6 +701,60 @@ export function ProjectWorkspace() {
     setLines((prev) => prev.map((item) => (item.id === lineId ? saved : item)));
     await refreshTakeoff(project.id);
   }
+
+  const lineEditorId = selectedLine?.id ?? '';
+  const lineQtyField = useTransientNumericField({
+    syncKey: `${lineEditorId}-qty`,
+    committed: selectedLine?.qty ?? 0,
+    onLive: (n) => {
+      if (lineEditorId) patchLineLocal(lineEditorId, { qty: n });
+    },
+    onCommit: (n) => {
+      if (lineEditorId) {
+        patchLineLocal(lineEditorId, { qty: n });
+        void persistLine(lineEditorId);
+      }
+    },
+  });
+  const lineMaterialField = useTransientNumericField({
+    syncKey: `${lineEditorId}-material`,
+    committed: selectedLine?.materialCost ?? 0,
+    onLive: (n) => {
+      if (lineEditorId) patchLineLocal(lineEditorId, { materialCost: n });
+    },
+    onCommit: (n) => {
+      if (lineEditorId) {
+        patchLineLocal(lineEditorId, { materialCost: n });
+        void persistLine(lineEditorId);
+      }
+    },
+  });
+  const lineLaborField = useTransientNumericField({
+    syncKey: `${lineEditorId}-labor`,
+    committed: selectedLine?.laborCost ?? 0,
+    onLive: (n) => {
+      if (lineEditorId) patchLineLocal(lineEditorId, { laborCost: n });
+    },
+    onCommit: (n) => {
+      if (lineEditorId) {
+        patchLineLocal(lineEditorId, { laborCost: n });
+        void persistLine(lineEditorId);
+      }
+    },
+  });
+  const lineUnitSellField = useTransientNumericField({
+    syncKey: `${lineEditorId}-unitsell`,
+    committed: selectedLine?.unitSell ?? 0,
+    onLive: (n) => {
+      if (lineEditorId) patchLineLocal(lineEditorId, { unitSell: n, pricingSource: 'manual' });
+    },
+    onCommit: (n) => {
+      if (lineEditorId) {
+        patchLineLocal(lineEditorId, { unitSell: n, pricingSource: 'manual' });
+        void persistLine(lineEditorId);
+      }
+    },
+  });
 
   async function deleteLine(lineId: string) {
     if (!project) return;
@@ -879,7 +965,7 @@ export function ProjectWorkspace() {
         statusActionLabel={statusActionLabel}
       />
 
-      <div className="ui-page space-y-2.5">
+      <div className="ui-page space-y-2">
         <p className="ui-label px-1">Project Workflow</p>
         <div className="ui-surface p-2 flex items-center gap-1 overflow-x-auto whitespace-nowrap shadow-sm">
           <button onClick={() => setActiveTab('overview')} className={`h-8 px-2.5 rounded-md text-[11px] font-semibold transition-colors ${activeTab === 'overview' ? 'bg-blue-700 text-white shadow-sm' : 'hover:bg-slate-100 text-slate-600'}`}>Overview</button>
@@ -909,8 +995,8 @@ export function ProjectWorkspace() {
         </div>
 
         {activeTab === 'overview' && (
-          <div className="space-y-4">
-            <div className="ui-surface p-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 text-sm">
+          <div className="space-y-3">
+            <div className="ui-surface p-3 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2 text-sm">
               <div><p className="text-xs text-slate-500">Project</p><p className="font-semibold">{project.projectName}</p></div>
               <div><p className="text-xs text-slate-500">Client</p><p className="font-semibold">{project.clientName || 'N/A'}</p></div>
               <div><p className="text-xs text-slate-500">Pricing Basis</p><p className="font-semibold">{pricingMode === 'material_only' ? 'Material Only' : pricingMode === 'labor_only' ? 'Install Only' : 'Material + Install'}</p></div>
@@ -919,8 +1005,8 @@ export function ProjectWorkspace() {
               <div><p className="text-xs text-slate-500">Estimate Total</p><p className="font-semibold">{formatCurrencySafe(summary?.baseBidTotal)}</p></div>
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_1fr_320px] gap-4 items-start">
-              <section className="rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm p-4 space-y-4">
+            <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_1fr_300px] gap-3 items-start">
+              <section className="rounded-xl border border-slate-200/80 bg-white/90 shadow-sm p-3 space-y-3">
                 <div>
                   <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500 font-semibold">Setup Snapshot</p>
                   <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Estimator Assumptions</h2>
@@ -1478,7 +1564,19 @@ export function ProjectWorkspace() {
                   </summary>
                   <div className="border-t border-slate-100 px-4 pb-4 pt-3 space-y-3">
                   <label className="text-[11px] font-medium text-slate-700 block">Project special notes
-                    <textarea className="ui-input mt-1 min-h-[112px] py-2" value={project.specialNotes || ''} onChange={(e) => setProject({ ...project, specialNotes: e.target.value || null })} placeholder="Proposal notes, exclusions, or coordination items." />
+                    <textarea className="ui-input mt-1 min-h-[112px] py-2" value={project.specialNotes || ''} onChange={(e) => setProject({ ...project, specialNotes: e.target.value || null })} placeholder="Internal or coordination notes (optional on the client proposal — see below)." />
+                  </label>
+                  <label className="flex cursor-pointer items-start gap-2 text-[11px] text-slate-700">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={project.proposalIncludeSpecialNotes}
+                      onChange={(e) => setProject({ ...project, proposalIncludeSpecialNotes: e.target.checked })}
+                    />
+                    <span>
+                      <span className="font-medium text-slate-800">Show special notes on proposal</span>
+                      <span className="mt-0.5 block text-[10px] font-normal text-slate-500">When off, this text stays in Project Setup only and is omitted from print / export.</span>
+                    </span>
                   </label>
                   </div>
                 </details>
@@ -1581,68 +1679,34 @@ export function ProjectWorkspace() {
 
         {activeTab === 'takeoff' && (
           <div className="space-y-2 min-w-0">
-              <div className="rounded-xl border border-teal-200/70 bg-gradient-to-br from-white via-white to-teal-50/30 p-3 shadow-sm ring-1 ring-teal-100/80">
-                <div className="flex flex-col gap-2.5 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-teal-800">Takeoff</p>
-                    <h3 className="mt-0.5 text-base font-semibold tracking-tight text-slate-950 sm:text-lg">Quantities &amp; scope</h3>
-                    <p className="mt-1 max-w-2xl text-xs leading-snug text-slate-600">
-                      Catalog, bundles, and qty here — pricing on <span className="font-medium text-slate-800">Estimate</span>.
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      <span className="rounded-full bg-teal-50 px-2 py-0.5 text-[11px] font-medium text-teal-900 ring-1 ring-teal-200/80">{activeRoomLines.length} lines</span>
-                      <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700 ring-1 ring-slate-200/80">{rooms.length} rooms</span>
-                      <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700 ring-1 ring-slate-200/80">{formatNumberSafe(activeRoomQtyTotal, 1)} qty</span>
-                    </div>
+              <div className="rounded-lg border border-teal-200/70 bg-white px-2.5 py-2 shadow-sm ring-1 ring-teal-100/60">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="text-xs font-semibold text-slate-900">Takeoff</span>
+                    <span className="text-[11px] text-slate-500">Qty here · <button type="button" onClick={() => setActiveTab('estimate')} className="font-medium text-teal-800 underline decoration-teal-200 underline-offset-2 hover:text-teal-950">Estimate</button> for $</span>
+                    <span className="hidden h-3 w-px bg-slate-200 sm:inline" aria-hidden />
+                    <span className="rounded-md bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-slate-700 ring-1 ring-slate-200/80">{activeRoomLines.length} ln</span>
+                    <span className="rounded-md bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-slate-700 ring-1 ring-slate-200/80">{formatNumberSafe(activeRoomQtyTotal, 1)} qty</span>
+                    <span className="rounded-md bg-teal-50/80 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-teal-900 ring-1 ring-teal-200/70">{formatLaborDurationMinutes(activeRoomLaborMinutes)}</span>
                   </div>
-                  <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto lg:min-w-[220px]">
-                    <div className="rounded-lg border border-teal-200/80 bg-teal-50/50 p-2.5">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-teal-900">Active room</p>
-                      <p className="truncate text-sm font-semibold text-slate-950 leading-tight">{roomNamesById[activeRoomId] || 'Unassigned'}</p>
-                      <div className="mt-1.5 space-y-0.5 text-[11px] text-slate-700">
-                        <div className="flex items-center justify-between gap-2">
-                          <span>Lines</span>
-                          <span className="font-semibold tabular-nums text-slate-900">{activeRoomLines.length}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span>Qty</span>
-                          <span className="font-semibold tabular-nums text-slate-900">{formatNumberSafe(activeRoomQtyTotal, 1)}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span>Install</span>
-                          <span className="font-semibold tabular-nums text-slate-900">{formatLaborDurationMinutes(activeRoomLaborMinutes)}</span>
-                        </div>
-                      </div>
-                      <p className="mt-1.5 text-[10px] leading-snug text-teal-900/75">Dollars → Estimate tab.</p>
-                    </div>
+                  <div className="flex shrink-0 flex-wrap items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => setActiveTab('estimate')}
-                      className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 text-xs font-semibold text-amber-950 shadow-sm hover:bg-amber-100/80 sm:w-auto"
+                      className="inline-flex h-8 items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 text-[11px] font-semibold text-amber-950 hover:bg-amber-100/80"
                     >
-                      Estimate for pricing <ArrowRight className="h-3.5 w-3.5" />
+                      Estimate <ArrowRight className="h-3 w-3" />
                     </button>
-                    <button onClick={() => void addManualLine()} className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-teal-700 px-3 text-xs font-semibold text-white hover:bg-teal-800 sm:w-auto">
-                      <Sparkles className="h-3.5 w-3.5" /> Add line
+                    <button onClick={() => void addManualLine()} className="inline-flex h-8 items-center gap-1 rounded-md bg-teal-700 px-2.5 text-[11px] font-semibold text-white hover:bg-teal-800">
+                      <Sparkles className="h-3 w-3" /> Add line
                     </button>
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-2.5 rounded-xl border border-teal-200/60 bg-white p-3 shadow-sm">
-                <div>
-                  <div className="mb-2 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-teal-800">1 · Room</p>
-                      <p className="text-xs text-slate-600">Pick a room — table below filters to it.</p>
-                    </div>
-                    <div className="rounded-md border border-teal-200 bg-teal-50/60 px-2.5 py-1.5 text-right shrink-0">
-                      <p className="text-[9px] font-semibold uppercase tracking-wide text-teal-900">This room</p>
-                      <p className="text-sm font-semibold tabular-nums text-slate-900 leading-tight">{formatNumberSafe(activeRoomQtyTotal, 1)} <span className="text-[11px] font-normal text-slate-600">qty</span></p>
-                      <p className="text-[10px] text-slate-600">{formatLaborDurationMinutes(activeRoomLaborMinutes)}</p>
-                    </div>
-                  </div>
-                  <div className="flex min-w-0 gap-1.5 overflow-x-auto pb-0.5">
+              <div className="space-y-2 rounded-lg border border-teal-200/60 bg-white p-2 shadow-sm">
+                <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-x-auto pb-0.5">
                     {rooms.map((room) => {
                       const active = room.id === activeRoomId;
                       const metric = roomMetrics[room.id] || { count: 0, subtotal: 0, totalQty: 0, laborMinutes: 0 };
@@ -1650,39 +1714,24 @@ export function ProjectWorkspace() {
                         <button
                           key={room.id}
                           onClick={() => setActiveRoomId(room.id)}
-                          title={`${metric.count} lines · ${formatNumberSafe(metric.totalQty, 1)} qty · ${formatNumberSafe(metric.laborMinutes, 0)} install min (pricing on Estimate)`}
-                          className={`shrink-0 rounded-lg px-3 py-2 text-left transition-all ${active ? 'bg-teal-900 text-white shadow-sm ring-1 ring-teal-800' : 'bg-white text-slate-800 shadow-sm ring-1 ring-teal-200/80 hover:bg-teal-50/40'}`}
+                          title={`${metric.count} lines · ${formatNumberSafe(metric.totalQty, 1)} qty`}
+                          className={`shrink-0 rounded-md px-2.5 py-1.5 text-left transition-all ${active ? 'bg-teal-900 text-white ring-1 ring-teal-800' : 'bg-slate-50 text-slate-800 ring-1 ring-slate-200/90 hover:bg-teal-50/50'}`}
                         >
-                          <div className="min-w-[132px]">
-                            <div className={`text-xs font-semibold leading-tight ${active ? 'text-white' : 'text-slate-900'}`}>{room.roomName}</div>
-                            <div className={`mt-0.5 flex items-center justify-between text-[10px] ${active ? 'text-teal-100' : 'text-slate-600'}`}>
+                          <div className="min-w-[120px] max-w-[200px]">
+                            <div className={`truncate text-[11px] font-semibold leading-tight ${active ? 'text-white' : 'text-slate-900'}`}>{room.roomName}</div>
+                            <div className={`mt-0.5 flex items-center justify-between gap-2 text-[10px] ${active ? 'text-teal-100' : 'text-slate-600'}`}>
                               <span>{metric.count} ln</span>
-                              <span className="tabular-nums font-medium">{formatNumberSafe(metric.totalQty, 1)} qty</span>
+                              <span className="tabular-nums font-medium">{formatNumberSafe(metric.totalQty, 1)} q</span>
                             </div>
                           </div>
                         </button>
                       );
                     })}
                   </div>
-                </div>
-
-                <div className="border-t border-teal-100/90 pt-2.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-teal-800">2 · Add &amp; match</p>
-                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                    <button onClick={() => setCatalogOpen(true)} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-teal-700 px-3 text-xs font-semibold text-white shadow-sm hover:bg-teal-800">Catalog match</button>
-                    <button onClick={() => setBundleModalOpen(true)} className="ui-btn-secondary h-9 rounded-lg px-3 text-xs font-medium">Bundles</button>
-                    <button onClick={() => setTakeoffRoomsModalOpen(true)} className="ui-btn-secondary h-9 rounded-lg px-3 text-xs font-medium">Rooms</button>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-teal-800">3 · Line list</p>
-                  <p className="text-[11px] text-slate-500 mb-1.5">Edit qty below — <span className="font-medium text-slate-700">Estimate</span> for $ rollups.</p>
-                  <div className="mb-2 grid grid-cols-2 gap-2 lg:grid-cols-4">
-                    <div className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm"><div className="flex items-center justify-between gap-1"><p className="text-[10px] font-semibold uppercase text-slate-500">Room</p><Layers3 className="h-3.5 w-3.5 text-slate-400 shrink-0" /></div><p className="mt-1 truncate text-sm font-semibold text-slate-950">{roomNamesById[activeRoomId] || 'Unassigned'}</p></div>
-                    <div className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm"><div className="flex items-center justify-between gap-1"><p className="text-[10px] font-semibold uppercase text-slate-500">Lines</p><ClipboardList className="h-3.5 w-3.5 text-slate-400 shrink-0" /></div><p className="mt-1 text-lg font-semibold tabular-nums leading-none text-slate-950">{activeRoomLines.length}</p></div>
-                    <div className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm"><div className="flex items-center justify-between gap-1"><p className="text-[10px] font-semibold uppercase text-slate-500">Qty</p><Calculator className="h-3.5 w-3.5 text-slate-400 shrink-0" /></div><p className="mt-1 text-lg font-semibold tabular-nums leading-none text-slate-950">{formatNumberSafe(activeRoomQtyTotal, 1)}</p></div>
-                    <div className="rounded-lg border border-teal-200 bg-gradient-to-br from-teal-50 to-white p-2 shadow-sm ring-1 ring-teal-200/80"><div className="flex items-center justify-between gap-1"><p className="text-[10px] font-semibold uppercase text-teal-900">Install</p><Clock3 className="h-3.5 w-3.5 text-teal-600 shrink-0" /></div><p className="mt-1 text-sm font-semibold tabular-nums leading-tight text-teal-950">{formatLaborDurationMinutes(activeRoomLaborMinutes)}</p><p className="mt-0.5 text-[9px] text-teal-800/85">min × qty</p></div>
+                  <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                    <button onClick={() => setCatalogOpen(true)} className="inline-flex h-8 items-center gap-1 rounded-md bg-teal-700 px-2.5 text-[11px] font-semibold text-white hover:bg-teal-800">Catalog</button>
+                    <button onClick={() => setBundleModalOpen(true)} className="ui-btn-secondary h-8 rounded-md px-2.5 text-[11px] font-medium">Bundles</button>
+                    <button onClick={() => setTakeoffRoomsModalOpen(true)} className="ui-btn-secondary h-8 rounded-md px-2.5 text-[11px] font-medium">Rooms</button>
                   </div>
                 </div>
 
@@ -1705,25 +1754,23 @@ export function ProjectWorkspace() {
         )}
 
         {activeTab === 'estimate' && (
-          <div className="space-y-4 min-w-0">
-              <div className="rounded-[20px] border border-amber-200/70 bg-gradient-to-br from-white via-white to-amber-50/40 p-4 shadow-sm ring-1 ring-amber-100/80">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-amber-900">Estimate</p>
-                    <h3 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950 md:text-3xl">Pricing &amp; rollups</h3>
-                    <p className="mt-2 max-w-2xl text-sm text-slate-600">
-                      Loaded dollars, effective labor rate, burden/O&amp;P, tax, and project total. Line quantities and catalog matching belong on{' '}
-                      <button type="button" onClick={() => setActiveTab('takeoff')} className="font-semibold text-amber-900 underline decoration-amber-300/80 underline-offset-2 hover:text-amber-950">
-                        Takeoff
-                      </button>
-                      .
-                    </p>
-                    <p className="mt-2 text-sm text-slate-600">Room: <span className="font-semibold text-slate-900">{roomNamesById[activeRoomId] || 'Unassigned'}</span></p>
+          <div className="space-y-2 min-w-0">
+              <div className="rounded-lg border border-amber-200/70 bg-white px-2.5 py-2 shadow-sm ring-1 ring-amber-100/70">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-600">
+                    <span className="text-xs font-semibold text-slate-900">Estimate</span>
+                    <span className="text-slate-400">·</span>
+                    <button type="button" onClick={() => setActiveTab('takeoff')} className="font-medium text-amber-900 underline decoration-amber-200 underline-offset-2 hover:text-amber-950">
+                      Takeoff
+                    </button>
+                    <span>for qty</span>
+                    <span className="text-slate-400">·</span>
+                    <span className="text-slate-700">{roomNamesById[activeRoomId] || 'Unassigned'}</span>
                   </div>
-                  <div className="w-full shrink-0 rounded-xl border border-slate-200 bg-slate-50 p-4 lg:w-auto lg:min-w-[280px]">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Project total</p>
-                    <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight text-slate-950">{formatCurrencySafe(summary?.baseBidTotal)}</p>
-                    <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-slate-200/80 pt-2 text-sm text-slate-600">
+                  <div className="w-full shrink-0 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 lg:w-auto lg:min-w-[200px]">
+                    <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">Project total</p>
+                    <p className="text-lg font-semibold tabular-nums tracking-tight text-slate-950">{formatCurrencySafe(summary?.baseBidTotal)}</p>
+                    <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-slate-200/80 pt-1.5 text-xs text-slate-600">
                       <span>This room <span className="font-semibold tabular-nums text-slate-900">{formatCurrencySafe(roomSubtotal)}</span></span>
                       <span className="tabular-nums text-right" title="Project labor time (after multipliers)">
                         <span className="font-semibold text-slate-900">{formatNumberSafe(summary?.totalLaborHours || 0, 1)} hr</span>
@@ -1735,45 +1782,34 @@ export function ProjectWorkspace() {
                 </div>
               </div>
 
-              <div className="rounded-[20px] border border-slate-200/80 bg-white p-4 shadow-sm">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="flex min-w-0 gap-3">
-                    <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white">
-                      <Gauge className="h-5 w-5" aria-hidden />
+              <div className="rounded-lg border border-slate-200/80 bg-white p-2 shadow-sm">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="flex min-w-0 gap-2">
+                    <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-900 text-white">
+                      <Gauge className="h-3.5 w-3.5" aria-hidden />
                     </div>
                     <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Subcontractor labor rate</p>
-                      <p className="mt-1 text-xl font-semibold tabular-nums tracking-tight text-slate-950">
+                      <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">Labor rate (sub)</p>
+                      <p className="mt-0.5 text-base font-semibold tabular-nums tracking-tight text-slate-950">
                         {formatCurrencySafe(effectiveLaborCostPerHour)}
-                        <span className="text-base font-semibold text-slate-600">/hr</span>
-                        <span className="ml-2 text-sm font-medium text-slate-500">effective for labor dollars</span>
+                        <span className="text-sm font-semibold text-slate-600">/hr</span>
+                        <span className="ml-1.5 text-xs font-medium text-slate-500">effective</span>
                       </p>
-                      <p className="mt-1 text-sm text-slate-600">
-                        Configured base{' '}
-                        <span className="font-semibold tabular-nums text-slate-900">{formatCurrencySafe(baseLaborRatePerHour)}/hr</span>
-                        {' '}
-                        (Settings){' '}
-                        <span className="text-slate-400">·</span> labor cost multiplier{' '}
-                        <span className="font-semibold tabular-nums text-slate-900">×{formatNumberSafe(laborCostMultiplier, 2)}</span>
+                      <p className="mt-1 text-xs text-slate-600">
+                        Base <span className="font-semibold tabular-nums text-slate-900">{formatCurrencySafe(baseLaborRatePerHour)}/hr</span>
+                        <span className="text-slate-400"> · </span>
+                        ×<span className="font-semibold tabular-nums text-slate-900">{formatNumberSafe(laborCostMultiplier, 2)}</span> cost
                       </p>
                       {Math.abs(laborHoursMultiplier - 1) > 0.001 ? (
-                        <p className="mt-1 text-sm text-amber-900">
-                          Scheduled labor time uses a separate multiplier{' '}
-                          <span className="font-semibold tabular-nums">×{formatNumberSafe(laborHoursMultiplier, 2)}</span>
-                          {' '}
-                          (hours and duration; not the same as the $/hr above).
+                        <p className="mt-1 text-[11px] text-amber-900">
+                          Time multiplier <span className="font-semibold tabular-nums">×{formatNumberSafe(laborHoursMultiplier, 2)}</span> (hours, separate from $/hr).
                         </p>
                       ) : (
-                        <p className="mt-1 text-xs text-slate-500">
-                          Labor hours are not scaled beyond line minutes × qty (time multiplier ×1.00).
-                        </p>
+                        <p className="mt-0.5 text-[10px] text-slate-500">Labor time ×1.00 (no schedule multiplier).</p>
                       )}
-                      <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                        The cost multiplier applies to rolled-up labor dollars (including manual unit labor on lines). Burden, labor O&amp;P, and fees are applied after that in the labor stack. Line-level catalog modifiers are separate—use <span className="font-medium text-slate-600">Edit selected line</span> below.
-                      </p>
                     </div>
                   </div>
-                  <div className="w-full shrink-0 rounded-xl border border-slate-200 bg-slate-50/90 p-3 lg:max-w-md">
+                  <div className="w-full shrink-0 rounded-lg border border-slate-200 bg-slate-50/90 p-2.5 lg:max-w-sm">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Project condition notes</p>
                       <button
@@ -1807,33 +1843,26 @@ export function ProjectWorkspace() {
                 </div>
               </div>
 
-              <div className="space-y-4 rounded-[20px] border border-amber-200/50 bg-white p-4 shadow-sm">
-                <div className="border-b border-amber-100/80 pb-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-900">Actions</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <button onClick={() => setCatalogOpen(true)} className="ui-btn-primary inline-flex h-11 items-center gap-2 rounded-lg px-4 text-sm font-semibold">
-                      <Sparkles className="h-4 w-4" /> Bulk add items
+              <div className="space-y-2 rounded-lg border border-amber-200/50 bg-white p-2 shadow-sm">
+                <div className="flex flex-wrap items-center gap-1.5 border-b border-amber-100/80 pb-2">
+                    <button onClick={() => setCatalogOpen(true)} className="ui-btn-primary inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-[11px] font-semibold">
+                      <Sparkles className="h-3 w-3" /> Bulk add
                     </button>
-                    <button onClick={() => setBundleModalOpen(true)} className="ui-btn-secondary h-11 rounded-lg px-4 text-sm font-medium">Add bundle</button>
-                    <button onClick={() => setModifiersModalOpen(true)} disabled={!selectedLine} className="ui-btn-secondary h-11 rounded-lg px-4 text-sm font-medium disabled:opacity-50">Edit selected line</button>
-                    <button onClick={() => setTakeoffRoomsModalOpen(true)} className="ui-btn-secondary h-11 rounded-lg px-4 text-sm font-medium">Rooms</button>
-                    <button onClick={() => setActiveTab('proposal')} className="ui-btn-secondary h-11 rounded-lg px-4 text-sm font-medium inline-flex items-center gap-1.5">Proposal <ArrowRight className="h-4 w-4" /></button>
-                  </div>
+                    <button onClick={() => setBundleModalOpen(true)} className="ui-btn-secondary h-8 rounded-md px-2.5 text-[11px] font-medium">Bundle</button>
+                    <button onClick={() => setModifiersModalOpen(true)} disabled={!selectedLine} className="ui-btn-secondary h-8 rounded-md px-2.5 text-[11px] font-medium disabled:opacity-50">Edit line</button>
+                    <button onClick={() => setTakeoffRoomsModalOpen(true)} className="ui-btn-secondary h-8 rounded-md px-2.5 text-[11px] font-medium">Rooms</button>
+                    <button onClick={() => setActiveTab('proposal')} className="ui-btn-secondary h-8 rounded-md px-2.5 text-[11px] font-medium inline-flex items-center gap-0.5">Proposal <ArrowRight className="h-3 w-3" /></button>
                 </div>
 
                 <div>
-                  <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-amber-900">Room filter</p>
-                      <p className="mt-0.5 text-sm font-semibold text-slate-900">Show lines for one room at a time</p>
-                      <p className="text-sm text-slate-500">Subtotal updates for the selected room (pricing view).</p>
-                    </div>
-                    <div className="rounded-lg border border-amber-200/80 bg-amber-50/50 px-4 py-2 text-right">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-amber-900">Active room total</p>
-                      <p className="text-lg font-semibold tabular-nums text-slate-900">{formatCurrencySafe(roomSubtotal)}</p>
+                  <div className="mb-1.5 flex flex-col gap-1.5 sm:flex-row sm:items-end sm:justify-between">
+                    <p className="text-[11px] font-medium text-slate-700">Room · one at a time</p>
+                    <div className="rounded-lg border border-amber-200/80 bg-amber-50/50 px-3 py-1.5 text-right">
+                      <p className="text-[9px] font-semibold uppercase tracking-wide text-amber-900">Room total</p>
+                      <p className="text-base font-semibold tabular-nums text-slate-900">{formatCurrencySafe(roomSubtotal)}</p>
                     </div>
                   </div>
-                  <div className="flex min-w-0 gap-2 overflow-x-auto pb-1">
+                  <div className="flex min-w-0 gap-1.5 overflow-x-auto pb-0.5">
                     {rooms.map((room) => {
                       const active = room.id === activeRoomId;
                       const metric = roomMetrics[room.id] || { count: 0, subtotal: 0, totalQty: 0, laborMinutes: 0 };
@@ -1842,11 +1871,11 @@ export function ProjectWorkspace() {
                           key={room.id}
                           onClick={() => setActiveRoomId(room.id)}
                           title={`${metric.count} lines · ${formatCurrencySafe(metric.subtotal)}`}
-                          className={`shrink-0 rounded-xl px-4 py-3 text-left transition-all ${active ? 'bg-slate-900 text-white shadow-md ring-2 ring-slate-900' : 'bg-white text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50'}`}
+                          className={`shrink-0 rounded-lg px-3 py-2 text-left transition-all ${active ? 'bg-slate-900 text-white shadow-md ring-1 ring-slate-900' : 'bg-white text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50'}`}
                         >
-                          <div className="min-w-[160px]">
-                            <div className={`text-sm font-semibold ${active ? 'text-white' : 'text-slate-900'}`}>{room.roomName}</div>
-                            <div className={`mt-1 flex items-center justify-between text-xs ${active ? 'text-slate-200' : 'text-slate-500'}`}>
+                          <div className="min-w-[140px]">
+                            <div className={`text-xs font-semibold ${active ? 'text-white' : 'text-slate-900'}`}>{room.roomName}</div>
+                            <div className={`mt-0.5 flex items-center justify-between text-[10px] ${active ? 'text-slate-200' : 'text-slate-500'}`}>
                               <span>{metric.count} lines</span>
                               <span className="tabular-nums font-medium">{formatCurrencySafe(metric.subtotal)}</span>
                             </div>
@@ -1858,43 +1887,43 @@ export function ProjectWorkspace() {
                 </div>
 
                 <div>
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Rollup</p>
-                  <div className="grid grid-cols-2 gap-3 xl:grid-cols-6">
-                    <div className={`rounded-xl p-4 shadow-sm ring-1 ${showMaterial ? 'bg-white ring-slate-200/80' : 'bg-slate-50 opacity-50 ring-slate-200/80'}`}><div className="flex items-center justify-between"><p className="text-xs font-semibold text-slate-500">Material</p><Wallet className="h-4 w-4 text-slate-400" /></div><p className="mt-2 text-lg font-semibold tabular-nums text-slate-950">{formatCurrencySafe(summary?.materialLoadedSubtotal ?? summary?.materialSubtotal)}</p><p className="mt-1 text-xs text-slate-500">Incl. tax + material O&amp;P</p></div>
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Rollup</p>
+                  <div className="grid grid-cols-2 gap-2 xl:grid-cols-6">
+                    <div className={`rounded-lg p-2.5 shadow-sm ring-1 ${showMaterial ? 'bg-white ring-slate-200/80' : 'bg-slate-50 opacity-50 ring-slate-200/80'}`}><div className="flex items-center justify-between gap-1"><p className="text-[10px] font-semibold text-slate-500">Material</p><Wallet className="h-3.5 w-3.5 shrink-0 text-slate-400" /></div><p className="mt-1 text-sm font-semibold tabular-nums text-slate-950">{formatCurrencySafe(summary?.materialLoadedSubtotal ?? summary?.materialSubtotal)}</p><p className="mt-0.5 text-[10px] leading-snug text-slate-500">Tax + mat O&amp;P</p></div>
                     <div
-                      className={`rounded-xl p-4 shadow-sm ring-1 ${
+                      className={`rounded-lg p-2.5 shadow-sm ring-1 ${
                         showLabor || (pricingMode === 'material_only' && (summary?.laborCompanionProposalTotal ?? 0) > 0)
                           ? 'bg-white ring-slate-200/80'
                           : 'bg-slate-50 opacity-50 ring-slate-200/80'
                       }`}
                     >
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs font-semibold text-slate-500">{pricingMode === 'material_only' ? 'Sub labor proposal' : 'Labor'}</p>
-                        <Hammer className="h-4 w-4 text-slate-500" />
+                      <div className="flex items-center justify-between gap-1">
+                        <p className="text-[10px] font-semibold text-slate-500">{pricingMode === 'material_only' ? 'Sub labor' : 'Labor'}</p>
+                        <Hammer className="h-3.5 w-3.5 shrink-0 text-slate-500" />
                       </div>
-                      <p className="mt-2 text-lg font-semibold tabular-nums text-slate-950">
+                      <p className="mt-1 text-sm font-semibold tabular-nums text-slate-950">
                         {formatCurrencySafe(
                           showLabor
                             ? summary?.laborLoadedSubtotal ?? summary?.adjustedLaborSubtotal ?? summary?.laborSubtotal
                             : summary?.laborCompanionProposalTotal ?? 0
                         )}
                       </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {showLabor ? 'Loaded subcontractor (burden + labor O&amp;P)' : 'Same takeoff; not in material grand total'}
+                      <p className="mt-0.5 text-[10px] leading-snug text-slate-500">
+                        {showLabor ? 'Burden + labor O&amp;P' : 'Not in mat. total'}
                       </p>
                     </div>
-                    <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200/80"><div className="flex items-center justify-between"><p className="text-xs font-semibold text-slate-500">Markup + tax</p><Sparkles className="h-4 w-4 text-slate-400" /></div><p className="mt-2 text-lg font-semibold tabular-nums text-slate-950">{formatCurrencySafe((summary?.taxAmount || 0) + (summary?.overheadAmount || 0) + (summary?.profitAmount || 0) + (summary?.burdenAmount || 0) + (summary?.laborOverheadAmount || 0) + (summary?.laborProfitAmount || 0) + (summary?.subLaborManagementFeeAmount || 0))}</p><p className="mt-1 text-xs text-slate-500">Material tax/O&amp;P + sub labor stack</p></div>
-                    <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200/80"><div className="flex items-center justify-between"><p className="text-xs font-semibold text-slate-500">Labor time</p><Clock3 className="h-4 w-4 text-slate-400" /></div><p className="mt-2 text-xl font-semibold tabular-nums text-slate-950">{formatNumberSafe(summary?.totalLaborHours || 0, 1)} hr</p><p className="mt-1 text-xs font-medium tabular-nums text-slate-600">{formatNumberSafe(Math.round(summary?.totalLaborMinutes ?? (summary?.totalLaborHours || 0) * 60), 0)} min total</p><p className="mt-0.5 text-xs text-slate-500">After learning curve &amp; schedule multipliers · line minutes × qty</p><p className="mt-1 text-[10px] text-slate-500">Field days: {formatNumberSafe(summary?.productiveCrewHoursPerDay ?? jobConditions.installerCount * 8, 2)} productive crew-hr/day (paid day minus breaks)</p></div>
-                    <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200/80"><div className="flex items-center justify-between"><p className="text-xs font-semibold text-slate-500">Days</p><CalendarClock className="h-4 w-4 text-slate-400" /></div><p className="mt-2 text-xl font-semibold tabular-nums text-slate-950">{formatNumberSafe(summary?.durationDays || 0, 0)}</p><p className="mt-1 text-xs text-slate-500">Field days</p></div>
-                    <div className="rounded-xl bg-slate-900 p-4 text-white shadow-sm"><div className="flex items-center justify-between"><p className="text-xs font-semibold text-slate-300">Grand total</p><Calculator className="h-4 w-4 text-slate-200" /></div><p className="mt-2 text-xl font-semibold tabular-nums">{formatCurrencySafe(summary?.baseBidTotal)}</p><p className="mt-1 text-xs text-slate-300">Room {formatCurrencySafe(roomSubtotal)}</p></div>
+                    <div className="rounded-lg bg-white p-2.5 shadow-sm ring-1 ring-slate-200/80"><div className="flex items-center justify-between gap-1"><p className="text-[10px] font-semibold text-slate-500">Markup + tax</p><Sparkles className="h-3.5 w-3.5 shrink-0 text-slate-400" /></div><p className="mt-1 text-sm font-semibold tabular-nums text-slate-950">{formatCurrencySafe((summary?.taxAmount || 0) + (summary?.overheadAmount || 0) + (summary?.profitAmount || 0) + (summary?.burdenAmount || 0) + (summary?.laborOverheadAmount || 0) + (summary?.laborProfitAmount || 0) + (summary?.subLaborManagementFeeAmount || 0))}</p><p className="mt-0.5 text-[10px] text-slate-500">Stack</p></div>
+                    <div className="rounded-lg bg-white p-2.5 shadow-sm ring-1 ring-slate-200/80"><div className="flex items-center justify-between gap-1"><p className="text-[10px] font-semibold text-slate-500">Labor time</p><Clock3 className="h-3.5 w-3.5 shrink-0 text-slate-400" /></div><p className="mt-1 text-base font-semibold tabular-nums text-slate-950">{formatNumberSafe(summary?.totalLaborHours || 0, 1)} hr</p><p className="mt-0.5 text-[10px] font-medium tabular-nums text-slate-600">{formatNumberSafe(Math.round(summary?.totalLaborMinutes ?? (summary?.totalLaborHours || 0) * 60), 0)} min</p><p className="mt-0.5 text-[9px] leading-snug text-slate-500">After multipliers · {formatNumberSafe(summary?.productiveCrewHoursPerDay ?? jobConditions.installerCount * 8, 1)} crew-hr/day</p></div>
+                    <div className="rounded-lg bg-white p-2.5 shadow-sm ring-1 ring-slate-200/80"><div className="flex items-center justify-between gap-1"><p className="text-[10px] font-semibold text-slate-500">Days</p><CalendarClock className="h-3.5 w-3.5 shrink-0 text-slate-400" /></div><p className="mt-1 text-base font-semibold tabular-nums text-slate-950">{formatNumberSafe(summary?.durationDays || 0, 0)}</p><p className="mt-0.5 text-[10px] text-slate-500">Field</p></div>
+                    <div className="rounded-lg bg-slate-900 p-2.5 text-white shadow-sm"><div className="flex items-center justify-between gap-1"><p className="text-[10px] font-semibold text-slate-300">Grand total</p><Calculator className="h-3.5 w-3.5 shrink-0 text-slate-200" /></div><p className="mt-1 text-base font-semibold tabular-nums">{formatCurrencySafe(summary?.baseBidTotal)}</p><p className="mt-0.5 text-[10px] text-slate-300">Room {formatCurrencySafe(roomSubtotal)}</p></div>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                  <span className="rounded-full bg-slate-50 px-3 py-1.5 font-medium ring-1 ring-slate-200/80">{activeRoomLines.length} lines in this room</span>
-                  <span className="rounded-full bg-slate-50 px-3 py-1.5 font-medium ring-1 ring-slate-200/80">{selectedScopeCategories.length || categories.filter((category) => category !== 'all').length} categories</span>
-                  {selectedLine ? <span className="rounded-full bg-blue-50 px-3 py-1.5 font-medium text-blue-900 ring-1 ring-blue-200/80">Selected: {selectedLine.description}</span> : <span className="rounded-full bg-slate-50 px-3 py-1.5 font-medium ring-1 ring-slate-200/80">Tap a row to edit pricing</span>}
-                  {(summary?.conditionAssumptions?.length || 0) > 0 ? <span className="rounded-full bg-teal-50 px-3 py-1.5 font-medium text-teal-900 ring-1 ring-teal-200/70 inline-flex items-center gap-1"><Layers3 className="h-4 w-4" /> {summary?.conditionAssumptions?.length} assumptions</span> : null}
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-600">
+                  <span className="rounded-full bg-slate-50 px-2 py-1 font-medium ring-1 ring-slate-200/80">{activeRoomLines.length} lines</span>
+                  <span className="rounded-full bg-slate-50 px-2 py-1 font-medium ring-1 ring-slate-200/80">{selectedScopeCategories.length || categories.filter((category) => category !== 'all').length} categories</span>
+                  {selectedLine ? <span className="max-w-[min(100%,20rem)] truncate rounded-full bg-blue-50 px-2 py-1 font-medium text-blue-900 ring-1 ring-blue-200/80">{selectedLine.description}</span> : <span className="rounded-full bg-slate-50 px-2 py-1 font-medium ring-1 ring-slate-200/80">Select a row</span>}
+                  {(summary?.conditionAssumptions?.length || 0) > 0 ? <span className="rounded-full bg-teal-50 px-2 py-1 font-medium text-teal-900 ring-1 ring-teal-200/70 inline-flex items-center gap-1"><Layers3 className="h-3.5 w-3.5" /> {summary?.conditionAssumptions?.length}</span> : null}
                 </div>
               </div>
 
@@ -2237,7 +2266,6 @@ export function ProjectWorkspace() {
                 <ProposalPreview
                   project={project}
                   settings={settings}
-                  website={companyWebsite}
                   lines={lines}
                   summary={summary}
                 />
@@ -2273,80 +2301,83 @@ export function ProjectWorkspace() {
       />
 
       {modifiersModalOpen && selectedLine && (
-        <div className="fixed inset-0 z-50 bg-[radial-gradient(circle_at_top,rgba(10,34,77,0.18)_0%,rgba(15,23,42,0.55)_60%)] p-3 backdrop-blur-sm sm:p-6" onClick={() => setModifiersModalOpen(false)}>
-          <div className="mx-auto flex h-[90vh] max-w-5xl flex-col overflow-hidden rounded-[30px] border border-slate-200/80 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] shadow-[0_32px_80px_rgba(15,23,42,0.22)]" onClick={(event) => event.stopPropagation()}>
-            <div className="border-b border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(246,248,251,0.96)_100%)] px-5 py-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="max-w-3xl">
-                  <div className="flex flex-wrap items-center gap-2">
+        <div className="fixed inset-0 z-50 bg-[radial-gradient(circle_at_top,rgba(10,34,77,0.18)_0%,rgba(15,23,42,0.55)_60%)] p-2 backdrop-blur-sm sm:p-4" onClick={() => setModifiersModalOpen(false)}>
+          <div className="mx-auto flex max-h-[min(92vh,880px)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] shadow-[0_24px_48px_rgba(15,23,42,0.18)]" onClick={(event) => event.stopPropagation()}>
+            <div className="border-b border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(246,248,251,0.96)_100%)] px-3 py-2.5 sm:px-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 max-w-[min(100%,42rem)]">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <span className="ui-chip-soft">Line editor</span>
                     <span className="ui-chip-soft">{selectedLine.category || 'Uncategorized'}</span>
                     <span className="ui-chip-soft">{roomNamesById[selectedLine.roomId] || 'Unassigned room'}</span>
                   </div>
-                  <h3 className="mt-3 text-[28px] font-semibold tracking-[-0.04em] text-slate-950">Edit line item</h3>
-                  <p className="mt-2 text-[13px] leading-6 text-slate-600">Adjust description, room placement, pricing, and modifiers without losing sight of the line’s sell math.</p>
+                  <h3 className="mt-1 text-base font-semibold tracking-tight text-slate-950">Edit line</h3>
                 </div>
-                <button onClick={() => setModifiersModalOpen(false)} className="h-10 rounded-full border border-slate-200 bg-white px-4 text-[11px] font-medium text-slate-700 shadow-sm transition hover:bg-slate-50">Done</button>
+                <button onClick={() => setModifiersModalOpen(false)} className="h-9 shrink-0 rounded-full border border-slate-200 bg-white px-3 text-[11px] font-medium text-slate-700 shadow-sm transition hover:bg-slate-50">Done</button>
               </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-4">
-                <div className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200/80"><p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Qty</p><p className="mt-1 text-[20px] font-semibold tracking-[-0.03em] text-slate-950">{formatNumberSafe(selectedLine.qty, 0)}</p></div>
-                <div className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200/80"><p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Material</p><p className="mt-1 text-[20px] font-semibold tracking-[-0.03em] text-slate-950">{formatCurrencySafe(selectedLine.materialCost)}</p></div>
-                <div className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200/80"><p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Labor</p><p className="mt-1 text-[20px] font-semibold tracking-[-0.03em] text-slate-950">{formatCurrencySafe(selectedLine.laborCost)}</p></div>
-                <div className="rounded-2xl bg-[linear-gradient(180deg,#10284f_0%,#0a224d_100%)] p-3 text-white shadow-[0_18px_40px_rgba(10,34,77,0.18)]"><p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-300">Unit Sell</p><p className="mt-1 text-[20px] font-semibold tracking-[-0.03em]">{formatCurrencySafe(selectedLine.unitSell)}</p></div>
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="rounded-lg bg-white p-2 shadow-sm ring-1 ring-slate-200/80"><p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-500">Qty</p><p className="mt-0.5 text-base font-semibold tabular-nums text-slate-950">{formatNumberSafe(selectedLine.qty, 0)}</p></div>
+                <div className="rounded-lg bg-white p-2 shadow-sm ring-1 ring-slate-200/80"><p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-500">Material</p><p className="mt-0.5 text-base font-semibold tabular-nums text-slate-950">{formatCurrencySafe(selectedLine.materialCost)}</p></div>
+                <div className="rounded-lg bg-white p-2 shadow-sm ring-1 ring-slate-200/80"><p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-500">Labor</p><p className="mt-0.5 text-base font-semibold tabular-nums text-slate-950">{formatCurrencySafe(selectedLine.laborCost)}</p></div>
+                <div className="rounded-lg bg-[linear-gradient(180deg,#10284f_0%,#0a224d_100%)] p-2 text-white shadow-sm sm:col-span-1 col-span-2"><p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-300">Unit Sell</p><p className="mt-0.5 text-base font-semibold tabular-nums">{formatCurrencySafe(selectedLine.unitSell)}</p></div>
               </div>
             </div>
 
-            <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="min-h-0 overflow-y-auto p-5">
-                <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-                  <div className="space-y-4">
-                    <div className="rounded-[24px] bg-white p-4 shadow-sm ring-1 ring-slate-200/80">
-                      <p className="text-[12px] font-semibold tracking-[-0.02em] text-slate-900">Line details</p>
-                      <p className="mt-1 text-[11px] text-slate-500">Set the identity, room, and descriptive information that appears in the estimate grid.</p>
-                      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[1fr_280px]">
+              <div className="min-h-0 overflow-y-auto p-3 sm:p-4">
+                <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+                  <div className="space-y-3">
+                    <div className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-slate-200/80">
+                      <p className="text-[11px] font-semibold text-slate-900">Line details</p>
+                      <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
                         <label className="text-[11px] font-medium text-slate-700 md:col-span-2">Description
-                          <input className="ui-input mt-1 h-10 rounded-xl" value={selectedLine.description} onChange={(e) => patchLineLocal(selectedLine.id, { description: e.target.value })} onBlur={() => void persistLine(selectedLine.id)} />
+                          <input className="ui-input mt-1 h-9 rounded-lg" value={selectedLine.description} onChange={(e) => patchLineLocal(selectedLine.id, { description: e.target.value })} onBlur={() => void persistLine(selectedLine.id)} />
                         </label>
                         <label className="text-[11px] font-medium text-slate-700">Room
-                          <select className="ui-input mt-1 h-10 rounded-xl" value={selectedLine.roomId} onChange={(e) => patchLineLocal(selectedLine.id, { roomId: e.target.value })} onBlur={() => void persistLine(selectedLine.id)}>
+                          <select className="ui-input mt-1 h-9 rounded-lg" value={selectedLine.roomId} onChange={(e) => patchLineLocal(selectedLine.id, { roomId: e.target.value })} onBlur={() => void persistLine(selectedLine.id)}>
                       {rooms.map((room) => <option key={room.id} value={room.id}>{room.roomName}</option>)}
                           </select>
                         </label>
                         <label className="text-[11px] font-medium text-slate-700">Category
-                          <input className="ui-input mt-1 h-10 rounded-xl" value={selectedLine.category || ''} onChange={(e) => patchLineLocal(selectedLine.id, { category: e.target.value || null })} onBlur={() => void persistLine(selectedLine.id)} />
+                          <CatalogCategorySelect
+                            className="ui-input mt-1 h-9 rounded-lg"
+                            value={selectedLine.category}
+                            options={scopeCategoryOptions}
+                            onChange={(v) => patchLineLocal(selectedLine.id, { category: v })}
+                            onBlur={() => void persistLine(selectedLine.id)}
+                          />
                         </label>
                         <label className="text-[11px] font-medium text-slate-700">Qty
-                          <input type="number" className="ui-input mt-1 h-10 rounded-xl" value={selectedLine.qty} onChange={(e) => patchLineLocal(selectedLine.id, { qty: Number(e.target.value) || 0 })} onBlur={() => void persistLine(selectedLine.id)} />
+                          <input className="ui-input mt-1 h-9 rounded-lg" {...lineQtyField.inputProps} />
                         </label>
                         <label className="text-[11px] font-medium text-slate-700">Unit
-                          <input className="ui-input mt-1 h-10 rounded-xl" value={selectedLine.unit} onChange={(e) => patchLineLocal(selectedLine.id, { unit: e.target.value })} onBlur={() => void persistLine(selectedLine.id)} />
+                          <input className="ui-input mt-1 h-9 rounded-lg" value={selectedLine.unit} onChange={(e) => patchLineLocal(selectedLine.id, { unit: e.target.value })} onBlur={() => void persistLine(selectedLine.id)} />
                         </label>
                         {activeTab !== 'estimate' ? (
                           <label className="text-[11px] font-medium text-slate-700 md:col-span-2">Notes
-                            <textarea rows={4} className="ui-textarea mt-1 rounded-2xl" value={selectedLine.notes || ''} onChange={(e) => patchLineLocal(selectedLine.id, { notes: e.target.value || null })} onBlur={() => void persistLine(selectedLine.id)} />
+                            <textarea rows={3} className="ui-textarea mt-1 rounded-xl min-h-[72px]" value={selectedLine.notes || ''} onChange={(e) => patchLineLocal(selectedLine.id, { notes: e.target.value || null })} onBlur={() => void persistLine(selectedLine.id)} />
                           </label>
                         ) : null}
                       </div>
                     </div>
 
-                    <div className="rounded-[24px] bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-4 shadow-sm ring-1 ring-slate-200/80">
-                      <p className="text-[12px] font-semibold tracking-[-0.02em] text-slate-900">Pricing</p>
-                      <p className="mt-1 text-[11px] text-slate-500">Base line math before overall estimate markups. Edits update the grid immediately.</p>
-                      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div className="rounded-xl bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-3 shadow-sm ring-1 ring-slate-200/80">
+                      <p className="text-[11px] font-semibold text-slate-900">Pricing</p>
+                      <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
                         {showMaterial ? (
                           <label className="text-[11px] font-medium text-slate-700">Material
-                            <input type="number" className="ui-input mt-1 h-10 rounded-xl" value={selectedLine.materialCost} onChange={(e) => patchLineLocal(selectedLine.id, { materialCost: Number(e.target.value) || 0 })} onBlur={() => void persistLine(selectedLine.id)} />
+                            <input className="ui-input mt-1 h-9 rounded-lg" {...lineMaterialField.inputProps} />
                           </label>
                         ) : null}
                         {showLabor ? (
                           <label className="text-[11px] font-medium text-slate-700">Labor
-                            <input type="number" className="ui-input mt-1 h-10 rounded-xl" value={selectedLine.laborCost} onChange={(e) => patchLineLocal(selectedLine.id, { laborCost: Number(e.target.value) || 0 })} onBlur={() => void persistLine(selectedLine.id)} />
+                            <input className="ui-input mt-1 h-9 rounded-lg" {...lineLaborField.inputProps} />
                             {(summary?.conditionLaborMultiplier || 1) !== 1 ? <p className="mt-1 text-[10px] text-slate-500">Effective labor with project multiplier: {formatCurrencySafe((selectedLine.laborCost || 0) * (summary?.conditionLaborMultiplier || 1))}</p> : null}
                           </label>
                         ) : null}
                         <label className="text-[11px] font-medium text-slate-700">Unit Sell
-                          <div className="mt-1 space-y-2">
-                            <input type="number" className="ui-input h-10 rounded-xl" value={selectedLine.unitSell} onChange={(e) => patchLineLocal(selectedLine.id, { unitSell: Number(e.target.value) || 0, pricingSource: 'manual' })} onBlur={() => void persistLine(selectedLine.id)} />
+                          <div className="mt-1 space-y-1.5">
+                            <input className="ui-input h-9 rounded-lg" {...lineUnitSellField.inputProps} />
                             <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-500">
                               <span>
                                 {selectedLine.pricingSource === 'manual'
@@ -2364,10 +2395,10 @@ export function ProjectWorkspace() {
                             </div>
                           </div>
                         </label>
-                        <div className="rounded-2xl bg-white px-3 py-3 shadow-sm ring-1 ring-slate-200/80 md:col-span-2">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Install time (per unit)</p>
-                          <p className="mt-1 text-[20px] font-semibold tracking-[-0.03em] text-slate-950">{formatNumberSafe(selectedLine.laborMinutes, 1)} min/unit</p>
-                          <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
+                        <div className="rounded-lg bg-white px-2.5 py-2 shadow-sm ring-1 ring-slate-200/80 md:col-span-2">
+                          <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-500">Install time (per unit)</p>
+                          <p className="mt-0.5 text-base font-semibold tabular-nums text-slate-950">{formatNumberSafe(selectedLine.laborMinutes, 1)} min/unit</p>
+                          <p className="mt-1 text-[10px] leading-snug text-slate-600">
                             Extended for this line:{' '}
                             <span className="font-semibold tabular-nums text-slate-900">
                               {formatLaborDurationMinutes(Number(selectedLine.laborMinutes || 0) * Number(selectedLine.qty || 0))}
@@ -2384,20 +2415,20 @@ export function ProjectWorkspace() {
                     </div>
                   </div>
 
-                  <div className="space-y-4">
-                    <div className="rounded-[24px] bg-[linear-gradient(180deg,#ffffff_0%,#f4f8ff_100%)] p-4 shadow-sm ring-1 ring-slate-200/80">
-                      <p className="text-[12px] font-semibold tracking-[-0.02em] text-slate-900">Line snapshot</p>
-                      <div className="mt-3 space-y-2 text-[11px] text-slate-600">
-                        <div className="flex items-center justify-between rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-slate-200/80"><span>Room</span><span className="font-semibold text-slate-900">{roomNamesById[selectedLine.roomId] || 'Unassigned'}</span></div>
-                        <div className="flex items-center justify-between rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-slate-200/80"><span>Category</span><span className="font-semibold text-slate-900">{selectedLine.category || 'Uncategorized'}</span></div>
-                        <div className="flex items-center justify-between rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-slate-200/80"><span>Line total</span><span className="font-semibold text-slate-900">{formatCurrencySafe(selectedLine.lineTotal)}</span></div>
+                  <div className="space-y-3">
+                    <div className="rounded-xl bg-[linear-gradient(180deg,#ffffff_0%,#f4f8ff_100%)] p-3 shadow-sm ring-1 ring-slate-200/80">
+                      <p className="text-[11px] font-semibold text-slate-900">Line snapshot</p>
+                      <div className="mt-2 space-y-1.5 text-[10px] text-slate-600">
+                        <div className="flex items-center justify-between rounded-lg bg-white px-2.5 py-1.5 shadow-sm ring-1 ring-slate-200/80"><span>Room</span><span className="font-semibold text-slate-900">{roomNamesById[selectedLine.roomId] || 'Unassigned'}</span></div>
+                        <div className="flex items-center justify-between rounded-lg bg-white px-2.5 py-1.5 shadow-sm ring-1 ring-slate-200/80"><span>Category</span><span className="font-semibold text-slate-900">{selectedLine.category || 'Uncategorized'}</span></div>
+                        <div className="flex items-center justify-between rounded-lg bg-white px-2.5 py-1.5 shadow-sm ring-1 ring-slate-200/80"><span>Line total</span><span className="font-semibold text-slate-900">{formatCurrencySafe(selectedLine.lineTotal)}</span></div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className="border-t border-slate-200/80 bg-[linear-gradient(180deg,rgba(248,250,252,0.96)_0%,rgba(241,245,249,0.98)_100%)] p-4 lg:border-l lg:border-t-0">
+              <div className="border-t border-slate-200/80 bg-[linear-gradient(180deg,rgba(248,250,252,0.96)_0%,rgba(241,245,249,0.98)_100%)] p-3 lg:border-l lg:border-t-0">
                 <ModifierPanel
                   modifiers={modifiers}
                   activeModifiers={lineModifiers}
@@ -2412,30 +2443,29 @@ export function ProjectWorkspace() {
       )}
 
       {takeoffRoomsModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 p-3 sm:p-6" onClick={() => setTakeoffRoomsModalOpen(false)}>
+        <div className="fixed inset-0 z-50 bg-slate-900/40 p-2 sm:p-4" onClick={() => setTakeoffRoomsModalOpen(false)}>
           <div
-            className="mx-auto h-[88vh] max-w-4xl rounded-2xl bg-white border border-slate-200 shadow-2xl flex flex-col overflow-hidden"
+            className="mx-auto max-h-[min(90vh,820px)] max-w-4xl rounded-xl bg-white border border-slate-200 shadow-xl flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white">
-              <div>
-                <h2 className="text-base font-semibold text-slate-900">Manage Rooms</h2>
-                <p className="text-sm text-slate-500">Keep room setup out of the main takeoff grid, then add or organize rooms with enough space to work comfortably.</p>
+            <div className="flex items-start justify-between gap-3 px-3 py-2.5 sm:px-4 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white">
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold text-slate-900">Manage Rooms</h2>
+                <p className="text-xs text-slate-500 leading-snug mt-0.5">Add or select rooms; grids filter by the active room.</p>
               </div>
               <button
                 onClick={() => setTakeoffRoomsModalOpen(false)}
-                className="h-8 px-3 rounded border border-slate-300 text-xs font-medium hover:bg-slate-50"
+                className="h-8 shrink-0 px-2.5 rounded border border-slate-300 text-xs font-medium hover:bg-slate-50"
               >
                 Close
               </button>
             </div>
 
-            <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] gap-4 p-5 bg-slate-50/70">
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm min-h-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Workspace Rooms</p>
-                <h3 className="mt-1 text-lg font-semibold text-slate-900">Room Library</h3>
-                <p className="mt-1 text-sm text-slate-600">Pick a room to focus the grids, duplicate a similar room, or create a new one with a starter line item.</p>
-                <div className="mt-4 min-h-0">
+            <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-3 p-3 sm:p-4 bg-slate-50/70">
+              <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm min-h-0">
+                <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500">Rooms</p>
+                <h3 className="mt-0.5 text-sm font-semibold text-slate-900">Room list</h3>
+                <div className="mt-2 min-h-0">
                   <RoomManager
                     rooms={rooms}
                     activeRoomId={activeRoomId}
@@ -2448,32 +2478,30 @@ export function ProjectWorkspace() {
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
+              <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm space-y-3">
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Selected Room</p>
-                  <h3 className="mt-1 text-lg font-semibold text-slate-900">{roomNamesById[activeRoomId] || 'No room selected'}</h3>
-                  <p className="mt-1 text-sm text-slate-600">Use rooms for spaces, phases, alternates, or any grouping that keeps imported and priced scope readable.</p>
+                  <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500">Active</p>
+                  <h3 className="mt-0.5 text-sm font-semibold text-slate-900">{roomNamesById[activeRoomId] || 'No room selected'}</h3>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Rooms</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-900">{rooms.length}</p>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                    <p className="text-[9px] uppercase tracking-[0.08em] text-slate-500">Rooms</p>
+                    <p className="mt-0.5 text-sm font-semibold tabular-nums text-slate-900">{rooms.length}</p>
                   </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Active Lines</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-900">{activeRoomLines.length}</p>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                    <p className="text-[9px] uppercase tracking-[0.08em] text-slate-500">Lines</p>
+                    <p className="mt-0.5 text-sm font-semibold tabular-nums text-slate-900">{activeRoomLines.length}</p>
                   </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Room Total</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-900">{formatCurrencySafe(roomSubtotal)}</p>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                    <p className="text-[9px] uppercase tracking-[0.08em] text-slate-500">Total</p>
+                    <p className="mt-0.5 text-sm font-semibold tabular-nums text-slate-900">{formatCurrencySafe(roomSubtotal)}</p>
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-4">
-                  <p className="text-sm font-medium text-slate-900">New room flow</p>
-                  <p className="mt-1 text-sm text-slate-600">Add Room now opens a proper dialog that asks for the room name and whether you want to auto add a starter line item immediately.</p>
-                  <button onClick={openCreateRoomModal} className="mt-3 ui-btn-secondary h-9 px-3 text-[11px] font-semibold">Open Add Room</button>
+                <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50/60 p-2.5">
+                  <p className="text-xs font-medium text-slate-900">Add room</p>
+                  <button onClick={openCreateRoomModal} className="mt-2 ui-btn-secondary h-8 px-2.5 text-[11px] font-semibold">New room…</button>
                 </div>
               </div>
             </div>

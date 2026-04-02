@@ -32,7 +32,7 @@ export function TopProjectHeader({
   const syncColor = syncState === 'ok' ? 'text-emerald-700 bg-emerald-50 border-emerald-100' : syncState === 'error' ? 'text-red-700 bg-red-50 border-red-100' : 'text-slate-600 bg-slate-50 border-slate-200';
 
   return (
-    <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white px-4 py-2.5">
+    <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white px-3 py-2 md:px-4">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex items-start gap-4">
           <div className="min-w-0">
@@ -55,10 +55,9 @@ export function TopProjectHeader({
           </div>
         </div>
         <div className="flex items-start gap-3">
-          <div className="hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-right md:block">
-            <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-500 uppercase">Estimated Total</p>
-            <p className="mt-1 text-[20px] font-semibold tracking-[-0.03em] text-slate-900">{formatCurrencySafe(baseBidTotal)}</p>
-            <p className="mt-1 text-[10px] text-slate-500">Current estimate</p>
+          <div className="hidden rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-right md:block">
+            <p className="text-[9px] font-semibold tracking-[0.12em] text-slate-500 uppercase">Estimate</p>
+            <p className="mt-0.5 text-lg font-semibold tabular-nums text-slate-900">{formatCurrencySafe(baseBidTotal)}</p>
           </div>
           <div className="flex items-center gap-2">
             <div className="hidden md:flex items-center gap-1 rounded-full bg-white/75 p-1 shadow-sm ring-1 ring-slate-200/80 backdrop-blur">

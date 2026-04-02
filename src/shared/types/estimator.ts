@@ -107,6 +107,8 @@ export interface ProjectRecord {
   status: ProjectStatus;
   notes: string | null;
   specialNotes: string | null;
+  /** When true, project special notes appear on proposal print/export. */
+  proposalIncludeSpecialNotes: boolean;
   createdAt: string;
   updatedAt: string;
 }

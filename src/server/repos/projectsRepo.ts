@@ -54,6 +54,7 @@ function mapProjectRow(row: any): ProjectRecord {
     status: row.status,
     notes: row.notes,
     specialNotes: row.special_notes,
+    proposalIncludeSpecialNotes: Boolean(Number(row.proposal_include_special_notes ?? 0)),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -105,6 +106,7 @@ export function createProject(input: Partial<ProjectRecord>): ProjectRecord {
     status: input.status ?? 'Draft',
     notes: input.notes ?? null,
     specialNotes: input.specialNotes ?? null,
+    proposalIncludeSpecialNotes: Boolean(input.proposalIncludeSpecialNotes),
     createdAt: now,
     updatedAt: now
   };
@@ -115,8 +117,8 @@ export function createProject(input: Partial<ProjectRecord>): ProjectRecord {
       project_size, floor_level, access_difficulty, install_height, material_handling, wall_substrate,
       labor_burden_percent, overhead_percent, profit_percent, labor_overhead_percent, labor_profit_percent,
       sub_labor_management_fee_enabled, sub_labor_management_fee_percent,
-      tax_percent, pricing_mode, scope_categories_json, job_conditions_json, status, notes, special_notes, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      tax_percent, pricing_mode, scope_categories_json, job_conditions_json, status, notes, special_notes, proposal_include_special_notes, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     project.id,
     project.projectNumber,
@@ -149,6 +151,7 @@ export function createProject(input: Partial<ProjectRecord>): ProjectRecord {
     project.status,
     project.notes,
     project.specialNotes,
+    project.proposalIncludeSpecialNotes ? 1 : 0,
     project.createdAt,
     project.updatedAt
   );
@@ -180,7 +183,7 @@ export function updateProject(projectId: string, input: Partial<ProjectRecord>):
       material_handling = ?, wall_substrate = ?, labor_burden_percent = ?, overhead_percent = ?,
       profit_percent = ?, labor_overhead_percent = ?, labor_profit_percent = ?,
       sub_labor_management_fee_enabled = ?, sub_labor_management_fee_percent = ?,
-      tax_percent = ?, pricing_mode = ?, scope_categories_json = ?, job_conditions_json = ?, status = ?, notes = ?, special_notes = ?, updated_at = ?
+      tax_percent = ?, pricing_mode = ?, scope_categories_json = ?, job_conditions_json = ?, status = ?, notes = ?, special_notes = ?, proposal_include_special_notes = ?, updated_at = ?
     WHERE id = ?
   `).run(
     next.projectNumber,
@@ -213,6 +216,7 @@ export function updateProject(projectId: string, input: Partial<ProjectRecord>):
     next.status,
     next.notes,
     next.specialNotes,
+    next.proposalIncludeSpecialNotes ? 1 : 0,
     next.updatedAt,
     projectId
   );

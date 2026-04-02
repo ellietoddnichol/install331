@@ -11,3 +11,8 @@ gen-lang-client-*.json
 estimator.db
 estimator.db-shm
 estimator.db-wal
+
+# Root-level client uploads / samples (avoid accidental commits)
+/*.docx
+/*.pdf
+/*.xlsx

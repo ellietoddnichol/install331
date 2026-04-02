@@ -16,7 +16,16 @@ import { collectPastProjectDateErrors, mapProjectDateErrors } from '../shared/ut
 import { OFFICE_ADDRESS, getDistanceInMiles } from '../utils/geo';
 import { coerceSafeProjectName, isPlausibleProjectTitle, plausibleTitleFromFileName } from '../shared/utils/intakeTextGuards';
 import { formatCurrencySafe, formatNumberSafe } from '../utils/numberFormat';
+import { numericInputValue, parseNumericInput } from '../utils/numericInput';
 import { SiteAddressAutocomplete } from '../components/intake/SiteAddressAutocomplete';
+import { CatalogCategorySelect } from '../components/intake/CatalogCategorySelect';
+import {
+  clampSuggestionCategories,
+  mergeDetectedScopeCategories,
+  resolveImportedCategory,
+  uniqueSortedCatalogCategories,
+} from '../shared/utils/catalogCategories';
+import { computeCatalogPeerPricingSuggestion } from '../shared/utils/catalogPeerSuggestions';
 
 type CreationMode = 'blank' | 'takeoff' | 'document' | 'template';
 type IntakeStep = 1 | 2 | 3 | 4 | 5;
@@ -48,7 +57,8 @@ interface LineSuggestion {
   rawText: string;
   itemName: string;
   description: string;
-  qty: number;
+  /** null while the quantity field is cleared for editing */
+  qty: number | null;
   unit: string;
   category: string | null;
   sourceReference: string;
@@ -152,8 +162,9 @@ interface NewCatalogDraft {
   sku: string;
   category: string;
   unit: CatalogItem['uom'];
-  materialCost: number;
-  laborMinutes: number;
+  /** null while the field is cleared for editing */
+  materialCost: number | null;
+  laborMinutes: number | null;
 }
 
 interface RoomSuggestion {
@@ -837,7 +848,7 @@ function dedupeSuggestions(lines: LineSuggestion[]): LineSuggestion[] {
     }
 
     const existing = bucket.get(key)!;
-    existing.qty += line.qty;
+    existing.qty = (existing.qty ?? 0) + (line.qty ?? 0);
     existing.include = existing.include || line.include;
   }
 
@@ -1097,13 +1108,6 @@ function createInitialProjectDraft(settings?: SettingsRecord | null): Partial<Pr
   };
 }
 
-function mergeDetectedCategories(existing: string[] | undefined, additions: Array<string | null | undefined>): string[] {
-  return Array.from(new Set([
-    ...(existing || []).map((entry) => String(entry || '').trim()).filter(Boolean),
-    ...additions.map((entry) => String(entry || '').trim()).filter(Boolean),
-  ])).sort();
-}
-
 export function ProjectIntake() {
   const navigate = useNavigate();
   const { userEmail } = useAuth();
@@ -1246,6 +1250,15 @@ export function ProjectIntake() {
     ].filter(Boolean))).sort(),
     [catalog, lineSuggestions]
   );
+
+  const newCatalogPeerSuggestion = useMemo(() => {
+    if (!newCatalogDraft) return null;
+    return computeCatalogPeerPricingSuggestion(catalog, {
+      description: newCatalogDraft.description,
+      category: newCatalogDraft.category,
+      uom: newCatalogDraft.unit,
+    });
+  }, [catalog, newCatalogDraft]);
 
   const basicsChecklist = useMemo(() => {
     const missing: string[] = [];
@@ -1400,7 +1413,9 @@ export function ProjectIntake() {
   }
 
   function applyIntakeParseToReview(result: IntakeParseResult, fallbackSource: string) {
-    const suggestions = dedupeSuggestions(result.reviewLines.map((line) => buildIntakeLineSuggestion(line, fallbackSource)));
+    const allowed = uniqueSortedCatalogCategories(catalog);
+    const raw = dedupeSuggestions(result.reviewLines.map((line) => buildIntakeLineSuggestion(line, fallbackSource)));
+    const suggestions = clampSuggestionCategories(raw, catalog);
     setLineSuggestions(suggestions);
     setRoomSuggestions(buildIntakeRoomSuggestions(result, suggestions));
     setIntakeWarnings(buildIntakeWarnings(result));
@@ -1409,7 +1424,7 @@ export function ProjectIntake() {
       ...prev,
       selectedScopeCategories: prev.selectedScopeCategories && prev.selectedScopeCategories.length > 0
         ? prev.selectedScopeCategories
-        : mergeDetectedCategories(prev.selectedScopeCategories, suggestions.map((line) => line.category)),
+        : mergeDetectedScopeCategories(prev.selectedScopeCategories, suggestions.map((line) => line.category), allowed),
     }));
     return suggestions;
   }
@@ -1686,7 +1701,9 @@ export function ProjectIntake() {
         matched: !!match,
       } as LineSuggestion;
     });
-    setLineSuggestions(dedupeSuggestions([...importedFromProject, ...importedFromStructured, ...importedFromText]));
+    setLineSuggestions(
+      clampSuggestionCategories(dedupeSuggestions([...importedFromProject, ...importedFromStructured, ...importedFromText]), catalog)
+    );
   }
 
   async function handleTakeoffFileUpload(file: File): Promise<boolean> {
@@ -1877,14 +1894,15 @@ export function ProjectIntake() {
     const line = lineSuggestions.find((entry) => entry.id === lineId);
     if (!line) return;
 
+    const allowed = uniqueSortedCatalogCategories(catalog);
     setNewCatalogLineId(lineId);
     setNewCatalogDraft({
       description: line.description || line.rawText,
       sku: line.sku || `SKU-${Math.floor(Math.random() * 100000)}`,
-      category: line.category || 'Division 10',
+      category: resolveImportedCategory(line.category, allowed) ?? allowed[0] ?? '',
       unit: (line.unit || 'EA') as CatalogItem['uom'],
-      materialCost: line.materialCost || 0,
-      laborMinutes: line.laborMinutes || 0,
+      materialCost: Number.isFinite(line.materialCost) ? line.materialCost : null,
+      laborMinutes: Number.isFinite(line.laborMinutes) ? line.laborMinutes : null,
     });
   }
 
@@ -1897,8 +1915,8 @@ export function ProjectIntake() {
       category: newCatalogDraft.category,
       description: newCatalogDraft.description,
       uom: newCatalogDraft.unit,
-      baseMaterialCost: newCatalogDraft.materialCost,
-      baseLaborMinutes: newCatalogDraft.laborMinutes,
+      baseMaterialCost: newCatalogDraft.materialCost ?? 0,
+      baseLaborMinutes: newCatalogDraft.laborMinutes ?? 0,
       taxable: true,
       adaFlag: false,
       active: true,
@@ -1987,7 +2005,7 @@ export function ProjectIntake() {
         matched: !!match,
       } as LineSuggestion;
     });
-    setLineSuggestions(dedupeSuggestions(starter));
+    setLineSuggestions(clampSuggestionCategories(dedupeSuggestions(starter), catalog));
   }
 
   function applyManualTemplateFallback() {
@@ -2176,7 +2194,7 @@ export function ProjectIntake() {
           description: line.description,
           sku: line.sku,
           category: line.category,
-          qty: line.qty,
+          qty: line.qty ?? 0,
           unit: line.unit,
           materialCost: line.materialCost,
           laborMinutes: line.laborMinutes,
@@ -2550,7 +2568,7 @@ export function ProjectIntake() {
                         </button>
                       );
                     })}
-                    {scopeCategoryOptions.length === 0 ? <p className="text-xs text-slate-500">Categories appear after review lines load.</p> : null}
+                    {scopeCategoryOptions.length === 0 ? <p className="text-xs text-slate-500">Categories come from your catalog after sync.</p> : null}
                   </div>
                 </div>
                     </>
@@ -2952,7 +2970,11 @@ export function ProjectIntake() {
                               <input className="ui-input mt-1 h-8" value={line.roomName || ''} onChange={(e) => patchLineSuggestion(line.id, { roomName: e.target.value })} />
                             </label>
                             <label className="text-[11px] text-slate-600">Category
-                              <input className="ui-input mt-1 h-8" value={line.category || ''} onChange={(e) => patchLineSuggestion(line.id, { category: e.target.value || null })} />
+                              <CatalogCategorySelect
+                                value={line.category}
+                                options={scopeCategoryOptions}
+                                onChange={(v) => patchLineSuggestion(line.id, { category: v })}
+                              />
                             </label>
                             <label className="text-[11px] text-slate-600">Item
                               <input className="ui-input mt-1 h-8" value={line.itemName || ''} onChange={(e) => patchLineSuggestion(line.id, { itemName: e.target.value })} />
@@ -2964,7 +2986,17 @@ export function ProjectIntake() {
                               <input className="ui-input mt-1 h-8" value={line.description} onChange={(e) => patchLineSuggestion(line.id, { description: e.target.value })} />
                             </label>
                             <label className="text-[11px] text-slate-600">Quantity
-                              <input type="number" className="ui-input mt-1 h-8" value={line.qty} onChange={(e) => patchLineSuggestion(line.id, { qty: Number(e.target.value) || 0 })} />
+                              <input
+                                type="number"
+                                className="ui-input mt-1 h-8"
+                                value={numericInputValue(line.qty)}
+                                onChange={(e) => patchLineSuggestion(line.id, { qty: parseNumericInput(e.target.value) })}
+                                onBlur={() =>
+                                  setLineSuggestions((prev) =>
+                                    prev.map((entry) => (entry.id === line.id ? { ...entry, qty: entry.qty ?? 0 } : entry))
+                                  )
+                                }
+                              />
                             </label>
                             <label className="text-[11px] text-slate-600">Unit
                               <input className="ui-input mt-1 h-8" value={line.unit} onChange={(e) => patchLineSuggestion(line.id, { unit: e.target.value })} />
@@ -3001,7 +3033,11 @@ export function ProjectIntake() {
                             <input className="ui-input mt-1 h-8" value={line.roomName || ''} onChange={(e) => patchLineSuggestion(line.id, { roomName: e.target.value })} />
                           </label>
                           <label className="text-[11px] text-slate-600">Category
-                            <input className="ui-input mt-1 h-8" value={line.category || ''} onChange={(e) => patchLineSuggestion(line.id, { category: e.target.value || null })} />
+                            <CatalogCategorySelect
+                              value={line.category}
+                              options={scopeCategoryOptions}
+                              onChange={(v) => patchLineSuggestion(line.id, { category: v })}
+                            />
                           </label>
                           <label className="text-[11px] text-slate-600">Item
                             <input className="ui-input mt-1 h-8" value={line.itemName || ''} onChange={(e) => patchLineSuggestion(line.id, { itemName: e.target.value })} />
@@ -3013,7 +3049,17 @@ export function ProjectIntake() {
                             <input className="ui-input mt-1 h-8" value={line.description} onChange={(e) => patchLineSuggestion(line.id, { description: e.target.value })} />
                           </label>
                           <label className="text-[11px] text-slate-600">Quantity
-                            <input type="number" className="ui-input mt-1 h-8" value={line.qty} onChange={(e) => patchLineSuggestion(line.id, { qty: Number(e.target.value) || 0 })} />
+                            <input
+                              type="number"
+                              className="ui-input mt-1 h-8"
+                              value={numericInputValue(line.qty)}
+                              onChange={(e) => patchLineSuggestion(line.id, { qty: parseNumericInput(e.target.value) })}
+                              onBlur={() =>
+                                setLineSuggestions((prev) =>
+                                  prev.map((entry) => (entry.id === line.id ? { ...entry, qty: entry.qty ?? 0 } : entry))
+                                )
+                              }
+                            />
                           </label>
                           <label className="text-[11px] text-slate-600">Unit
                             <input className="ui-input mt-1 h-8" value={line.unit} onChange={(e) => patchLineSuggestion(line.id, { unit: e.target.value })} />
@@ -3127,6 +3173,35 @@ export function ProjectIntake() {
               <h3 className="text-sm font-semibold text-slate-800">Add to Catalog</h3>
               <button onClick={() => { setNewCatalogLineId(null); setNewCatalogDraft(null); }} className="h-7 px-2 rounded border border-slate-300 text-xs hover:bg-slate-50">Close</button>
             </div>
+            {newCatalogPeerSuggestion ? (
+              <div className="border-b border-blue-100 bg-blue-50/90 px-4 py-3 text-xs text-slate-700">
+                <p className="leading-relaxed">
+                  <span className="font-semibold text-slate-900">Catalog hint:</span>{' '}
+                  Other items matching &ldquo;{newCatalogPeerSuggestion.keywordsLabel}&rdquo; in this category —{' '}
+                  {newCatalogPeerSuggestion.peerCount === 1 ? '1 item' : `${newCatalogPeerSuggestion.peerCount} items`}
+                  {newCatalogPeerSuggestion.narrowedByUom ? ` (same unit: ${newCatalogDraft.unit})` : ''} average{' '}
+                  <span className="font-medium tabular-nums">{formatCurrencySafe(newCatalogPeerSuggestion.avgMaterialCost)}</span> material and{' '}
+                  <span className="font-medium tabular-nums">{formatNumberSafe(newCatalogPeerSuggestion.avgLaborMinutes, 1)}</span> min labor.
+                </p>
+                <button
+                  type="button"
+                  className="mt-2 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-blue-800 shadow-sm hover:bg-blue-50"
+                  onClick={() =>
+                    setNewCatalogDraft((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            materialCost: newCatalogPeerSuggestion.avgMaterialCost,
+                            laborMinutes: newCatalogPeerSuggestion.avgLaborMinutes,
+                          }
+                        : prev
+                    )
+                  }
+                >
+                  Use average material and labor
+                </button>
+              </div>
+            ) : null}
             <div className="p-4 grid grid-cols-2 gap-2">
               <label className="text-xs text-slate-600 col-span-2">Description
                 <input className="mt-1 h-8 w-full rounded border border-slate-300 px-2 text-sm" value={newCatalogDraft.description} onChange={(e) => setNewCatalogDraft({ ...newCatalogDraft, description: e.target.value })} />
@@ -3135,7 +3210,12 @@ export function ProjectIntake() {
                 <input className="mt-1 h-8 w-full rounded border border-slate-300 px-2 text-sm" value={newCatalogDraft.sku} onChange={(e) => setNewCatalogDraft({ ...newCatalogDraft, sku: e.target.value })} />
               </label>
               <label className="text-xs text-slate-600">Category
-                <input className="mt-1 h-8 w-full rounded border border-slate-300 px-2 text-sm" value={newCatalogDraft.category} onChange={(e) => setNewCatalogDraft({ ...newCatalogDraft, category: e.target.value })} />
+                <CatalogCategorySelect
+                  className="mt-1 h-8 w-full rounded border border-slate-300 px-2 text-sm"
+                  value={newCatalogDraft.category}
+                  options={scopeCategoryOptions}
+                  onChange={(v) => setNewCatalogDraft({ ...newCatalogDraft, category: v || '' })}
+                />
               </label>
               <label className="text-xs text-slate-600">Unit
                 <select className="mt-1 h-8 w-full rounded border border-slate-300 px-2 text-sm" value={newCatalogDraft.unit} onChange={(e) => setNewCatalogDraft({ ...newCatalogDraft, unit: e.target.value as CatalogItem['uom'] })}>
@@ -3147,10 +3227,26 @@ export function ProjectIntake() {
                 </select>
               </label>
               <label className="text-xs text-slate-600">Material Cost
-                <input type="number" className="mt-1 h-8 w-full rounded border border-slate-300 px-2 text-sm" value={newCatalogDraft.materialCost} onChange={(e) => setNewCatalogDraft({ ...newCatalogDraft, materialCost: Number(e.target.value) || 0 })} />
+                <input
+                  type="number"
+                  className="mt-1 h-8 w-full rounded border border-slate-300 px-2 text-sm"
+                  value={numericInputValue(newCatalogDraft.materialCost)}
+                  onChange={(e) => setNewCatalogDraft({ ...newCatalogDraft, materialCost: parseNumericInput(e.target.value) })}
+                  onBlur={() =>
+                    setNewCatalogDraft((d) => (d ? { ...d, materialCost: d.materialCost ?? 0 } : d))
+                  }
+                />
               </label>
               <label className="text-xs text-slate-600">Labor Minutes
-                <input type="number" className="mt-1 h-8 w-full rounded border border-slate-300 px-2 text-sm" value={newCatalogDraft.laborMinutes} onChange={(e) => setNewCatalogDraft({ ...newCatalogDraft, laborMinutes: Number(e.target.value) || 0 })} />
+                <input
+                  type="number"
+                  className="mt-1 h-8 w-full rounded border border-slate-300 px-2 text-sm"
+                  value={numericInputValue(newCatalogDraft.laborMinutes)}
+                  onChange={(e) => setNewCatalogDraft({ ...newCatalogDraft, laborMinutes: parseNumericInput(e.target.value) })}
+                  onBlur={() =>
+                    setNewCatalogDraft((d) => (d ? { ...d, laborMinutes: d.laborMinutes ?? 0 } : d))
+                  }
+                />
               </label>
             </div>
             <div className="p-3 border-t border-slate-200 flex justify-end gap-2">

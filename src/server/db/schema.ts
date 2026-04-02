@@ -277,6 +277,11 @@ export function initEstimatorSchema() {
     estimatorDb.exec('ALTER TABLE projects_v1 ADD COLUMN sub_labor_management_fee_percent REAL NOT NULL DEFAULT 5');
   }
 
+  const hasProposalIncludeSpecialNotes = projectColumns.some((column) => column.name === 'proposal_include_special_notes');
+  if (!hasProposalIncludeSpecialNotes) {
+    estimatorDb.exec('ALTER TABLE projects_v1 ADD COLUMN proposal_include_special_notes INTEGER NOT NULL DEFAULT 0');
+  }
+
   estimatorDb.exec("UPDATE projects_v1 SET job_conditions_json = '{}' WHERE job_conditions_json IS NULL OR trim(job_conditions_json) = ''");
   estimatorDb.exec("UPDATE projects_v1 SET scope_categories_json = '[]' WHERE scope_categories_json IS NULL OR trim(scope_categories_json) = ''");
   const hasBaseMaterialCost = takeoffColumns.some((column) => column.name === 'base_material_cost');

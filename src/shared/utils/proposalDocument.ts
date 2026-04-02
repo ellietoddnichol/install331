@@ -13,6 +13,7 @@ export interface ProposalLineItem {
   id: string;
   section: string;
   description: string;
+  subtitle: string | null;
   quantity: number;
   unit: string;
   total: number;
@@ -22,6 +23,8 @@ export interface ProposalScheduleItem {
   id: string;
   section: string;
   description: string;
+  /** Model #, ratings, size — shown under the friendly title on client proposals */
+  subtitle: string | null;
   quantity: number;
   materialCost: number;
   laborCost: number;
@@ -67,6 +70,111 @@ function compactProposalItemName(value: string): string {
   const base = sentenceBreak > 0 ? normalized.slice(0, sentenceBreak) : normalized;
   if (base.length <= 88) return base;
   return `${base.slice(0, 85).trim()}...`;
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const SMALL_UNITS = new Set(['lb', 'lbs', 'oz', 'gal', 'ft', 'in', 'ea', 'pcs', 'pc']);
+
+/** Leading catalog model / SKU token (e.g. FE05C, GB-36) */
+const LEADING_MODEL = /^([A-Za-z]{1,6}(?:-\d{2,}[A-Za-z0-9-]*|\d{2,}[A-Za-z0-9-]*))\s+/;
+/** UL-style class suffix (e.g. 3A-40BC) */
+const TRAILING_RATING = /\s+(\d{1,2}A-\d{1,4}[A-Z0-9-]*)\s*$/i;
+const WEIGHT_IN_TEXT = /\b(\d+)\s*(lb|lbs|oz)\b/gi;
+
+function toProposalItemTitleCase(s: string): string {
+  const words = s.trim().split(/\s+/).filter(Boolean);
+  return words
+    .map((word, index) => {
+      if (/^\d+([./]\d+)?$/.test(word)) return word;
+      const unitGlue = word.match(/^(\d+(?:\.\d+)?)(lb|lbs|oz|gal|ft|in|ea)$/i);
+      if (unitGlue) return `${unitGlue[1]} ${unitGlue[2].toLowerCase()}`;
+      const lower = word.toLowerCase();
+      if (SMALL_UNITS.has(lower) && index > 0) return lower;
+      if (word.length <= 1) return word.toUpperCase();
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(' ');
+}
+
+function ensureFireExtinguisherWording(s: string): string {
+  const lower = s.toLowerCase();
+  if (!/\bextinguishers?\b/.test(lower)) return s;
+  if (/\bfire\b/.test(lower)) return s;
+  return s
+    .replace(/\bextinguishers\b/gi, 'fire extinguishers')
+    .replace(/\bextinguisher\b/gi, 'fire extinguisher');
+}
+
+/**
+ * Turns dense catalog lines into a client-facing title plus a subtitle for model #, class, and size.
+ * Example: "FE05C Cosmic 5lb Extinguisher 3A-40BC" → title "Cosmic Fire Extinguisher", subtitle "FE05C · 5 lb · 3A-40BC"
+ */
+export function formatClientProposalItemDisplay(
+  rawDescription: string,
+  sku: string | null
+): { title: string; subtitle: string | null } {
+  let s = String(rawDescription || '').replace(/\s+/g, ' ').trim();
+  if (!s) return { title: '', subtitle: null };
+
+  const subtitleParts: string[] = [];
+  const seen = new Set<string>();
+
+  const pushSubtitle = (part: string) => {
+    const t = part.trim();
+    if (!t) return;
+    const key = t.toUpperCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    subtitleParts.push(t);
+  };
+
+  const skuTrim = (sku || '').trim();
+  const leadMatch = s.match(LEADING_MODEL);
+  if (leadMatch) {
+    const code = leadMatch[1]!;
+    const codeKey = code.toUpperCase();
+    pushSubtitle(skuTrim && skuTrim.toUpperCase() === codeKey ? skuTrim : code);
+    if (skuTrim && skuTrim.toUpperCase() !== codeKey) {
+      pushSubtitle(skuTrim);
+    }
+    s = s.slice(leadMatch[0].length).trim();
+  } else if (skuTrim) {
+    const stripped = s.replace(new RegExp(`^${escapeRegex(skuTrim)}\\s*[-–:.]?\\s*`, 'i'), '').trim();
+    if (stripped.length < s.length) {
+      s = stripped;
+    }
+    pushSubtitle(skuTrim);
+  }
+
+  const ratingMatch = s.match(TRAILING_RATING);
+  if (ratingMatch) {
+    pushSubtitle(ratingMatch[1]!);
+    s = s.replace(ratingMatch[0], '').trim();
+  }
+
+  if (/\bextinguishers?\b/i.test(s)) {
+    s = s.replace(WEIGHT_IN_TEXT, (full, n: string, u: string) => {
+      const unit = u.toLowerCase() === 'lbs' ? 'lb' : u.toLowerCase();
+      pushSubtitle(`${n} ${unit}`);
+      return ' ';
+    });
+    s = s.replace(/\s+/g, ' ').trim();
+  }
+
+  s = ensureFireExtinguisherWording(s);
+  s = toProposalItemTitleCase(s);
+
+  const maxTitle = 88;
+  let title = s;
+  if (title.length > maxTitle) {
+    title = `${title.slice(0, 85).trim()}…`;
+  }
+
+  const subtitle = subtitleParts.length ? subtitleParts.join(' · ') : null;
+  return { title, subtitle };
 }
 
 export function toSentenceCase(value: string): string {
@@ -131,15 +239,19 @@ export function buildProposalLineItems(lines: TakeoffLineRecord[]): ProposalLine
 
   lines.forEach((line) => {
     const section = getProposalSectionLabel(line);
-    const description = compactProposalItemName(String(line.description || ''));
+    const rawCompact = compactProposalItemName(String(line.description || ''));
     const unit = String(line.unit || 'EA').trim() || 'EA';
-    if (!description) return;
+    if (!rawCompact) return;
 
-    const key = [section, String(line.sku || '').trim().toLowerCase(), description.toLowerCase(), unit.toLowerCase()].join('|');
+    const display = formatClientProposalItemDisplay(rawCompact, line.sku);
+    if (!display.title) return;
+
+    const key = [section, String(line.sku || '').trim().toLowerCase(), rawCompact.toLowerCase(), unit.toLowerCase()].join('|');
     const existing = aggregated.get(key) || {
       id: key,
       section,
-      description,
+      description: display.title,
+      subtitle: display.subtitle,
       quantity: 0,
       unit,
       total: 0,
@@ -180,16 +292,20 @@ export function buildProposalScheduleSections(
 
   lines.forEach((line) => {
     const section = getProposalSectionLabel(line);
-    const description = compactProposalItemName(String(line.description || ''));
+    const rawCompact = compactProposalItemName(String(line.description || ''));
     const unit = String(line.unit || 'EA').trim() || 'EA';
-    if (!description) return;
+    if (!rawCompact) return;
+
+    const display = formatClientProposalItemDisplay(rawCompact, line.sku);
+    if (!display.title) return;
 
     const sectionItems = sectionMap.get(section) || new Map<string, ProposalScheduleItem>();
-    const key = [String(line.sku || '').trim().toLowerCase(), description.toLowerCase(), unit.toLowerCase()].join('|');
+    const key = [String(line.sku || '').trim().toLowerCase(), rawCompact.toLowerCase(), unit.toLowerCase()].join('|');
     const existing = sectionItems.get(key) || {
       id: `${section}|${key}`,
       section,
-      description,
+      description: display.title,
+      subtitle: display.subtitle,
       quantity: 0,
       materialCost: 0,
       laborCost: 0,

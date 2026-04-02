@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTransientNumericField } from '../../hooks/useTransientNumericField';
 import { BundleRecord, ModifierRecord, TakeoffLineRecord } from '../../shared/types/estimator';
 import { BundleSelector } from './BundleSelector';
 import { ModifierPanel } from './ModifierPanel';
@@ -27,6 +28,29 @@ interface Props {
   onApplyBundle: (bundleId: string) => void;
 }
 
+function DrawerQtyInput({
+  lineId,
+  qty,
+  onPatchLine,
+  onPersistLine,
+}: {
+  lineId: string;
+  qty: number;
+  onPatchLine: (lineId: string, updates: Partial<TakeoffLineRecord>) => void;
+  onPersistLine: (lineId: string) => void;
+}) {
+  const field = useTransientNumericField({
+    syncKey: `${lineId}-drawer-qty`,
+    committed: qty,
+    onLive: (n) => onPatchLine(lineId, { qty: n }),
+    onCommit: (n) => {
+      onPatchLine(lineId, { qty: n });
+      onPersistLine(lineId);
+    },
+  });
+  return <input className="h-7 w-full rounded border border-slate-300 px-2 text-xs focus:outline-none focus:border-blue-300" {...field.inputProps} />;
+}
+
 export function RightDetailDrawer({
   viewMode,
   selectedLine,
@@ -49,7 +73,7 @@ export function RightDetailDrawer({
           <div className="space-y-1.5">
             <input className="h-7 w-full rounded border border-slate-300 px-2 text-xs focus:outline-none focus:border-blue-300" value={selectedLine.description} onChange={(e) => onPatchLine(selectedLine.id, { description: e.target.value })} onBlur={() => onPersistLine(selectedLine.id)} />
             <div className="grid grid-cols-2 gap-2">
-              <input type="number" className="h-7 w-full rounded border border-slate-300 px-2 text-xs focus:outline-none focus:border-blue-300" value={selectedLine.qty} onChange={(e) => onPatchLine(selectedLine.id, { qty: Number(e.target.value) || 0 })} onBlur={() => onPersistLine(selectedLine.id)} />
+              <DrawerQtyInput lineId={selectedLine.id} qty={selectedLine.qty} onPatchLine={onPatchLine} onPersistLine={onPersistLine} />
               <input className="h-7 w-full rounded border border-slate-300 px-2 text-xs focus:outline-none focus:border-blue-300" value={selectedLine.unit} onChange={(e) => onPatchLine(selectedLine.id, { unit: e.target.value })} onBlur={() => onPersistLine(selectedLine.id)} />
             </div>
             {isTakeoffView ? (

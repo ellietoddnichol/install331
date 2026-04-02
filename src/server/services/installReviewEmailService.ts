@@ -29,7 +29,8 @@ function buildScopeLines(lines: TakeoffLineRecord[]): string[] {
 	const grouped = buildProposalLineItems(lines).filter((line) => isPlausibleProposalScopeSnippet(line.description || ''));
 	const visible = grouped.slice(0, 20).map((line) => {
 		const quantity = Number.isInteger(line.quantity) ? String(line.quantity) : formatNumberSafe(line.quantity, 2);
-		return `${line.description}: ${quantity} ${line.unit}`;
+		const detail = line.subtitle ? ` (${line.subtitle})` : '';
+		return `${line.description}${detail}: ${quantity} ${line.unit}`;
 	});
 
 	if (grouped.length > 20) {

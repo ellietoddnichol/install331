@@ -7,12 +7,11 @@ import { formatCurrencySafe, formatNumberSafe } from '../../utils/numberFormat';
 interface Props {
   project: ProjectRecord;
   settings: SettingsRecord | null;
-  website: string;
   lines: TakeoffLineRecord[];
   summary: EstimateSummary | null;
 }
 
-export function ProposalPreview({ project, settings, website, lines, summary }: Props) {
+export function ProposalPreview({ project, settings, lines, summary }: Props) {
   if (!summary) return <div className="text-sm text-slate-500">No estimate data yet.</div>;
 
   const pricingMode = project.pricingMode || 'labor_and_material';
@@ -54,42 +53,42 @@ export function ProposalPreview({ project, settings, website, lines, summary }: 
   const sectionHeadingClass =
     'text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 after:block after:mt-2 after:h-px after:w-8 after:bg-slate-400';
 
+  const contactLine = [settings?.companyPhone, settings?.companyEmail].filter(Boolean).join(' · ');
+
   return (
     <article
       data-proposal-document="true"
-      className="print-proposal proposal-document mx-auto min-h-[11in] w-full max-w-[8.25in] bg-white px-[0.55in] py-[0.6in] text-slate-900 shadow-[0_22px_56px_rgba(15,23,42,0.06)]"
+      className="print-proposal proposal-document mx-auto min-h-[11in] w-full max-w-[8.25in] bg-white px-[0.55in] py-[0.55in] text-slate-900 shadow-[0_22px_56px_rgba(15,23,42,0.06)]"
     >
-      <header className="proposal-avoid-break border-b border-slate-200/90 pb-8">
-        <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex min-w-0 items-start gap-4">
+      <header className="proposal-avoid-break border-b border-slate-200/90 pb-5">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-stretch lg:justify-between lg:gap-6">
+          <div className="flex min-w-0 flex-1 gap-4 sm:gap-5">
             {settings?.logoUrl ? (
-              <img src={settings.logoUrl} alt="Company logo" className="h-12 w-12 shrink-0 object-contain opacity-95" />
+              <div className="flex shrink-0 flex-col items-center justify-start sm:items-start">
+                <div className="flex h-[4.25rem] w-[4.25rem] items-center justify-center rounded-xl border border-slate-200/90 bg-slate-50/80 p-2 shadow-sm sm:h-[4.75rem] sm:w-[4.75rem]">
+                  <img src={settings.logoUrl} alt="" className="max-h-full max-w-full object-contain" />
+                </div>
+              </div>
             ) : null}
-            <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">Proposal for bid</p>
-              <h1 className="mt-1.5 text-[26px] font-semibold leading-tight tracking-[-0.03em] text-slate-950">
-                {settings?.companyName || 'Brighten Builders, LLC'}
+            <div
+              className={`min-w-0 flex flex-1 flex-col justify-center border-slate-100 sm:pl-5 ${settings?.logoUrl ? 'sm:border-l' : ''}`}
+            >
+              <p className="text-[9px] font-semibold uppercase tracking-[0.22em] text-slate-400">Proposal for bid</p>
+              <h1 className="mt-1 text-[1.35rem] font-semibold leading-[1.2] tracking-tight text-slate-950 sm:text-[1.5rem]">
+                {settings?.companyName || 'Company name'}
               </h1>
-              <div className="mt-3 max-w-md space-y-0.5 text-[12.5px] leading-relaxed text-slate-600">
+              <div className="mt-2 space-y-1 text-[12px] leading-snug text-slate-600">
                 {settings?.companyAddress ? <p>{settings.companyAddress}</p> : null}
-                <p>
-                  {[settings?.companyPhone, settings?.companyEmail].filter(Boolean).join(' · ')}
-                  {website ? (
-                    <>
-                      {(settings?.companyPhone || settings?.companyEmail) && ' · '}
-                      {website}
-                    </>
-                  ) : null}
-                </p>
+                {contactLine ? <p className="text-slate-600">{contactLine}</p> : null}
               </div>
             </div>
           </div>
-          <div className="min-w-0 border-t border-slate-100 pt-6 text-[13px] text-slate-600 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0 lg:text-right">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Prepared for</p>
-            <p className="mt-2 text-[17px] font-semibold leading-snug text-slate-950">{project.projectName}</p>
-            <p className="mt-1 text-slate-600">{project.clientName || 'Client'}</p>
-            {project.address ? <p className="mt-1 max-w-xs leading-relaxed lg:ml-auto">{project.address}</p> : null}
-            <p className="mt-3 text-[12px] text-slate-500">
+          <div className="min-w-0 border-t border-slate-100 pt-4 text-[12px] text-slate-600 lg:w-[min(100%,13.5rem)] lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0 lg:text-right xl:w-[14rem]">
+            <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-slate-400">Prepared for</p>
+            <p className="mt-1.5 text-[15px] font-semibold leading-snug text-slate-950">{project.projectName}</p>
+            <p className="mt-0.5 text-slate-600">{project.clientName || 'Client'}</p>
+            {project.address ? <p className="mt-1 max-w-xs leading-relaxed text-slate-600 lg:ml-auto">{project.address}</p> : null}
+            <p className="mt-2 text-[11px] text-slate-500">
               Ref. {project.projectNumber || project.id.slice(0, 8)}
               <span className="text-slate-300"> · </span>
               {proposalDate}
@@ -127,7 +126,12 @@ export function ProposalPreview({ project, settings, website, lines, summary }: 
                 </div>
                 {section.items.map((item) => (
                   <div key={item.id} className="proposal-line-item grid grid-cols-[1fr_auto] gap-x-6 border-b border-slate-100 py-2.5">
-                    <p className="min-w-0 pr-2 leading-snug text-slate-800">{item.description}</p>
+                    <div className="min-w-0 pr-2 leading-snug text-slate-800">
+                      <p className="font-medium text-slate-900">{item.description}</p>
+                      {item.subtitle ? (
+                        <p className="mt-0.5 text-[11px] leading-snug tracking-wide text-slate-500">{item.subtitle}</p>
+                      ) : null}
+                    </div>
                     <p className="shrink-0 self-start text-right tabular-nums text-slate-700">
                       <span className="font-medium text-slate-900">{formatNumberSafe(item.quantity, 2)}</span>
                       <span className="text-slate-500"> {item.unit}</span>
@@ -154,7 +158,7 @@ export function ProposalPreview({ project, settings, website, lines, summary }: 
         </div>
       </section>
 
-      {project.specialNotes?.trim() ? (
+      {project.proposalIncludeSpecialNotes && project.specialNotes?.trim() ? (
         <section className="mt-10 proposal-section proposal-avoid-break">
           <h2 className={sectionHeadingClass}>Additional notes</h2>
           <p className="mt-5 max-w-[42rem] whitespace-pre-wrap text-[14px] leading-[1.65] text-slate-600">{project.specialNotes}</p>
