@@ -13,29 +13,20 @@ options:
   logging: CLOUD_LOGGING_ONLY
 
 steps:
+  # Tag image with COMMIT_SHA only (same ref deploy uses). Avoids parallel :latest pushes and tag races.
   - id: build
     name: gcr.io/cloud-builders/docker
     args:
       - build
       - -t
-      - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_SERVICE_NAME:$COMMIT_SHA
-      - -t
-      - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_SERVICE_NAME:latest
+      - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_IMAGE_NAME:$COMMIT_SHA
       - .
 
-  - id: push-sha
+  - id: push
     name: gcr.io/cloud-builders/docker
     args:
       - push
       - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_IMAGE_NAME:$COMMIT_SHA
-    waitFor:
-      - build
-
-  - id: push-latest
-    name: gcr.io/cloud-builders/docker
-    args:
-      - push
-      - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_IMAGE_NAME:latest
     waitFor:
       - build
 
@@ -51,8 +42,4 @@ steps:
       - --platform=managed
       - --quiet
     waitFor:
-      - push-sha
-
-images:
-  - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_IMAGE_NAME:$COMMIT_SHA
-  - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_IMAGE_NAME:latest
+      - push
