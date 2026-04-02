@@ -2240,17 +2240,17 @@ export function ProjectIntake() {
   return (
     <div className="ui-page space-y-4">
       <div className="flex items-center gap-3">
-        <button onClick={() => navigate('/')} className="ui-btn-secondary h-9 w-9 grid place-items-center px-0">
+        <button type="button" onClick={() => navigate('/')} className="ui-btn-secondary h-9 w-9 grid place-items-center px-0" aria-label="Back to dashboard">
           <ArrowLeft className="w-4 h-4" />
         </button>
         <div>
           <p className="ui-label">New Project</p>
-          <h1 className="text-2xl font-semibold text-slate-900 mt-1">Create New Project</h1>
-          <p className="text-sm text-slate-500">Choose a start type and confirm project details.</p>
+          <h1 className="ui-title mt-1">Create New Project</h1>
+          <p className="ui-subtitle mt-1">Choose a start type and confirm project details.</p>
         </div>
       </div>
 
-      <div className="ui-surface p-2 flex flex-wrap items-center gap-2 text-xs font-medium">
+      <div className="ui-surface flex flex-wrap items-center gap-1 p-1.5 text-xs font-medium">
         {[
           '1. Start Type',
           '2. Source',
@@ -2260,7 +2260,7 @@ export function ProjectIntake() {
         ].map((label, index) => {
           const active = step >= index + 1;
           return (
-            <span key={label} className={`px-2.5 py-1 rounded-md ${active ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600'}`}>
+            <span key={label} className={`rounded-md px-2.5 py-1 font-semibold ${active ? 'bg-blue-700 text-white shadow-sm' : 'bg-slate-100 text-slate-600'}`}>
               {label}
             </span>
           );
@@ -2280,9 +2280,10 @@ export function ProjectIntake() {
               const active = mode === option.key;
               return (
                 <button
+                  type="button"
                   key={option.key}
                   onClick={() => setMode(option.key as CreationMode)}
-                  className={`text-left border rounded-lg p-3.5 transition ${active ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-slate-200 bg-slate-50/40 hover:border-slate-300'}`}
+                  className={`text-left rounded-lg border p-3.5 outline-none transition focus-visible:ring-2 focus-visible:ring-blue-500/35 focus-visible:ring-offset-2 ${active ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-slate-200 bg-slate-50/40 hover:border-slate-300'}`}
                 >
                   <div className="flex items-start gap-2">
                     <option.icon className={`w-4 h-4 mt-0.5 ${active ? 'text-blue-700' : 'text-slate-500'}`} />
@@ -2297,7 +2298,7 @@ export function ProjectIntake() {
           </div>
 
           <div className="flex justify-end pt-1">
-            <button onClick={() => setStep(2)} className="h-9 px-4 rounded-md bg-blue-700 text-white text-sm font-medium hover:bg-blue-800">
+            <button type="button" onClick={() => setStep(2)} className="ui-btn-primary h-9 px-4">
               Next
             </button>
           </div>
@@ -2455,8 +2456,8 @@ export function ProjectIntake() {
           )}
 
           <div className="flex justify-between pt-1">
-            <button onClick={() => setStep(1)} className="h-9 px-4 rounded-md border border-slate-300 text-sm font-medium hover:bg-slate-50">Back</button>
-            <button onClick={() => void proceedToBasics()} disabled={takeoffUploadState === 'processing'} className="ui-btn-primary h-9 px-4 disabled:opacity-50">{takeoffUploadState === 'processing' ? 'Processing Upload...' : 'Continue to Basics'}</button>
+            <button type="button" onClick={() => setStep(1)} className="h-9 px-4 rounded-md border border-slate-300 text-sm font-medium hover:bg-slate-50">Back</button>
+            <button type="button" onClick={() => void proceedToBasics()} disabled={takeoffUploadState === 'processing'} className="ui-btn-primary h-9 px-4 disabled:opacity-50">{takeoffUploadState === 'processing' ? 'Processing Upload...' : 'Continue to Basics'}</button>
           </div>
         </section>
       )}
@@ -2795,8 +2796,8 @@ export function ProjectIntake() {
               </div>
 
               <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-2">
-                <button onClick={() => setStep(step === 3 ? 2 : 3)} className="ui-btn-secondary">Back</button>
-                <button onClick={() => (step === 3 ? proceedToPricingSetup() : proceedToReviewItems())} className="ui-btn-primary h-9 px-4">
+                <button type="button" onClick={() => setStep(step === 3 ? 2 : 3)} className="ui-btn-secondary">Back</button>
+                <button type="button" onClick={() => (step === 3 ? proceedToPricingSetup() : proceedToReviewItems())} className="ui-btn-primary h-9 px-4">
                   {step === 3 ? 'Continue to Pricing' : 'Continue to Review'}
                 </button>
               </div>
@@ -2806,7 +2807,7 @@ export function ProjectIntake() {
           {step === 5 && (
             <>
           {parserReviewSummary ? (
-            <div className={`rounded-[28px] border p-5 shadow-sm ${
+            <div className={`rounded-2xl border p-5 shadow-sm ${
               parserReviewSummary.recommendedAction === 'auto-import'
                 ? 'border-emerald-200 bg-emerald-50/80'
                 : parserReviewSummary.recommendedAction === 'manual-template'
@@ -2827,7 +2828,7 @@ export function ProjectIntake() {
                 </div>
 
                 {parserReviewSummary.recommendedAction === 'manual-template' ? (
-                  <button onClick={applyManualTemplateFallback} className="inline-flex h-10 items-center rounded-full bg-red-600 px-4 text-[11px] font-semibold text-white hover:bg-red-700">
+                  <button type="button" onClick={applyManualTemplateFallback} className="inline-flex h-10 items-center rounded-full bg-red-600 px-4 text-[11px] font-semibold text-white outline-none hover:bg-red-700 focus-visible:ring-2 focus-visible:ring-red-400/50">
                     Use Manual Template
                   </button>
                 ) : null}
@@ -2835,29 +2836,29 @@ export function ProjectIntake() {
 
               <div className="mt-4 grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-                  <div className="rounded-2xl border border-white/70 bg-white/70 px-3 py-3">
+                  <div className="rounded-xl border border-white/70 bg-white/70 px-3 py-3">
                     <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Overall Confidence</p>
                     <p className="mt-2 text-lg font-semibold text-slate-950">{formatConfidencePercent(parserReviewSummary.overallConfidence)}</p>
                   </div>
-                  <div className="rounded-2xl border border-white/70 bg-white/70 px-3 py-3">
+                  <div className="rounded-xl border border-white/70 bg-white/70 px-3 py-3">
                     <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Parsed Qty</p>
                     <p className="mt-2 text-lg font-semibold text-slate-950">{formatNumberSafe(parsedQuantityTotal)}</p>
                   </div>
-                  <div className="rounded-2xl border border-white/70 bg-white/70 px-3 py-3">
+                  <div className="rounded-xl border border-white/70 bg-white/70 px-3 py-3">
                     <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Validation Errors</p>
                     <p className="mt-2 text-lg font-semibold text-slate-950">{parserReviewSummary.validationErrors.length}</p>
                   </div>
-                  <div className="rounded-2xl border border-white/70 bg-white/70 px-3 py-3">
+                  <div className="rounded-xl border border-white/70 bg-white/70 px-3 py-3">
                     <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Validation Warnings</p>
                     <p className="mt-2 text-lg font-semibold text-slate-950">{parserReviewSummary.validationWarnings.length}</p>
                   </div>
-                  <div className="rounded-2xl border border-white/70 bg-white/70 px-3 py-3">
+                  <div className="rounded-xl border border-white/70 bg-white/70 px-3 py-3">
                     <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Parse Warnings</p>
                     <p className="mt-2 text-lg font-semibold text-slate-950">{parserReviewSummary.parseWarnings.length}</p>
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-white/70 bg-white/70 p-4 text-sm text-slate-700">
+                <div className="rounded-xl border border-white/70 bg-white/70 p-4 text-sm text-slate-700">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Source Summary</p>
                   <div className="mt-3 space-y-1.5">
                     <p><span className="font-medium text-slate-900">File:</span> {parserReviewSummary.sourceSummary?.fileName || takeoffFileName || uploadedFileName || 'Current upload'}</p>
@@ -2869,7 +2870,7 @@ export function ProjectIntake() {
 
               {(parserReviewSummary.validationErrors.length > 0 || parserReviewSummary.validationWarnings.length > 0 || parserReviewSummary.parseWarnings.length > 0) ? (
                 <div className="mt-4 grid gap-4 xl:grid-cols-3">
-                  <div className="rounded-2xl border border-white/70 bg-white/70 p-4">
+                  <div className="rounded-xl border border-white/70 bg-white/70 p-4">
                     <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Validation Errors</p>
                     {parserReviewSummary.validationErrors.length > 0 ? (
                       <ul className="mt-3 space-y-1 text-xs text-red-700">
@@ -2877,7 +2878,7 @@ export function ProjectIntake() {
                       </ul>
                     ) : <p className="mt-3 text-xs text-slate-500">No blocking validation errors.</p>}
                   </div>
-                  <div className="rounded-2xl border border-white/70 bg-white/70 p-4">
+                  <div className="rounded-xl border border-white/70 bg-white/70 p-4">
                     <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Validation Warnings</p>
                     {parserReviewSummary.validationWarnings.length > 0 ? (
                       <ul className="mt-3 space-y-1 text-xs text-amber-700">
@@ -2885,7 +2886,7 @@ export function ProjectIntake() {
                       </ul>
                     ) : <p className="mt-3 text-xs text-slate-500">No validation warnings.</p>}
                   </div>
-                  <div className="rounded-2xl border border-white/70 bg-white/70 p-4">
+                  <div className="rounded-xl border border-white/70 bg-white/70 p-4">
                     <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Parser Warnings</p>
                     {parserReviewSummary.parseWarnings.length > 0 ? (
                       <ul className="mt-3 space-y-1 text-xs text-slate-700">
@@ -2897,7 +2898,7 @@ export function ProjectIntake() {
               ) : null}
 
               {groupedWarningSummaries.length > 0 ? (
-                <div className="mt-4 rounded-2xl border border-white/70 bg-white/70 p-4">
+                <div className="mt-4 rounded-xl border border-white/70 bg-white/70 p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Grouped Warnings</p>
@@ -2916,7 +2917,7 @@ export function ProjectIntake() {
                           : 'border-slate-200 bg-slate-50/80 text-slate-900';
 
                       return (
-                        <div key={group.key} className={`rounded-2xl border p-3 ${toneClass}`}>
+                        <div key={group.key} className={`rounded-xl border p-3 ${toneClass}`}>
                           <div className="flex items-start justify-between gap-3">
                             <div>
                               <p className="text-xs font-semibold">{group.label}</p>
@@ -3073,12 +3074,14 @@ export function ProjectIntake() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[11px] text-slate-500 mr-auto">Source {line.sourceReference || 'unknown'}</span>
                         <button
+                          type="button"
                           onClick={() => setCatalogPickerLineId(line.id)}
                           className="ui-btn-secondary h-7 px-2 text-xs"
                         >
                           Match
                         </button>
                         <button
+                          type="button"
                           onClick={() => openNewCatalogFromLine(line.id)}
                           className="ui-btn-secondary h-7 px-2 text-xs"
                         >
@@ -3086,6 +3089,7 @@ export function ProjectIntake() {
                         </button>
                         {line.include ? (
                           <button
+                            type="button"
                             onClick={() => ignoreLine(line.id)}
                             className="h-7 px-2 rounded border border-red-200 text-red-700 bg-white text-xs hover:bg-red-50"
                           >
@@ -3093,6 +3097,7 @@ export function ProjectIntake() {
                           </button>
                         ) : (
                           <button
+                            type="button"
                             onClick={() => reincludeLine(line.id)}
                             className="h-7 px-2 rounded border border-emerald-200 text-emerald-700 bg-white text-xs hover:bg-emerald-50"
                           >
@@ -3119,8 +3124,8 @@ export function ProjectIntake() {
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={() => setStep(4)} className="ui-btn-secondary">Back</button>
-              <button onClick={() => void handleCreateProject()} disabled={creating} className="ui-btn-primary h-9 px-4 disabled:opacity-50 inline-flex items-center gap-2">
+              <button type="button" onClick={() => setStep(4)} className="ui-btn-secondary">Back</button>
+              <button type="button" onClick={() => void handleCreateProject()} disabled={creating} className="ui-btn-primary h-9 px-4 disabled:opacity-50 inline-flex items-center gap-2">
                 <Save className="w-4 h-4" />
                 {creating ? 'Creating...' : 'Create Project'}
               </button>
@@ -3136,7 +3141,7 @@ export function ProjectIntake() {
           <div className="bg-white w-full max-w-4xl rounded-lg border border-slate-200 overflow-hidden">
             <div className="h-11 px-4 border-b border-slate-200 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-slate-800">Match Item</h3>
-              <button onClick={() => setCatalogPickerLineId(null)} className="h-7 px-2 rounded border border-slate-300 text-xs hover:bg-slate-50">Close</button>
+              <button type="button" onClick={() => setCatalogPickerLineId(null)} className="h-7 px-2 rounded border border-slate-300 text-xs hover:bg-slate-50">Close</button>
             </div>
             <div className="p-3 border-b border-slate-200">
               <div className="relative">
@@ -3152,9 +3157,10 @@ export function ProjectIntake() {
             <div className="p-3 max-h-[60vh] overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-2">
               {filteredCatalog.map((item) => (
                 <button
+                  type="button"
                   key={item.id}
                   onClick={() => applyExistingCatalogMatch(catalogPickerLineId, item)}
-                  className="text-left border border-slate-200 rounded p-2 hover:border-blue-400 hover:bg-blue-50/50"
+                  className="text-left rounded border border-slate-200 p-2 outline-none hover:border-blue-400 hover:bg-blue-50/50 focus-visible:ring-2 focus-visible:ring-blue-400/40"
                 >
                   <p className="text-xs text-slate-500">{item.category} · {item.sku}</p>
                   <p className="text-sm font-medium text-slate-900">{item.description}</p>
@@ -3171,7 +3177,7 @@ export function ProjectIntake() {
           <div className="bg-white w-full max-w-2xl rounded-lg border border-slate-200 overflow-hidden">
             <div className="h-11 px-4 border-b border-slate-200 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-slate-800">Add to Catalog</h3>
-              <button onClick={() => { setNewCatalogLineId(null); setNewCatalogDraft(null); }} className="h-7 px-2 rounded border border-slate-300 text-xs hover:bg-slate-50">Close</button>
+              <button type="button" onClick={() => { setNewCatalogLineId(null); setNewCatalogDraft(null); }} className="h-7 px-2 rounded border border-slate-300 text-xs hover:bg-slate-50">Close</button>
             </div>
             {newCatalogPeerSuggestion ? (
               <div className="border-b border-blue-100 bg-blue-50/90 px-4 py-3 text-xs text-slate-700">
@@ -3250,8 +3256,8 @@ export function ProjectIntake() {
               </label>
             </div>
             <div className="p-3 border-t border-slate-200 flex justify-end gap-2">
-              <button onClick={() => { setNewCatalogLineId(null); setNewCatalogDraft(null); }} className="h-8 px-3 rounded border border-slate-300 text-xs hover:bg-slate-50">Cancel</button>
-              <button onClick={() => void createCatalogItemFromLine()} className="h-8 px-3 rounded bg-blue-700 text-white text-xs hover:bg-blue-800">Add & Match</button>
+              <button type="button" onClick={() => { setNewCatalogLineId(null); setNewCatalogDraft(null); }} className="h-8 px-3 rounded border border-slate-300 text-xs hover:bg-slate-50">Cancel</button>
+              <button type="button" onClick={() => void createCatalogItemFromLine()} className="h-8 px-3 rounded bg-blue-700 text-white text-xs hover:bg-blue-800">Add & Match</button>
             </div>
           </div>
         </div>

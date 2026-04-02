@@ -133,7 +133,7 @@ export function Dashboard() {
               <button
                 key={project.id}
                 onClick={() => navigate(`/project/${project.id}`)}
-                className="w-full text-left rounded-md border border-slate-200 bg-slate-50/30 px-3 py-2 hover:border-blue-300 hover:bg-blue-50/30"
+                className="ui-list-hit ui-list-hit-muted"
               >
                 <p className="text-sm font-medium text-slate-900">{project.projectName}</p>
                 <p className="text-xs text-slate-500">
@@ -177,7 +177,7 @@ export function Dashboard() {
             key={stat.label}
             type="button"
             onClick={() => openDrilldown(stat.filter)}
-            className="ui-surface px-4 py-3 text-left transition-all cursor-pointer hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/40 active:translate-y-0 active:scale-[0.99]"
+            className="ui-surface px-4 py-3 text-left transition-shadow cursor-pointer hover:shadow-md hover:border-blue-200/80 hover:bg-blue-50/35 active:scale-[0.995] outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30 focus-visible:ring-offset-2"
           >
             <div className="flex items-start justify-between gap-3">
               <div>

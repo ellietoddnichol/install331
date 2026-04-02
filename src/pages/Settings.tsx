@@ -108,7 +108,7 @@ export function Settings() {
     reader.readAsDataURL(file);
   }
 
-  if (!settings) return <div className="p-6 text-sm text-slate-500">Loading settings...</div>;
+  if (!settings) return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading settings…</div>;
 
   return (
     <div className="ui-page-narrow space-y-4">
@@ -118,14 +118,14 @@ export function Settings() {
           <h1 className="text-2xl font-semibold mt-1">Settings</h1>
           <p className="ui-subtitle mt-1">Company profile, proposal defaults, and catalog sync administration.</p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => void backfillTakeoffRegistry()} disabled={backfillingRegistry || syncing} className="ui-btn-secondary disabled:opacity-50">
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => void backfillTakeoffRegistry()} disabled={backfillingRegistry || syncing} className="ui-btn-secondary disabled:opacity-50">
             {backfillingRegistry ? 'Backfilling...' : 'Backfill Takeoff Registry'}
           </button>
-          <button onClick={() => void syncSheets()} disabled={syncing} className="ui-btn-secondary disabled:opacity-50">
+          <button type="button" onClick={() => void syncSheets()} disabled={syncing} className="ui-btn-secondary disabled:opacity-50">
             {syncing ? 'Syncing...' : 'Sync Google Sheets'}
           </button>
-          <button onClick={() => void saveSettings()} disabled={saving} className="ui-btn-primary disabled:opacity-60">
+          <button type="button" onClick={() => void saveSettings()} disabled={saving} className="ui-btn-primary disabled:opacity-60">
             {saving ? 'Saving...' : 'Save Settings'}
           </button>
         </div>
@@ -181,8 +181,8 @@ export function Settings() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-slate-200 text-slate-500">
+              <thead className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 text-slate-500 backdrop-blur-sm">
+                <tr>
                   <th className="text-left py-2 pr-2">Attempted</th>
                   <th className="text-left py-2 pr-2">Status</th>
                   <th className="text-left py-2 pr-2">Counts</th>

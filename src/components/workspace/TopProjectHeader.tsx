@@ -32,7 +32,7 @@ export function TopProjectHeader({
   const syncColor = syncState === 'ok' ? 'text-emerald-700 bg-emerald-50 border-emerald-100' : syncState === 'error' ? 'text-red-700 bg-red-50 border-red-100' : 'text-slate-600 bg-slate-50 border-slate-200';
 
   return (
-    <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white px-3 py-2 md:px-4">
+    <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 px-3 py-2.5 md:px-4 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-white/90">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex items-start gap-4">
           <div className="min-w-0">
@@ -60,24 +60,24 @@ export function TopProjectHeader({
             <p className="mt-0.5 text-lg font-semibold tabular-nums text-slate-900">{formatCurrencySafe(baseBidTotal)}</p>
           </div>
           <div className="flex items-center gap-2">
-            <div className="hidden md:flex items-center gap-1 rounded-full bg-white/75 p-1 shadow-sm ring-1 ring-slate-200/80 backdrop-blur">
-              <button onClick={() => onSave()} className="h-8 rounded-full px-3 text-[11px] font-medium text-slate-700 hover:bg-slate-100 flex items-center gap-1">
+            <div className="hidden md:flex items-center gap-1 rounded-full bg-white/80 p-1 shadow-sm ring-1 ring-slate-200/80 backdrop-blur-sm">
+              <button type="button" onClick={() => onSave()} className="h-8 rounded-full px-3 text-[11px] font-medium text-slate-700 outline-none hover:bg-slate-100 flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-blue-400/40">
             <Save className="w-3.5 h-3.5" /> Save
           </button>
-              <button onClick={onPreviewProposal} className="h-8 rounded-full px-3 text-[11px] font-medium text-slate-700 hover:bg-slate-100 flex items-center gap-1">
+              <button type="button" onClick={onPreviewProposal} className="h-8 rounded-full px-3 text-[11px] font-medium text-slate-700 outline-none hover:bg-slate-100 flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-blue-400/40">
             <FileText className="w-3.5 h-3.5" /> <span className="hidden lg:inline">Preview</span>
           </button>
-              <button onClick={onExport} className="h-8 rounded-full px-3 text-[11px] font-medium text-slate-700 hover:bg-slate-100 flex items-center gap-1">
+              <button type="button" onClick={onExport} className="h-8 rounded-full px-3 text-[11px] font-medium text-slate-700 outline-none hover:bg-slate-100 flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-blue-400/40">
             <FileDown className="w-3.5 h-3.5" /> Export PDF
           </button>
             </div>
-            <button onClick={() => onDeleteProject()} className="hidden md:inline-flex ui-ghost-btn items-center gap-1.5 text-[11px] text-red-700 hover:bg-red-50 hover:text-red-700">
+            <button type="button" onClick={() => onDeleteProject()} className="hidden md:inline-flex ui-ghost-btn items-center gap-1.5 text-[11px] text-red-700 hover:bg-red-50 hover:text-red-700">
             <Trash2 className="w-3.5 h-3.5" /> Delete
           </button>
-            <button onClick={() => onSave()} className="md:hidden h-8 px-3 rounded-full border border-slate-300 bg-white text-slate-700 text-[11px] font-medium hover:bg-slate-50 flex items-center gap-1">
+            <button type="button" onClick={() => onSave()} className="md:hidden h-8 px-3 rounded-full border border-slate-300 bg-white text-slate-700 text-[11px] font-medium outline-none hover:bg-slate-50 flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-blue-400/40">
               <Save className="w-3.5 h-3.5" /> Save
             </button>
-            <button onClick={() => onSubmitBid()} className="ui-btn-primary h-10 rounded-full px-4 text-[11px] font-semibold flex items-center gap-1.5">
+            <button type="button" onClick={() => onSubmitBid()} className="ui-btn-primary h-10 rounded-full px-4 text-[11px] font-semibold flex items-center gap-1.5">
               <Send className="w-3.5 h-3.5" /> {statusActionLabel}
               <ArrowUpRight className="w-3.5 h-3.5 opacity-80" />
             </button>

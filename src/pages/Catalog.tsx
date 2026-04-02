@@ -275,7 +275,7 @@ export function Catalog() {
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="ui-label">Catalog Database</p>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900 mt-1">Catalog</h1>
+            <h1 className="ui-title mt-1">Catalog</h1>
             <p className="text-xs text-slate-500">Source of truth: Google Sheets sync into local estimate database.</p>
           </div>
           <div className="flex items-center gap-2 text-xs">
@@ -313,31 +313,35 @@ export function Catalog() {
         ) : null}
       </section>
 
-      <section className="ui-surface p-2">
-        <div className="flex flex-wrap items-center gap-2">
+      <section className="ui-surface p-1.5">
+        <div className="flex flex-wrap items-center gap-1">
           <button
+            type="button"
             onClick={() => setActiveTab('items')}
-            className={`h-8 px-3 rounded border text-xs font-medium ${activeTab === 'items' ? 'border-blue-700 bg-blue-700 text-white' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}`}
+            className={`ui-wtab ${activeTab === 'items' ? 'ui-wtab-blue' : 'ui-wtab-idle'}`}
           >
             Items ({items.length})
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('modifiers')}
-            className={`h-8 px-3 rounded border text-xs font-medium ${activeTab === 'modifiers' ? 'border-blue-700 bg-blue-700 text-white' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}`}
+            className={`ui-wtab ${activeTab === 'modifiers' ? 'ui-wtab-blue' : 'ui-wtab-idle'}`}
           >
             Modifiers ({modifiers.length})
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('bundles')}
-            className={`h-8 px-3 rounded border text-xs font-medium ${activeTab === 'bundles' ? 'border-blue-700 bg-blue-700 text-white' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}`}
+            className={`ui-wtab ${activeTab === 'bundles' ? 'ui-wtab-blue' : 'ui-wtab-idle'}`}
           >
             Bundles ({bundles.length})
           </button>
           <div className="ml-auto flex items-center gap-2">
             {activeTab === 'items' ? (
               <button
+                type="button"
                 onClick={handleCreateItem}
-                className="h-8 px-3 rounded-md bg-blue-700 hover:bg-blue-800 text-white text-xs font-medium inline-flex items-center gap-1.5"
+                className="ui-btn-primary h-8 px-3 text-xs inline-flex items-center gap-1.5"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Add Item
@@ -422,7 +426,7 @@ export function Catalog() {
       <section className="ui-surface overflow-hidden">
         <div className="max-h-[68vh] overflow-auto">
           {loading ? (
-            <div className="p-6 text-sm text-slate-500">Loading catalog...</div>
+            <div className="flex min-h-[30vh] items-center justify-center p-8 text-sm text-slate-500">Loading catalog…</div>
           ) : activeTab === 'items' ? (
             filteredItems.length === 0 ? (
               <div className="p-8 text-center">
@@ -431,7 +435,7 @@ export function Catalog() {
               </div>
             ) : (
               <table className="w-full text-xs">
-                <thead className="sticky top-0 z-10 bg-slate-100 border-b border-slate-300 text-slate-600 uppercase tracking-wide">
+                <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 text-slate-600 backdrop-blur-sm uppercase tracking-wide">
                   <tr>
                     <th className="text-left font-semibold py-2 px-3">SKU / ID</th>
                     <th className="text-left font-semibold py-2 px-2">Description</th>
@@ -469,15 +473,17 @@ export function Catalog() {
                       <td className="py-2 px-3">
                         <div className="flex items-center justify-end gap-1">
                           <button
+                            type="button"
                             onClick={() => setEditingItem(item)}
-                            className="h-7 px-2 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1"
+                            className="h-7 px-2 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1 outline-none focus-visible:ring-2 focus-visible:ring-blue-400/40"
                           >
                             <Edit2 className="w-3 h-3" />
                             Edit
                           </button>
                           <button
+                            type="button"
                             onClick={() => void handleDeleteItem(item.id)}
-                            className="h-7 px-2 rounded border border-red-200 text-red-700 hover:bg-red-50 inline-flex items-center gap-1"
+                            className="h-7 px-2 rounded border border-red-200 text-red-700 hover:bg-red-50 inline-flex items-center gap-1 outline-none focus-visible:ring-2 focus-visible:ring-red-400/40"
                           >
                             <Trash2 className="w-3 h-3" />
                             Deactivate
@@ -494,7 +500,7 @@ export function Catalog() {
               <div className="p-8 text-center text-sm text-slate-600">No modifiers match the current filters.</div>
             ) : (
               <table className="w-full text-xs">
-                <thead className="sticky top-0 z-10 bg-slate-100 border-b border-slate-300 text-slate-600 uppercase tracking-wide">
+                <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 text-slate-600 backdrop-blur-sm uppercase tracking-wide">
                   <tr>
                     <th className="text-left font-semibold py-2 px-3">Modifier</th>
                     <th className="text-left font-semibold py-2 px-2">Key</th>
@@ -525,15 +531,17 @@ export function Catalog() {
                       <td className="py-2 px-3">
                         <div className="flex items-center justify-end gap-1">
                           <button
+                            type="button"
                             onClick={() => void handleEditModifier(modifier)}
-                            className="h-7 px-2 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1"
+                            className="h-7 px-2 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1 outline-none focus-visible:ring-2 focus-visible:ring-blue-400/40"
                           >
                             <Edit2 className="w-3 h-3" />
                             Edit
                           </button>
                           <button
+                            type="button"
                             onClick={() => void handleDeleteModifier(modifier.id)}
-                            className="h-7 px-2 rounded border border-red-200 text-red-700 hover:bg-red-50 inline-flex items-center gap-1"
+                            className="h-7 px-2 rounded border border-red-200 text-red-700 hover:bg-red-50 inline-flex items-center gap-1 outline-none focus-visible:ring-2 focus-visible:ring-red-400/40"
                           >
                             <Trash2 className="w-3 h-3" />
                             Deactivate
@@ -549,7 +557,7 @@ export function Catalog() {
             <div className="p-8 text-center text-sm text-slate-600">No bundles match the current filters.</div>
           ) : (
             <table className="w-full text-xs">
-              <thead className="sticky top-0 z-10 bg-slate-100 border-b border-slate-300 text-slate-600 uppercase tracking-wide">
+              <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 text-slate-600 backdrop-blur-sm uppercase tracking-wide">
                 <tr>
                   <th className="text-left font-semibold py-2 px-3">Bundle ID</th>
                   <th className="text-left font-semibold py-2 px-2">Bundle Name</th>
@@ -574,15 +582,17 @@ export function Catalog() {
                     <td className="py-2 px-3">
                       <div className="flex items-center justify-end gap-1">
                         <button
+                          type="button"
                           onClick={() => void handleEditBundle(bundle)}
-                          className="h-7 px-2 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1"
+                          className="h-7 px-2 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1 outline-none focus-visible:ring-2 focus-visible:ring-blue-400/40"
                         >
                           <Edit2 className="w-3 h-3" />
                           Edit
                         </button>
                         <button
+                          type="button"
                           onClick={() => void handleDeleteBundle(bundle.id)}
-                          className="h-7 px-2 rounded border border-red-200 text-red-700 hover:bg-red-50 inline-flex items-center gap-1"
+                          className="h-7 px-2 rounded border border-red-200 text-red-700 hover:bg-red-50 inline-flex items-center gap-1 outline-none focus-visible:ring-2 focus-visible:ring-red-400/40"
                         >
                           <Trash2 className="w-3 h-3" />
                           Deactivate

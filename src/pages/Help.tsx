@@ -45,7 +45,7 @@ export function Help() {
 
   return (
     <div className="ui-page space-y-4">
-      <section className="overflow-hidden rounded-[30px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(191,219,254,0.35),transparent_36%),linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.96)_100%)] px-6 py-6 shadow-sm">
+      <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(191,219,254,0.35),transparent_36%),linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.96)_100%)] px-6 py-6 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
             <p className="ui-label">How To Use</p>
@@ -73,7 +73,7 @@ export function Help() {
                     <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{step.description}</p>
                   </div>
                 </div>
-                <button onClick={() => navigate(step.actionPath)} className="ui-btn-secondary inline-flex h-10 items-center gap-2 px-4 text-[11px]">
+                <button type="button" onClick={() => navigate(step.actionPath)} className="ui-btn-secondary inline-flex h-10 items-center gap-2 px-4 text-[11px]">
                   {step.actionLabel}
                 </button>
               </div>
@@ -105,7 +105,7 @@ export function Help() {
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">Default Setup</p>
             <h2 className="mt-2 text-lg font-semibold tracking-tight">Settings control your baseline</h2>
             <p className="mt-2 text-sm leading-6 text-slate-300">If new estimates or proposals look off, check global settings first. Base labor rate, markup defaults, and proposal wording all flow into the project workspace.</p>
-            <button onClick={() => navigate('/settings')} className="mt-4 inline-flex h-10 items-center gap-2 rounded-full bg-white px-4 text-[11px] font-semibold text-slate-900">
+            <button type="button" onClick={() => navigate('/settings')} className="mt-4 inline-flex h-10 items-center gap-2 rounded-full bg-white px-4 text-[11px] font-semibold text-slate-900 outline-none focus-visible:ring-2 focus-visible:ring-white/60">
               <Settings className="h-4 w-4" /> Open Settings
             </button>
           </section>

@@ -42,6 +42,11 @@
     color: var(--text);
   }
 
+  ::selection {
+    background: rgba(11, 61, 145, 0.14);
+    color: var(--text);
+  }
+
   h1, h2, h3, h4 {
     color: var(--text);
     letter-spacing: -0.01em;
@@ -138,6 +143,42 @@
     background: #f8fafc;
   }
 
+  .ui-btn-secondary:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+  }
+
+  .ui-wtab {
+    @apply h-8 shrink-0 rounded-md px-2.5 text-[11px] font-semibold outline-none transition-colors duration-150;
+    @apply focus-visible:ring-2 focus-visible:ring-blue-500/35 focus-visible:ring-offset-2;
+  }
+
+  .ui-wtab-idle {
+    @apply text-slate-600 hover:bg-slate-100/90;
+  }
+
+  .ui-wtab-blue {
+    @apply bg-blue-700 text-white shadow-sm hover:bg-blue-800;
+  }
+
+  .ui-wtab-teal {
+    @apply bg-teal-700 text-white shadow-sm hover:bg-teal-800;
+  }
+
+  .ui-wtab-amber {
+    @apply bg-amber-600 text-white shadow-sm hover:bg-amber-700;
+  }
+
+  .ui-list-hit {
+    @apply w-full text-left rounded-lg border border-slate-200/90 bg-white px-3 py-2.5 transition-colors;
+    @apply hover:border-blue-200/80 hover:bg-blue-50/40;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30 focus-visible:ring-offset-2;
+  }
+
+  .ui-list-hit-muted {
+    @apply bg-slate-50/40 hover:bg-blue-50/50;
+  }
+
   .ui-chip {
     @apply inline-flex items-center rounded-full border px-2 py-1 text-[11px] font-medium;
   }
@@ -158,6 +199,11 @@
   .ui-ghost-btn:hover {
     background: rgba(231, 239, 255, 0.7);
     color: var(--brand);
+  }
+
+  .ui-ghost-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
   }
 
   .ui-divider {

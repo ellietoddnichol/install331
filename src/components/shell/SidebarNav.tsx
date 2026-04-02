@@ -16,7 +16,7 @@ export function SidebarNav() {
   const { signOut, userEmail } = useAuth();
 
   return (
-    <aside className="w-[248px] shrink-0 mr-2 md:mr-3 rounded-2xl border border-[#1d2a3d] bg-[#101a2b] text-slate-200 flex flex-col overflow-hidden shadow-[0_18px_35px_rgba(15,23,42,0.24)]">
+    <aside className="w-[240px] shrink-0 mr-2 md:mr-3 rounded-xl border border-[#1d2a3d] bg-[#101a2b] text-slate-200 flex flex-col overflow-hidden shadow-[0_12px_28px_rgba(15,23,42,0.22)]">
       <div className="px-4 py-4 border-b border-[#23334b] flex items-center gap-2.5">
         <div className="w-8 h-8 rounded-md bg-[#dce8ff] text-[#0b3d91] grid place-items-center">
           <Wrench className="w-4 h-4" />
@@ -38,7 +38,7 @@ export function SidebarNav() {
             <Link
               key={`${item.label}-${item.path}`}
               to={item.path}
-              className={`h-9 px-2.5 rounded-md flex items-center gap-2.5 text-sm transition-all ${
+              className={`h-9 px-2.5 rounded-md flex items-center gap-2.5 text-sm transition-all outline-none focus-visible:ring-2 focus-visible:ring-blue-400/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#101a2b] ${
                 active ? 'bg-[#1f3558] text-white border border-[#3f69ab]' : 'text-slate-300 border border-transparent hover:bg-[#17263f] hover:text-white'
               }`}
             >
@@ -53,8 +53,9 @@ export function SidebarNav() {
         <p className="text-[11px] text-slate-400">Signed in</p>
         <p className="text-sm font-medium truncate text-slate-100">{userEmail || 'Estimator User'}</p>
         <button
+          type="button"
           onClick={signOut}
-          className="mt-2 h-8 w-full rounded-md border border-[#304261] text-slate-200 text-xs font-medium hover:bg-[#17263f] flex items-center justify-center gap-1.5"
+          className="mt-2 h-8 w-full rounded-md border border-[#304261] text-slate-200 text-xs font-medium outline-none hover:bg-[#17263f] flex items-center justify-center gap-1.5 focus-visible:ring-2 focus-visible:ring-blue-400/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0e1727]"
         >
           <LogOut className="w-3.5 h-3.5" /> Sign Out
         </button>

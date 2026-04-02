@@ -181,7 +181,7 @@ export function Projects() {
         ) : (
           <table className="w-full text-left">
             <thead>
-              <tr className="bg-slate-100/75 border-b border-slate-200">
+              <tr className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 backdrop-blur-sm">
                 <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Project</th>
                 <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Client</th>
                 <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>

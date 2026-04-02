@@ -947,7 +947,7 @@ export function ProjectWorkspace() {
   }
 
   if (loading || !project) {
-    return <div className="p-8 text-sm text-slate-500">Loading workspace...</div>;
+    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspace…</div>;
   }
 
   return (
@@ -967,15 +967,15 @@ export function ProjectWorkspace() {
 
       <div className="ui-page space-y-2">
         <p className="ui-label px-1">Project Workflow</p>
-        <div className="ui-surface p-2 flex items-center gap-1 overflow-x-auto whitespace-nowrap shadow-sm">
-          <button onClick={() => setActiveTab('overview')} className={`h-8 px-2.5 rounded-md text-[11px] font-semibold transition-colors ${activeTab === 'overview' ? 'bg-blue-700 text-white shadow-sm' : 'hover:bg-slate-100 text-slate-600'}`}>Overview</button>
-          <button onClick={() => setActiveTab('setup')} className={`h-8 px-2.5 rounded-md text-[11px] font-semibold transition-colors ${activeTab === 'setup' ? 'bg-blue-700 text-white shadow-sm' : 'hover:bg-slate-100 text-slate-600'}`}>Project Setup</button>
-          <button onClick={() => setActiveTab('rooms')} className={`h-8 px-2.5 rounded-md text-[11px] font-semibold transition-colors ${activeTab === 'rooms' ? 'bg-blue-700 text-white shadow-sm' : 'hover:bg-slate-100 text-slate-600'}`}>Rooms</button>
+        <div className="ui-surface flex items-center gap-1 overflow-x-auto whitespace-nowrap p-1.5 shadow-sm">
+          <button type="button" onClick={() => setActiveTab('overview')} className={`ui-wtab ${activeTab === 'overview' ? 'ui-wtab-blue' : 'ui-wtab-idle'}`}>Overview</button>
+          <button type="button" onClick={() => setActiveTab('setup')} className={`ui-wtab ${activeTab === 'setup' ? 'ui-wtab-blue' : 'ui-wtab-idle'}`}>Project Setup</button>
+          <button type="button" onClick={() => setActiveTab('rooms')} className={`ui-wtab ${activeTab === 'rooms' ? 'ui-wtab-blue' : 'ui-wtab-idle'}`}>Rooms</button>
           <button
             type="button"
             title="Count quantities, match catalog, and build the scope list — pricing rollups are on Estimate."
             onClick={() => setActiveTab('takeoff')}
-            className={`h-8 px-2.5 rounded-md text-[11px] font-semibold transition-colors ${activeTab === 'takeoff' ? 'bg-teal-700 text-white shadow-sm' : 'hover:bg-slate-100 text-slate-600'}`}
+            className={`ui-wtab ${activeTab === 'takeoff' ? 'ui-wtab-teal' : 'ui-wtab-idle'}`}
           >
             Takeoff
           </button>
@@ -983,12 +983,12 @@ export function ProjectWorkspace() {
             type="button"
             title="Review dollars, labor stack, markups, and project totals after the takeoff is complete."
             onClick={() => setActiveTab('estimate')}
-            className={`h-8 px-2.5 rounded-md text-[11px] font-semibold transition-colors ${activeTab === 'estimate' ? 'bg-amber-700 text-white shadow-sm' : 'hover:bg-slate-100 text-slate-600'}`}
+            className={`ui-wtab ${activeTab === 'estimate' ? 'ui-wtab-amber' : 'ui-wtab-idle'}`}
           >
             Estimate
           </button>
-          <button onClick={() => setActiveTab('files')} className={`h-8 px-2.5 rounded-md text-[11px] font-semibold transition-colors ${activeTab === 'files' ? 'bg-blue-700 text-white shadow-sm' : 'hover:bg-slate-100 text-slate-600'}`}>Files</button>
-          <button onClick={() => setActiveTab('proposal')} className={`h-8 px-2.5 rounded-md text-[11px] font-semibold transition-colors ${activeTab === 'proposal' ? 'bg-blue-700 text-white shadow-sm' : 'hover:bg-slate-100 text-slate-600'}`}>Proposal</button>
+          <button type="button" onClick={() => setActiveTab('files')} className={`ui-wtab ${activeTab === 'files' ? 'ui-wtab-blue' : 'ui-wtab-idle'}`}>Files</button>
+          <button type="button" onClick={() => setActiveTab('proposal')} className={`ui-wtab ${activeTab === 'proposal' ? 'ui-wtab-blue' : 'ui-wtab-idle'}`}>Proposal</button>
           <div className="ml-auto flex items-center gap-1.5 pl-2">
             <button onClick={() => void syncSheets()} className="ui-btn-secondary h-8 px-2.5 text-[11px] font-semibold">Sync</button>
           </div>
@@ -2029,159 +2029,123 @@ export function ProjectWorkspace() {
 
         {activeTab === 'proposal' && (
           <div className="space-y-4">
-            <section className="overflow-hidden rounded-[20px] border border-slate-200/80 bg-white p-4 shadow-sm">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="max-w-3xl">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Proposal</p>
-                  <h3 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">Draft and export the client proposal</h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">Generate text, edit content, and preview before export.</p>
+            <section className="ui-surface overflow-hidden p-4 sm:p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <p className="ui-label">Client proposal</p>
+                  <h3 className="ui-title mt-1 text-[22px] sm:text-[26px]">Review, edit, export</h3>
+                  <p className="ui-subtitle mt-2 max-w-xl">
+                    The preview matches print and export. Edit wording in the left column; optional AI tools stay tucked away below.
+                  </p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-shrink-0 flex-wrap items-center gap-2 lg:justify-end">
                   <button
-                    onClick={() => void generateProposalDraft('scope_summary')}
-                    disabled={proposalDrafting !== null}
-                    className="inline-flex h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    {proposalDrafting === 'scope_summary' ? 'Generating Scope Summary...' : 'AI Scope Summary'}
-                  </button>
-                  <button
-                    onClick={() => void generateProposalDraft('default_short')}
-                    disabled={proposalDrafting !== null}
-                    className="inline-flex h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    {proposalDrafting === 'default_short' ? 'Drafting Short Proposal...' : 'AI Short Proposal Pack'}
-                  </button>
-                  <button
-                    onClick={() => void generateProposalDraft('terms_and_conditions')}
-                    disabled={proposalDrafting !== null}
-                    className="inline-flex h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    {proposalDrafting === 'terms_and_conditions' ? 'Improving Terms + Conditions...' : 'AI Terms + Conditions'}
-                  </button>
-                  <button
+                    type="button"
                     onClick={() => void saveProposalWording()}
-                    className="inline-flex h-10 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-4 text-[11px] font-semibold text-emerald-700 shadow-sm hover:bg-emerald-100"
+                    className="ui-btn-secondary inline-flex h-9 items-center justify-center rounded-full px-4 text-[11px] font-semibold"
                   >
-                    Save Proposal Edits
+                    Save edits
                   </button>
                   <button
-                    onClick={() => resetProposalDefaults('all')}
-                    className="inline-flex h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-600 shadow-sm hover:bg-slate-50"
+                    type="button"
+                    onClick={() => void printProposalDocument()}
+                    className="ui-btn-secondary inline-flex h-9 items-center justify-center rounded-full px-4 text-[11px] font-semibold"
                   >
-                    Reset To Defaults
+                    Print
                   </button>
-                  <button onClick={() => void printProposalDocument()} className="inline-flex h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50">Print</button>
-                  <button onClick={exportProposal} className="ui-btn-primary inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-[11px] font-semibold"><Download className="h-3.5 w-3.5" />Export</button>
+                  <button
+                    type="button"
+                    onClick={exportProposal}
+                    className="ui-btn-primary inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-[11px] font-semibold"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Export
+                  </button>
                 </div>
               </div>
 
-              <div className="mt-4 grid gap-2.5 sm:grid-cols-3">
-                <div className="rounded-[14px] bg-white p-3 shadow-sm ring-1 ring-slate-200/80">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Proposal Value</p>
-                  <p className="mt-1 text-[22px] font-semibold tracking-[-0.03em] text-slate-950">{formatCurrencySafe(summary?.baseBidTotal)}</p>
-                  <p className="mt-1 text-[10px] text-slate-500">Bound to current estimate</p>
+              <div className="mt-5 grid gap-2.5 sm:grid-cols-3">
+                <div className="rounded-xl bg-slate-50/90 p-3 ring-1 ring-slate-200/70">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Proposal total</p>
+                  <p className="mt-1 text-xl font-semibold tracking-tight text-slate-950 tabular-nums">{formatCurrencySafe(summary?.baseBidTotal)}</p>
+                  <p className="mt-1 text-[10px] text-slate-500">From current estimate</p>
                 </div>
-                <div className="rounded-[14px] bg-white p-3 shadow-sm ring-1 ring-slate-200/80">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Included Lines</p>
-                  <p className="mt-1 text-[22px] font-semibold tracking-[-0.03em] text-slate-950">{lines.length}</p>
-                  <p className="mt-1 text-[10px] text-slate-500">Live takeoff + estimate</p>
+                <div className="rounded-xl bg-slate-50/90 p-3 ring-1 ring-slate-200/70">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Included lines</p>
+                  <p className="mt-1 text-xl font-semibold tracking-tight text-slate-950 tabular-nums">{lines.length}</p>
+                  <p className="mt-1 text-[10px] text-slate-500">In this bid</p>
                 </div>
-                <div className="rounded-[14px] bg-white p-3 shadow-sm ring-1 ring-slate-200/80">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Draft Source</p>
-                  <p className="mt-2 text-sm font-semibold text-slate-950">Defaults + AI assist</p>
-                  <p className="mt-1 text-[10px] text-slate-500">AI is optional and never overwrites without confirmation.</p>
+                <div className="rounded-xl bg-slate-50/90 p-3 ring-1 ring-slate-200/70">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Duration (est.)</p>
+                  <p className="mt-1 text-xl font-semibold tracking-tight text-slate-950 tabular-nums">
+                    {summary?.durationDays != null && summary.durationDays > 0
+                      ? `${formatNumberSafe(summary.durationDays, 1)} d`
+                      : '—'}
+                  </p>
+                  <p className="mt-1 text-[10px] text-slate-500">Schedule model</p>
                 </div>
               </div>
             </section>
 
-            <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)] items-start">
-              <section className="space-y-4">
-                <div className="rounded-[20px] border border-slate-200/80 bg-white p-3 shadow-sm">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Internal Install Review</p>
-                      <h4 className="mt-1 text-base font-semibold tracking-tight text-slate-900">Estimator to install handoff email</h4>
-                      <p className="mt-1 text-[12px] text-slate-500">Generate an internal summary with location, timeline, crew, modifiers, and pricing context for install validation.</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => void generateInstallReviewEmail()}
-                        disabled={installReviewGenerating}
-                        className="inline-flex h-9 items-center justify-center rounded-full border border-slate-200 bg-white px-3.5 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-                      >
-                        {installReviewGenerating ? 'Generating...' : installReviewDraft ? 'Regenerate' : 'Generate'}
-                      </button>
-                      <button
-                        onClick={() => void copyInstallReviewEmailBody()}
-                        disabled={!installReviewDraft}
-                        className="inline-flex h-9 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-3.5 text-[11px] font-semibold text-emerald-700 shadow-sm hover:bg-emerald-100 disabled:opacity-50"
-                      >
-                        Copy Email
-                      </button>
-                    </div>
+            <details className="ui-surface group overflow-hidden open:shadow-md [&_summary::-webkit-details-marker]:hidden">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-slate-50/80 sm:px-5">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-700 ring-1 ring-violet-200/80">
+                    <Sparkles className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">AI writing assist</p>
+                    <p className="text-[11px] text-slate-500">Optional — confirms before replacing existing text</p>
                   </div>
-                  {installReviewDraft ? (
-                    <div className="mt-3 space-y-2.5">
-                      <div className="rounded-[14px] bg-slate-50 p-3 ring-1 ring-slate-200/80">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Subject</p>
-                        <p className="mt-1 text-sm font-semibold text-slate-900">{installReviewDraft.subject}</p>
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-[14px] bg-slate-50 p-3 ring-1 ring-slate-200/80">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Location</p>
-                          <p className="mt-1 text-sm font-semibold text-slate-900">{installReviewDraft.summary.location || 'Location TBD'}</p>
-                        </div>
-                        <div className="rounded-[14px] bg-slate-50 p-3 ring-1 ring-slate-200/80">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Timeline</p>
-                          <p className="mt-1 text-sm font-semibold text-slate-900">{installReviewDraft.summary.timeline || 'Verify schedule with GC'}</p>
-                        </div>
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-3">
-                        <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Crew</p>
-                          <p className="mt-1 text-[22px] font-semibold tracking-[-0.04em] text-slate-950">{installReviewDraft.summary.crewSize ?? 'TBD'}</p>
-                        </div>
-                        <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Hours</p>
-                          <p className="mt-1 text-[22px] font-semibold tracking-[-0.04em] text-slate-950">{formatNumberSafe(installReviewDraft.summary.estimatedHours || 0, 1)}</p>
-                        </div>
-                        <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Days</p>
-                          <p className="mt-1 text-[22px] font-semibold tracking-[-0.04em] text-slate-950">{formatNumberSafe(installReviewDraft.summary.estimatedDays || 0, 1)}</p>
-                        </div>
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-3">
-                        <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Material</p>
-                          <p className="mt-1 text-base font-semibold text-slate-900">{formatCurrencySafe(installReviewDraft.summary.materialTotal || 0)}</p>
-                        </div>
-                        <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Labor</p>
-                          <p className="mt-1 text-base font-semibold text-slate-900">{formatCurrencySafe(installReviewDraft.summary.laborTotal || 0)}</p>
-                        </div>
-                        <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Project Modifiers</p>
-                          <p className="mt-1 text-base font-semibold text-slate-900">{installReviewDraft.summary.projectConditions.length}</p>
-                        </div>
-                      </div>
-                      <textarea
-                        readOnly
-                        rows={14}
-                        className="w-full rounded-[22px] border border-slate-200 bg-white px-4 py-4 text-sm leading-6 text-slate-700 outline-none"
-                        value={installReviewDraft.body}
-                      />
-                    </div>
-                  ) : (
-                    <div className="mt-4 rounded-[22px] border border-dashed border-slate-300 bg-slate-50/70 px-4 py-6 text-sm text-slate-500">
-                      Generate the internal install review email after scope and project conditions are set.
-                    </div>
-                  )}
                 </div>
+                <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition group-open:rotate-180" />
+              </summary>
+              <div className="border-t border-slate-200/80 px-4 pb-4 pt-1 sm:px-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => void generateProposalDraft('scope_summary')}
+                    disabled={proposalDrafting !== null}
+                    className="inline-flex h-9 flex-1 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:min-w-[10rem]"
+                  >
+                    {proposalDrafting === 'scope_summary' ? 'Generating…' : 'Scope summary'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void generateProposalDraft('default_short')}
+                    disabled={proposalDrafting !== null}
+                    className="inline-flex h-9 flex-1 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:min-w-[10rem]"
+                  >
+                    {proposalDrafting === 'default_short' ? 'Drafting…' : 'Short proposal pack'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void generateProposalDraft('terms_and_conditions')}
+                    disabled={proposalDrafting !== null}
+                    className="inline-flex h-9 flex-1 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:min-w-[10rem]"
+                  >
+                    {proposalDrafting === 'terms_and_conditions' ? 'Working…' : 'Terms & conditions'}
+                  </button>
+                </div>
+              </div>
+            </details>
 
-                <div className="rounded-[28px] border border-slate-200/80 bg-white/90 p-4 shadow-sm">
-                  <div className="mb-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Editable Proposal Copy</p>
-                    <h4 className="mt-1 text-base font-semibold tracking-tight text-slate-900">Control the language block by block</h4>
+            <div className="grid gap-4 xl:grid-cols-[minmax(340px,460px)_minmax(0,1fr)] xl:items-start">
+              <section className="space-y-4">
+                <div className="ui-surface p-4 sm:p-5">
+                  <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="ui-label">Proposal wording</p>
+                      <h4 className="mt-1 text-base font-semibold tracking-tight text-slate-900">Edit by section</h4>
+                      <p className="mt-1 text-xs text-slate-500">Company defaults load from Settings; use the reset link under each heading for one section at a time.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => resetProposalDefaults('all')}
+                      className="text-[11px] font-medium text-slate-600 underline decoration-slate-300 underline-offset-2 hover:text-slate-900"
+                    >
+                      Reset all to company defaults
+                    </button>
                   </div>
 
                   <div className="space-y-3">
@@ -2250,25 +2214,111 @@ export function ProjectWorkspace() {
                     </label>
                   </div>
                 </div>
+
+                <details className="ui-surface group overflow-hidden open:shadow-md [&_summary::-webkit-details-marker]:hidden">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-slate-50/80 sm:px-5">
+                    <div className="min-w-0">
+                      <p className="ui-label">Internal — not on the client PDF</p>
+                      <p className="mt-1 text-sm font-semibold text-slate-900">Install handoff email</p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">Estimator summary for crews (optional)</p>
+                    </div>
+                    <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition group-open:rotate-180" />
+                  </summary>
+                  <div className="border-t border-slate-200/80 px-3 pb-4 pt-1 sm:px-4">
+                    <div className="flex flex-wrap items-center justify-end gap-2 pb-3">
+                      <button
+                        type="button"
+                        onClick={() => void generateInstallReviewEmail()}
+                        disabled={installReviewGenerating}
+                        className="inline-flex h-9 items-center justify-center rounded-full border border-slate-200 bg-white px-3.5 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        {installReviewGenerating ? 'Generating...' : installReviewDraft ? 'Regenerate' : 'Generate'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void copyInstallReviewEmailBody()}
+                        disabled={!installReviewDraft}
+                        className="inline-flex h-9 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-3.5 text-[11px] font-semibold text-emerald-700 shadow-sm hover:bg-emerald-100 disabled:opacity-50"
+                      >
+                        Copy Email
+                      </button>
+                    </div>
+                    {installReviewDraft ? (
+                      <div className="space-y-2.5">
+                        <div className="rounded-[14px] bg-slate-50 p-3 ring-1 ring-slate-200/80">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Subject</p>
+                          <p className="mt-1 text-sm font-semibold text-slate-900">{installReviewDraft.subject}</p>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-[14px] bg-slate-50 p-3 ring-1 ring-slate-200/80">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Location</p>
+                            <p className="mt-1 text-sm font-semibold text-slate-900">{installReviewDraft.summary.location || 'Location TBD'}</p>
+                          </div>
+                          <div className="rounded-[14px] bg-slate-50 p-3 ring-1 ring-slate-200/80">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Timeline</p>
+                            <p className="mt-1 text-sm font-semibold text-slate-900">{installReviewDraft.summary.timeline || 'Verify schedule with GC'}</p>
+                          </div>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Crew</p>
+                            <p className="mt-1 text-[22px] font-semibold tracking-[-0.04em] text-slate-950">{installReviewDraft.summary.crewSize ?? 'TBD'}</p>
+                          </div>
+                          <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Hours</p>
+                            <p className="mt-1 text-[22px] font-semibold tracking-[-0.04em] text-slate-950">{formatNumberSafe(installReviewDraft.summary.estimatedHours || 0, 1)}</p>
+                          </div>
+                          <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Days</p>
+                            <p className="mt-1 text-[22px] font-semibold tracking-[-0.04em] text-slate-950">{formatNumberSafe(installReviewDraft.summary.estimatedDays || 0, 1)}</p>
+                          </div>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Material</p>
+                            <p className="mt-1 text-base font-semibold text-slate-900">{formatCurrencySafe(installReviewDraft.summary.materialTotal || 0)}</p>
+                          </div>
+                          <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Labor</p>
+                            <p className="mt-1 text-base font-semibold text-slate-900">{formatCurrencySafe(installReviewDraft.summary.laborTotal || 0)}</p>
+                          </div>
+                          <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Project Modifiers</p>
+                            <p className="mt-1 text-base font-semibold text-slate-900">{installReviewDraft.summary.projectConditions.length}</p>
+                          </div>
+                        </div>
+                        <textarea
+                          readOnly
+                          rows={14}
+                          className="w-full rounded-[22px] border border-slate-200 bg-white px-4 py-4 text-sm leading-6 text-slate-700 outline-none"
+                          value={installReviewDraft.body}
+                        />
+                      </div>
+                    ) : (
+                      <div className="rounded-[22px] border border-dashed border-slate-300 bg-slate-50/70 px-4 py-6 text-sm text-slate-500">
+                        Generate after scope and project conditions are set.
+                      </div>
+                    )}
+                  </div>
+                </details>
               </section>
 
-              <div className="space-y-4">
-                <section className="rounded-[24px] border border-slate-200/80 bg-white/90 p-4 shadow-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Live Preview</p>
-                      <h4 className="mt-1 text-base font-semibold tracking-tight text-slate-900">Client-ready proposal rendering</h4>
-                    </div>
-                    <span className="rounded-full bg-slate-100 px-3 py-1.5 text-[11px] font-medium text-slate-600">Print/export uses this layout</span>
+              <div className="space-y-3 xl:sticky xl:top-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-white/95 px-3 py-2.5 shadow-sm backdrop-blur-sm">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Live preview</p>
+                    <p className="text-xs font-medium text-slate-700">What the client sees</p>
                   </div>
-                </section>
-
-                <ProposalPreview
-                  project={project}
-                  settings={settings}
-                  lines={lines}
-                  summary={summary}
-                />
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-medium text-slate-600">Print / export</span>
+                </div>
+                <div className="overflow-hidden rounded-2xl ring-1 ring-slate-200/80">
+                  <ProposalPreview
+                    project={project}
+                    settings={settings}
+                    lines={lines}
+                    summary={summary}
+                  />
+                </div>
               </div>
             </div>
           </div>
