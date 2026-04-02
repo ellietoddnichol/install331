@@ -4,6 +4,8 @@ substitutions:
   _AR_HOSTNAME: europe-west1-docker.pkg.dev
   _AR_PROJECT_ID: gen-lang-client-0568373820
   _AR_REPOSITORY: cloud-run-source-deploy
+  # Must match Artifact Registry package path (GitHub repo name + service from Cloud Run source deploy).
+  _IMAGE_NAME: install331/cwainstall-git
   _DEPLOY_REGION: europe-west1
   _SERVICE_NAME: cwainstall-git
 
@@ -25,7 +27,7 @@ steps:
     name: gcr.io/cloud-builders/docker
     args:
       - push
-      - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_SERVICE_NAME:$COMMIT_SHA
+      - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_IMAGE_NAME:$COMMIT_SHA
     waitFor:
       - build
 
@@ -33,7 +35,7 @@ steps:
     name: gcr.io/cloud-builders/docker
     args:
       - push
-      - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_SERVICE_NAME:latest
+      - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_IMAGE_NAME:latest
     waitFor:
       - build
 
@@ -44,7 +46,7 @@ steps:
       - run
       - deploy
       - $_SERVICE_NAME
-      - --image=$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_SERVICE_NAME:$COMMIT_SHA
+      - --image=$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_IMAGE_NAME:$COMMIT_SHA
       - --region=$_DEPLOY_REGION
       - --platform=managed
       - --quiet
@@ -52,5 +54,5 @@ steps:
       - push-sha
 
 images:
-  - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_SERVICE_NAME:$COMMIT_SHA
-  - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_SERVICE_NAME:latest
+  - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_IMAGE_NAME:$COMMIT_SHA
+  - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_IMAGE_NAME:latest
