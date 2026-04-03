@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { estimatorDb } from '../db/connection.ts';
+import { getEstimatorDb } from '../db/connection.ts';
 import { ProjectRecord } from '../../shared/types/estimator.ts';
 import { coerceSafeProjectName } from '../../shared/utils/intakeTextGuards.ts';
 import { createDefaultProjectJobConditions, normalizeProjectJobConditions } from '../../shared/utils/jobConditions.ts';
@@ -61,12 +61,12 @@ function mapProjectRow(row: any): ProjectRecord {
 }
 
 export function listProjects(): ProjectRecord[] {
-  const rows = estimatorDb.prepare('SELECT * FROM projects_v1 ORDER BY updated_at DESC').all();
+  const rows = getEstimatorDb().prepare('SELECT * FROM projects_v1 ORDER BY updated_at DESC').all();
   return rows.map(mapProjectRow);
 }
 
 export function getProject(projectId: string): ProjectRecord | null {
-  const row = estimatorDb.prepare('SELECT * FROM projects_v1 WHERE id = ?').get(projectId);
+  const row = getEstimatorDb().prepare('SELECT * FROM projects_v1 WHERE id = ?').get(projectId);
   return row ? mapProjectRow(row) : null;
 }
 
@@ -111,7 +111,7 @@ export function createProject(input: Partial<ProjectRecord>): ProjectRecord {
     updatedAt: now
   };
 
-  estimatorDb.prepare(`
+  getEstimatorDb().prepare(`
     INSERT INTO projects_v1 (
       id, project_number, project_name, client_name, general_contractor, estimator, bid_date, proposal_date, due_date, address, project_type,
       project_size, floor_level, access_difficulty, install_height, material_handling, wall_substrate,
@@ -176,7 +176,7 @@ export function updateProject(projectId: string, input: Partial<ProjectRecord>):
 
   next.projectName = coerceSafeProjectName(next.projectName, 'Untitled Project');
 
-  estimatorDb.prepare(`
+  getEstimatorDb().prepare(`
     UPDATE projects_v1 SET
       project_number = ?, project_name = ?, client_name = ?, general_contractor = ?, estimator = ?, bid_date = ?, proposal_date = ?, due_date = ?,
       address = ?, project_type = ?, project_size = ?, floor_level = ?, access_difficulty = ?, install_height = ?,
@@ -225,13 +225,13 @@ export function updateProject(projectId: string, input: Partial<ProjectRecord>):
 }
 
 export function archiveProject(projectId: string): boolean {
-  const result = estimatorDb.prepare(`
+  const result = getEstimatorDb().prepare(`
     UPDATE projects_v1 SET status = 'Archived', updated_at = ? WHERE id = ?
   `).run(new Date().toISOString(), projectId);
   return result.changes > 0;
 }
 
 export function deleteProject(projectId: string): boolean {
-  const result = estimatorDb.prepare('DELETE FROM projects_v1 WHERE id = ?').run(projectId);
+  const result = getEstimatorDb().prepare('DELETE FROM projects_v1 WHERE id = ?').run(projectId);
   return result.changes > 0;
 }

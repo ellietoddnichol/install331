@@ -23,7 +23,15 @@ export interface CatalogItem {
   family?: string;
   description: string;
   manufacturer?: string;
+  /** Commercial / go-to-market brand line (may match manufacturer or a sub-brand). */
+  brand?: string;
   model?: string;
+  /** Full manufacturer catalog or part model number (distinct from short `model` label when both used). */
+  modelNumber?: string;
+  /** Product family / series / collection name. */
+  series?: string;
+  /** URL for a product image (https, CDN, or in-app path); optional. */
+  imageUrl?: string;
   uom: UOM;
   baseMaterialCost: number;
   baseLaborMinutes: number;

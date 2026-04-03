@@ -2,7 +2,7 @@
 import { google } from 'googleapis';
 import { JWT } from 'google-auth-library';
 import { randomUUID } from 'crypto';
-import db from './db.ts';
+import { getEstimatorDb } from './db/connection.ts';
 import { CatalogItem } from '../types.ts';
 
 export async function syncCatalogFromSheets() {
@@ -35,16 +35,20 @@ export async function syncCatalogFromSheets() {
 
     // Clear existing active items or mark them for update
     // For simplicity, we'll upsert based on SKU
-    const upsertStmt = db.prepare(`
-      INSERT INTO catalog_items (id, sku, category, subcategory, family, description, manufacturer, model, uom, base_material_cost, base_labor_minutes, labor_unit_type, taxable, ada_flag, tags, notes, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+    const upsertStmt = getEstimatorDb().prepare(`
+      INSERT INTO catalog_items (id, sku, category, subcategory, family, description, manufacturer, brand, model, model_number, series, image_url, uom, base_material_cost, base_labor_minutes, labor_unit_type, taxable, ada_flag, tags, notes, active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
       ON CONFLICT(sku) DO UPDATE SET
         category = excluded.category,
         subcategory = excluded.subcategory,
         family = excluded.family,
         description = excluded.description,
         manufacturer = excluded.manufacturer,
+        brand = excluded.brand,
         model = excluded.model,
+        model_number = excluded.model_number,
+        series = excluded.series,
+        image_url = excluded.image_url,
         uom = excluded.uom,
         base_material_cost = excluded.base_material_cost,
         base_labor_minutes = excluded.base_labor_minutes,
@@ -57,11 +61,11 @@ export async function syncCatalogFromSheets() {
     `);
 
     let count = 0;
-    const transaction = db.transaction((items) => {
+    const transaction = getEstimatorDb().transaction((items) => {
       for (const item of items) {
         upsertStmt.run(
-          item.id, item.sku, item.category, item.subcategory, item.family, item.description, 
-          item.manufacturer, item.model, item.uom, item.baseMaterialCost, item.baseLaborMinutes, 
+          item.id, item.sku, item.category, item.subcategory, item.family, item.description,
+          item.manufacturer, item.brand ?? null, item.model, item.modelNumber ?? null, item.series ?? null, item.imageUrl ?? null, item.uom, item.baseMaterialCost, item.baseLaborMinutes,
           item.laborUnitType, item.taxable, item.adaFlag, item.tags, item.notes
         );
         count++;
@@ -96,8 +100,8 @@ export async function syncCatalogFromSheets() {
     });
     const bundleRows = bundlesResponse.data.values;
     if (bundleRows && bundleRows.length > 0) {
-      db.prepare('DELETE FROM global_bundles').run();
-      const insertBundle = db.prepare('INSERT INTO global_bundles (id, name, items) VALUES (?, ?, ?)');
+      getEstimatorDb().prepare('DELETE FROM global_bundles').run();
+      const insertBundle = getEstimatorDb().prepare('INSERT INTO global_bundles (id, name, items) VALUES (?, ?, ?)');
       bundleRows.forEach(row => {
         const id = row[0] || randomUUID();
         const name = row[1];
@@ -113,8 +117,8 @@ export async function syncCatalogFromSheets() {
     });
     const addinRows = addinsResponse.data.values;
     if (addinRows && addinRows.length > 0) {
-      db.prepare('DELETE FROM global_addins').run();
-      const insertAddin = db.prepare('INSERT INTO global_addins (id, name, cost, labor_minutes) VALUES (?, ?, ?, ?)');
+      getEstimatorDb().prepare('DELETE FROM global_addins').run();
+      const insertAddin = getEstimatorDb().prepare('INSERT INTO global_addins (id, name, cost, labor_minutes) VALUES (?, ?, ?, ?)');
       addinRows.forEach(row => {
         const id = randomUUID();
         const name = row[0];

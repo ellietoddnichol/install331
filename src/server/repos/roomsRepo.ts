@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { estimatorDb } from '../db/connection.ts';
+import { getEstimatorDb } from '../db/connection.ts';
 import { RoomRecord } from '../../shared/types/estimator.ts';
 
 function mapRoomRow(row: any): RoomRecord {
@@ -15,18 +15,18 @@ function mapRoomRow(row: any): RoomRecord {
 }
 
 export function listRooms(projectId: string): RoomRecord[] {
-  const rows = estimatorDb.prepare('SELECT * FROM rooms_v1 WHERE project_id = ? ORDER BY sort_order, created_at').all(projectId);
+  const rows = getEstimatorDb().prepare('SELECT * FROM rooms_v1 WHERE project_id = ? ORDER BY sort_order, created_at').all(projectId);
   return rows.map(mapRoomRow);
 }
 
 export function getRoom(roomId: string): RoomRecord | null {
-  const row = estimatorDb.prepare('SELECT * FROM rooms_v1 WHERE id = ?').get(roomId);
+  const row = getEstimatorDb().prepare('SELECT * FROM rooms_v1 WHERE id = ?').get(roomId);
   return row ? mapRoomRow(row) : null;
 }
 
 export function createRoom(input: Partial<RoomRecord> & { projectId: string; roomName: string }): RoomRecord {
   const now = new Date().toISOString();
-  const nextSort = estimatorDb.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS nextSort FROM rooms_v1 WHERE project_id = ?').get(input.projectId) as { nextSort: number };
+  const nextSort = getEstimatorDb().prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS nextSort FROM rooms_v1 WHERE project_id = ?').get(input.projectId) as { nextSort: number };
 
   const room: RoomRecord = {
     id: input.id ?? randomUUID(),
@@ -38,7 +38,7 @@ export function createRoom(input: Partial<RoomRecord> & { projectId: string; roo
     updatedAt: now
   };
 
-  estimatorDb.prepare(`
+  getEstimatorDb().prepare(`
     INSERT INTO rooms_v1 (id, project_id, room_name, sort_order, notes, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(room.id, room.projectId, room.roomName, room.sortOrder, room.notes, room.createdAt, room.updatedAt);
@@ -57,7 +57,7 @@ export function updateRoom(roomId: string, input: Partial<RoomRecord>): RoomReco
     updatedAt: new Date().toISOString()
   };
 
-  estimatorDb.prepare(`
+  getEstimatorDb().prepare(`
     UPDATE rooms_v1 SET room_name = ?, sort_order = ?, notes = ?, updated_at = ? WHERE id = ?
   `).run(next.roomName, next.sortOrder, next.notes, next.updatedAt, roomId);
 
@@ -65,7 +65,7 @@ export function updateRoom(roomId: string, input: Partial<RoomRecord>): RoomReco
 }
 
 export function deleteRoom(roomId: string): boolean {
-  const result = estimatorDb.prepare('DELETE FROM rooms_v1 WHERE id = ?').run(roomId);
+  const result = getEstimatorDb().prepare('DELETE FROM rooms_v1 WHERE id = ?').run(roomId);
   return result.changes > 0;
 }
 

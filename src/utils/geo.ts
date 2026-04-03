@@ -1,3 +1,4 @@
+import { apiFetch } from '../services/api';
 
 /**
  * Utility for geocoding and distance calculation
@@ -87,7 +88,7 @@ export async function getDistanceInMiles(address: string, originAddress = OFFICE
   // Prefer same-origin server lookup first to avoid browser geocoding/CORS issues.
   try {
     const query = new URLSearchParams({ address, originAddress });
-    const response = await fetch(`/api/v1/projects/distance?${query.toString()}`);
+    const response = await apiFetch(`/api/v1/projects/distance?${query.toString()}`);
     if (response.ok) {
       const payload = await response.json();
       const miles = Number(payload?.data?.miles);

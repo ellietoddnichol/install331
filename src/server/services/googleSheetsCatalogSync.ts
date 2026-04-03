@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
 import { JWT } from 'google-auth-library';
-import { estimatorDb } from '../db/connection.ts';
+import { getEstimatorDb } from '../db/connection.ts';
 import { TAKEOFF_CATALOG_SEED_ITEMS } from './intake/takeoffCatalogRegistry.ts';
 
 /** Repo root: …/src/server/services → ../../../ */
@@ -124,7 +124,7 @@ function updateSyncStatus(params: {
   warnings?: string[];
 }) {
   const now = new Date().toISOString();
-  const current = estimatorDb.prepare('SELECT * FROM catalog_sync_status_v1 WHERE id = ?').get('catalog') as any;
+  const current = getEstimatorDb().prepare('SELECT * FROM catalog_sync_status_v1 WHERE id = ?').get('catalog') as any;
   const counts = params.counts || {
     itemsSynced: current?.items_synced || 0,
     modifiersSynced: current?.modifiers_synced || 0,
@@ -132,7 +132,7 @@ function updateSyncStatus(params: {
     bundleItemsSynced: current?.bundle_items_synced || 0,
   };
 
-  estimatorDb.prepare(`
+  getEstimatorDb().prepare(`
     UPDATE catalog_sync_status_v1
     SET
       last_attempt_at = ?,
@@ -165,7 +165,7 @@ function insertSyncRun(params: {
   counts: SyncCounts;
   warnings: string[];
 }) {
-  estimatorDb.prepare(`
+  getEstimatorDb().prepare(`
     INSERT INTO catalog_sync_runs_v1 (
       id, attempted_at, status, message, items_synced, modifiers_synced, bundles_synced, bundle_items_synced, warnings_json
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -321,7 +321,7 @@ function enrichGoogleAuthErrorMessage(raw: string): string {
   return raw;
 }
 
-function jwtFromServiceAccountJson(parsed: Record<string, unknown>, sourceLabel: string): JWT {
+function jwtFromServiceAccountJson(parsed: Record<string, unknown>, sourceLabel: string, scopes: string[]): JWT {
   if (parsed.type !== 'service_account') {
     throw new Error(
       `${sourceLabel}: expected Google Cloud "service_account" JSON (client_email + private_key). Gemini / API-key JSON files will not work for Sheets sync.`
@@ -337,7 +337,7 @@ function jwtFromServiceAccountJson(parsed: Record<string, unknown>, sourceLabel:
   return new JWT({
     email,
     key,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    scopes,
   });
 }
 
@@ -352,7 +352,13 @@ function decodeServiceAccountBase64(raw: string): Record<string, unknown> | null
   }
 }
 
-function buildAuth(): JWT {
+const DEFAULT_GOOGLE_JWT_SCOPES = ['https://www.googleapis.com/auth/spreadsheets'] as const;
+
+/**
+ * Service-account JWT for Google APIs (Sheets, Cloud Natural Language, etc.).
+ * Defaults to Sheets scope; pass e.g. `['https://www.googleapis.com/auth/cloud-platform']` for other APIs.
+ */
+export function buildGoogleServiceAccountJwt(scopes: string[] = [...DEFAULT_GOOGLE_JWT_SCOPES]): JWT {
   const serviceAccountJson = process.env.GOOGLE_SERVICE_ACCOUNT?.trim();
   const serviceAccountBase64 = process.env.GOOGLE_SERVICE_ACCOUNT_BASE64?.trim();
 
@@ -383,7 +389,7 @@ function buildAuth(): JWT {
       }
       parsed = fromB64;
     }
-    return jwtFromServiceAccountJson(parsed, 'GOOGLE_SERVICE_ACCOUNT');
+    return jwtFromServiceAccountJson(parsed, 'GOOGLE_SERVICE_ACCOUNT', scopes);
   }
 
   if (serviceAccountBase64) {
@@ -393,7 +399,7 @@ function buildAuth(): JWT {
         'GOOGLE_SERVICE_ACCOUNT_BASE64 is set but is not valid base64 or does not decode to JSON. Encode the entire service-account .json file (UTF-8) as one line of standard base64, with no PEM headers or data: prefix.'
       );
     }
-    return jwtFromServiceAccountJson(fromB64, 'GOOGLE_SERVICE_ACCOUNT_BASE64');
+    return jwtFromServiceAccountJson(fromB64, 'GOOGLE_SERVICE_ACCOUNT_BASE64', scopes);
   }
 
   if (credentialFileHint) {
@@ -405,7 +411,7 @@ function buildAuth(): JWT {
       );
     }
     const parsed = readServiceAccountFromFile(found);
-    return jwtFromServiceAccountJson(parsed, `Credential file ${found}`);
+    return jwtFromServiceAccountJson(parsed, `Credential file ${found}`, scopes);
   }
 
   const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL;
@@ -436,8 +442,12 @@ function buildAuth(): JWT {
   return new JWT({
     email: clientEmail,
     key: privateKey,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    scopes,
   });
+}
+
+function buildAuth(): JWT {
+  return buildGoogleServiceAccountJwt();
 }
 
 function getSpreadsheetConfig(): SpreadsheetConfig {
@@ -527,7 +537,17 @@ export async function upsertItemInGoogleSheet(input: {
   sku: string;
   category: string;
   manufacturer?: string | null;
+  brand?: string | null;
   model?: string | null;
+  modelNumber?: string | null;
+  series?: string | null;
+  /** Product image URL (https or app path); optional. */
+  imageUrl?: string | null;
+  /** Short family / grouping label; also written to GenericItemName-style columns when present. */
+  family?: string | null;
+  subcategory?: string | null;
+  /** Search / keyword tags (comma-separated on sheet). */
+  tags?: string[] | null;
   description: string;
   unit: string;
   baseMaterialCost: number;
@@ -543,8 +563,21 @@ export async function upsertItemInGoogleSheet(input: {
     keyValue: key,
     setters: [
       { aliases: ['Category', 'Scope Category'], value: input.category || '' },
-      { aliases: ['Manufacturer', 'Brand'], value: input.manufacturer || '' },
-      { aliases: ['Model', 'Model Number'], value: input.model || '' },
+      { aliases: ['Family', 'Item Family'], value: input.family || '' },
+      {
+        aliases: ['Generic Item Name', 'GenericItemName', 'Generic Name'],
+        value: input.family || '',
+      },
+      { aliases: ['Subcategory', 'Sub Category'], value: input.subcategory || '' },
+      { aliases: ['Manufacturer', 'Mfr', 'Make'], value: input.manufacturer || '' },
+      { aliases: ['Brand', 'Brand Line'], value: input.brand || '' },
+      { aliases: ['Model', 'Item Model'], value: input.model || '' },
+      { aliases: ['Model Number', 'Catalog Model', 'Part Number'], value: input.modelNumber || '' },
+      { aliases: ['Series', 'Product Series', 'Collection'], value: input.series || '' },
+      {
+        aliases: ['Image', 'Image URL', 'Photo', 'Picture', 'Thumbnail', 'Product Image'],
+        value: input.imageUrl || '',
+      },
       { aliases: ['Description', 'Item Description'], value: input.description || '' },
       { aliases: ['Unit', 'UOM', 'Base Unit'], value: input.unit || 'EA' },
       {
@@ -561,6 +594,10 @@ export async function upsertItemInGoogleSheet(input: {
       { aliases: ['BaseLaborMinutes', 'Base Labor Minutes', 'Labor Minutes'], value: String(input.baseLaborMinutes || 0) },
       { aliases: ['Active', 'Is Active', 'Enabled'], value: input.active ? 'TRUE' : 'FALSE' },
       { aliases: ['UpdatedAt', 'Updated At'], value: new Date().toISOString() },
+      {
+        aliases: ['Keywords', 'Tags', 'Search Terms'],
+        value: (input.tags && input.tags.length ? input.tags.join(', ') : ''),
+      },
     ],
   });
 }
@@ -581,6 +618,10 @@ export async function backfillTakeoffRegistryToGoogleSheets(): Promise<TakeoffRe
         category: item.category,
         manufacturer: item.manufacturer || null,
         model: item.model || null,
+        family: item.family || null,
+        subcategory: item.subcategory || null,
+        tags: item.tags || [],
+        imageUrl: item.imageUrl || null,
         description: item.description,
         unit: item.uom,
         baseMaterialCost: item.baseMaterialCost,
@@ -715,13 +756,37 @@ function validateSheetRows(values: string[][], tabName: string): string[][] {
     .filter((row) => row.some((cell) => cell.length > 0));
 }
 
+/**
+ * ITEMS tab header sets we support include the “Labor Estimator - Catalog cleaned” workbook:
+ * SKU, Category, Manufacturer, Model, Series, Description, Unit, BaseMaterialCost, BaseLaborMinutes,
+ * Active, UpdatedAt, GenericItemName, DefaultModifiers, ImageURL, …
+ */
 function upsertItems(rows: string[][], warnings: string[]): number {
   const headers = rows[0].map(normalizeHeader);
   const skuCol = columnIndex(headers, ['sku', 'item sku']);
   const itemKeyCol = columnIndex(headers, ['item id', 'itemid', 'item key', 'search key', 'search key', 'search_key', 'key']);
   const categoryCol = columnIndex(headers, ['scope category', 'category']);
-  const manufacturerCol = columnIndex(headers, ['manufacturer', 'brand']);
-  const modelCol = columnIndex(headers, ['model', 'model number', 'modelnumber']);
+  const manufacturerCol = columnIndex(headers, ['manufacturer', 'mfr', 'make']);
+  const brandCol = columnIndex(headers, ['brand', 'brand name', 'brand line']);
+  const modelCol = columnIndex(headers, ['model', 'item model']);
+  const modelNumberCol = columnIndex(headers, [
+    'model number',
+    'modelnumber',
+    'catalog model',
+    'mfg model',
+    'part number',
+    'catalog number',
+  ]);
+  const seriesCol = columnIndex(headers, ['series', 'product series', 'collection', 'family line']);
+  const imageUrlCol = columnIndex(headers, [
+    'image',
+    'image url',
+    'imageurl',
+    'photo',
+    'picture',
+    'thumbnail',
+    'product image',
+  ]);
   const descriptionCol = columnIndex(headers, ['description', 'item description']);
   const itemCol = columnIndex(headers, ['item', 'item name', 'itemname']);
   const uomCol = columnIndex(headers, ['unit', 'uom', 'base unit']);
@@ -746,8 +811,14 @@ function upsertItems(rows: string[][], warnings: string[]): number {
   const tagsCol = columnIndex(headers, ['keywords', 'tags', 'search terms']);
   const activeCol = columnIndex(headers, ['active', 'is active', 'isactive', 'enabled']);
   const notesCol = columnIndex(headers, ['notes', 'remarks']);
-  const familyCol = columnIndex(headers, ['family']);
+  const familyCol = columnIndex(headers, ['family', 'genericitemname', 'generic item name', 'item family']);
   const subcategoryCol = columnIndex(headers, ['subcategory', 'sub category']);
+  const defaultModifiersCol = columnIndex(headers, [
+    'default modifiers',
+    'defaultmodifiers',
+    'default modifier',
+    'catalog modifiers',
+  ]);
 
   if (descriptionCol === null && itemCol === null) {
     throw new Error('ITEMS tab is missing required headers. Expected Item or Description columns.');
@@ -761,7 +832,7 @@ function upsertItems(rows: string[][], warnings: string[]): number {
   }
 
   // One-way master mode: Google Sheet defines active catalog records.
-  estimatorDb.prepare('UPDATE catalog_items SET active = 0').run();
+  getEstimatorDb().prepare('UPDATE catalog_items SET active = 0').run();
 
   let synced = 0;
 
@@ -779,17 +850,27 @@ function upsertItems(rows: string[][], warnings: string[]): number {
     const stableKey = sku || itemKey || keyFromParts(category, itemName || description);
 
     const existing = sku
-      ? estimatorDb.prepare('SELECT id FROM catalog_items WHERE lower(sku) = lower(?) LIMIT 1').get(sku) as { id: string } | undefined
-      : estimatorDb.prepare('SELECT id FROM catalog_items WHERE id = ? OR (lower(description) = lower(?) AND lower(COALESCE(category, "")) = lower(?)) LIMIT 1').get(`sheet-item-${stableKey}`, description, category) as { id: string } | undefined;
+      ? getEstimatorDb().prepare('SELECT id FROM catalog_items WHERE lower(sku) = lower(?) LIMIT 1').get(sku) as { id: string } | undefined
+      : getEstimatorDb().prepare('SELECT id FROM catalog_items WHERE id = ? OR (lower(description) = lower(?) AND lower(COALESCE(category, "")) = lower(?)) LIMIT 1').get(`sheet-item-${stableKey}`, description, category) as { id: string } | undefined;
 
     const id = existing?.id || `sheet-item-${stableKey}`;
-    const tags = splitList(getCell(row, tagsCol));
+    const tagTokens = splitList(getCell(row, tagsCol));
+    const defaultModTokens = splitList(getCell(row, defaultModifiersCol));
+    const tags = Array.from(new Set([...tagTokens, ...defaultModTokens]));
+
+    const manufacturer = getCell(row, manufacturerCol) || null;
+    const brand = getCell(row, brandCol) || null;
+    const model = getCell(row, modelCol) || null;
+    const modelNumber = getCell(row, modelNumberCol) || model || null;
+    const series = getCell(row, seriesCol) || null;
+    const imageUrl = getCell(row, imageUrlCol) || null;
 
     if (existing) {
-      estimatorDb.prepare(`
+      getEstimatorDb().prepare(`
         UPDATE catalog_items
         SET sku = ?, category = ?, subcategory = ?, family = ?, description = ?, uom = ?,
-            manufacturer = ?, model = ?, base_material_cost = ?, base_labor_minutes = ?, tags = ?, notes = ?, active = ?
+            manufacturer = ?, brand = ?, model = ?, model_number = ?, series = ?, image_url = ?,
+            base_material_cost = ?, base_labor_minutes = ?, tags = ?, notes = ?, active = ?
         WHERE id = ?
       `).run(
         sku || null,
@@ -798,8 +879,12 @@ function upsertItems(rows: string[][], warnings: string[]): number {
         getCell(row, familyCol) || null,
         description,
         getCell(row, uomCol) || 'EA',
-        getCell(row, manufacturerCol) || null,
-        getCell(row, modelCol) || null,
+        manufacturer,
+        brand,
+        model,
+        modelNumber,
+        series,
+        imageUrl,
         parseNumber(getCell(row, materialCol), 0),
         parseNumber(getCell(row, laborCol), 0),
         JSON.stringify(tags),
@@ -808,11 +893,11 @@ function upsertItems(rows: string[][], warnings: string[]): number {
         id
       );
     } else {
-      estimatorDb.prepare(`
+      getEstimatorDb().prepare(`
         INSERT INTO catalog_items (
-          id, sku, category, subcategory, family, description, manufacturer, model, uom,
+          id, sku, category, subcategory, family, description, manufacturer, brand, model, model_number, series, image_url, uom,
           base_material_cost, base_labor_minutes, labor_unit_type, taxable, ada_flag, tags, notes, active
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         sku || null,
@@ -820,8 +905,12 @@ function upsertItems(rows: string[][], warnings: string[]): number {
         getCell(row, subcategoryCol) || null,
         getCell(row, familyCol) || null,
         description,
-        getCell(row, manufacturerCol) || null,
-        getCell(row, modelCol) || null,
+        manufacturer,
+        brand,
+        model,
+        modelNumber,
+        series,
+        imageUrl,
         getCell(row, uomCol) || 'EA',
         parseNumber(getCell(row, materialCol), 0),
         parseNumber(getCell(row, laborCol), 0),
@@ -856,7 +945,7 @@ function upsertModifiers(rows: string[][], warnings: string[]): number {
   }
 
   // One-way master mode: Google Sheet defines active modifiers.
-  estimatorDb.prepare('UPDATE modifiers_v1 SET active = 0').run();
+  getEstimatorDb().prepare('UPDATE modifiers_v1 SET active = 0').run();
 
   let synced = 0;
 
@@ -866,14 +955,14 @@ function upsertModifiers(rows: string[][], warnings: string[]): number {
     if (!name) continue;
 
     const modifierKey = (getCell(row, keyCol) || keyFromParts(name)).toUpperCase().replace(/\s+/g, '_');
-    const existing = estimatorDb.prepare('SELECT id FROM modifiers_v1 WHERE modifier_key = ? LIMIT 1').get(modifierKey) as { id: string } | undefined;
+    const existing = getEstimatorDb().prepare('SELECT id FROM modifiers_v1 WHERE modifier_key = ? LIMIT 1').get(modifierKey) as { id: string } | undefined;
     const id = existing?.id || `sheet-mod-${keyFromParts(modifierKey)}`;
 
     const applies = splitList(getCell(row, appliesCol));
     if (!applies.length) warnings.push(`MODIFIERS: ${name} has no applies-to categories.`);
 
     if (existing) {
-      estimatorDb.prepare(`
+      getEstimatorDb().prepare(`
         UPDATE modifiers_v1
         SET name = ?, applies_to_categories = ?, add_labor_minutes = ?, add_material_cost = ?,
             percent_labor = ?, percent_material = ?, active = ?, updated_at = ?
@@ -890,7 +979,7 @@ function upsertModifiers(rows: string[][], warnings: string[]): number {
         id
       );
     } else {
-      estimatorDb.prepare(`
+      getEstimatorDb().prepare(`
         INSERT INTO modifiers_v1 (
           id, name, modifier_key, applies_to_categories, add_labor_minutes, add_material_cost,
           percent_labor, percent_material, active, updated_at
@@ -929,9 +1018,9 @@ function upsertBundles(rows: string[][], warnings: string[]): { bundlesSynced: n
   }
 
   // One-way master mode: Google Sheet defines active bundles.
-  estimatorDb.prepare('UPDATE bundles_v1 SET active = 0').run();
+  getEstimatorDb().prepare('UPDATE bundles_v1 SET active = 0').run();
 
-  const catalogSkuRows = estimatorDb.prepare(`
+  const catalogSkuRows = getEstimatorDb().prepare(`
     SELECT id, sku, description, base_material_cost, base_labor_minutes
     FROM catalog_items
     WHERE sku IS NOT NULL AND trim(sku) <> ''
@@ -963,7 +1052,7 @@ function upsertBundles(rows: string[][], warnings: string[]): { bundlesSynced: n
     });
   });
 
-  const modifierRows = estimatorDb.prepare('SELECT modifier_key FROM modifiers_v1').all() as Array<{ modifier_key: string }>;
+  const modifierRows = getEstimatorDb().prepare('SELECT modifier_key FROM modifiers_v1').all() as Array<{ modifier_key: string }>;
   const modifierByCanonicalKey = new Map<string, string>();
   modifierRows.forEach((row) => {
     const key = normalizeModifierToken(row.modifier_key);
@@ -981,18 +1070,18 @@ function upsertBundles(rows: string[][], warnings: string[]): { bundlesSynced: n
     if (!bundleName) continue;
 
     const bundleId = getCell(row, idCol) || `sheet-bundle-${keyFromParts(bundleName)}`;
-    const existing = estimatorDb.prepare('SELECT id FROM bundles_v1 WHERE id = ? LIMIT 1').get(bundleId) as { id: string } | undefined;
+    const existing = getEstimatorDb().prepare('SELECT id FROM bundles_v1 WHERE id = ? LIMIT 1').get(bundleId) as { id: string } | undefined;
     const active = parseBoolean(getCell(row, activeCol), true) ? 1 : 0;
 
     if (existing) {
-      estimatorDb.prepare('UPDATE bundles_v1 SET bundle_name = ?, category = ?, active = ?, updated_at = ? WHERE id = ?')
+      getEstimatorDb().prepare('UPDATE bundles_v1 SET bundle_name = ?, category = ?, active = ?, updated_at = ? WHERE id = ?')
         .run(bundleName, getCell(row, categoryCol) || null, active, new Date().toISOString(), bundleId);
     } else {
-      estimatorDb.prepare('INSERT INTO bundles_v1 (id, bundle_name, category, active, updated_at) VALUES (?, ?, ?, ?, ?)')
+      getEstimatorDb().prepare('INSERT INTO bundles_v1 (id, bundle_name, category, active, updated_at) VALUES (?, ?, ?, ?, ?)')
         .run(bundleId, bundleName, getCell(row, categoryCol) || null, active, new Date().toISOString());
     }
 
-    estimatorDb.prepare('DELETE FROM bundle_items_v1 WHERE bundle_id = ?').run(bundleId);
+    getEstimatorDb().prepare('DELETE FROM bundle_items_v1 WHERE bundle_id = ?').run(bundleId);
 
     const includedSkus = Array.from(
       new Set(splitList(getCell(row, skuListCol)).map((token) => token.trim()).filter(Boolean))
@@ -1020,7 +1109,7 @@ function upsertBundles(rows: string[][], warnings: string[]): { bundlesSynced: n
       }
 
       const notes = validModifierKeys.length ? `Included Modifiers: ${validModifierKeys.join(', ')}` : null;
-      estimatorDb.prepare(`
+      getEstimatorDb().prepare(`
         INSERT INTO bundle_items_v1 (
           id, bundle_id, catalog_item_id, sku, description, qty, material_cost, labor_minutes, labor_cost, sort_order, notes
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1077,7 +1166,7 @@ export async function syncCatalogFromGoogleSheets(): Promise<CatalogSyncResult> 
     const modifierRows = validateSheetRows((modifiersRes.data.values || []) as string[][], modifiersTab);
     const bundleRows = validateSheetRows((bundlesRes.data.values || []) as string[][], bundlesTab);
 
-    const tx = estimatorDb.transaction(() => {
+    const tx = getEstimatorDb().transaction(() => {
       const itemsSynced = upsertItems(itemRows, warnings);
       const modifiersSynced = upsertModifiers(modifierRows, warnings);
       const bundleData = upsertBundles(bundleRows, warnings);

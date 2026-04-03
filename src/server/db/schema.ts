@@ -1,4 +1,4 @@
-import { estimatorDb } from './connection.ts';
+import type Database from 'better-sqlite3';
 import {
   DEFAULT_PROPOSAL_ACCEPTANCE_LABEL,
   DEFAULT_PROPOSAL_CLARIFICATIONS,
@@ -8,10 +8,10 @@ import {
   sanitizeProposalSettings,
 } from '../../shared/utils/proposalDefaults.ts';
 
-export function initEstimatorSchema() {
+export function initEstimatorSchema(db: Database) {
   const defaultLaborRatePerHour = Number(process.env.DEFAULT_LABOR_RATE_PER_HOUR || 100);
 
-  estimatorDb.exec(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS projects_v1 (
       id TEXT PRIMARY KEY,
       project_number TEXT,
@@ -199,109 +199,109 @@ export function initEstimatorSchema() {
     CREATE INDEX IF NOT EXISTS idx_project_files_v1_project ON project_files_v1(project_id);
   `);
 
-  const settingsExists = estimatorDb.prepare('SELECT 1 FROM settings_v1 WHERE id = ?').get('global');
+  const settingsExists = db.prepare('SELECT 1 FROM settings_v1 WHERE id = ?').get('global');
 
-  const settingsColumns = estimatorDb.prepare("PRAGMA table_info(settings_v1)").all() as Array<{ name: string }>;
+  const settingsColumns = db.prepare("PRAGMA table_info(settings_v1)").all() as Array<{ name: string }>;
   const hasProposalExclusions = settingsColumns.some((column) => column.name === 'proposal_exclusions');
   if (!hasProposalExclusions) {
-    estimatorDb.exec("ALTER TABLE settings_v1 ADD COLUMN proposal_exclusions TEXT NOT NULL DEFAULT ''");
+    db.exec("ALTER TABLE settings_v1 ADD COLUMN proposal_exclusions TEXT NOT NULL DEFAULT ''");
   }
 
   const hasDefaultLaborRatePerHour = settingsColumns.some((column) => column.name === 'default_labor_rate_per_hour');
   if (!hasDefaultLaborRatePerHour) {
-    estimatorDb.exec(`ALTER TABLE settings_v1 ADD COLUMN default_labor_rate_per_hour REAL NOT NULL DEFAULT ${defaultLaborRatePerHour}`);
+    db.exec(`ALTER TABLE settings_v1 ADD COLUMN default_labor_rate_per_hour REAL NOT NULL DEFAULT ${defaultLaborRatePerHour}`);
   }
 
   const hasProposalClarifications = settingsColumns.some((column) => column.name === 'proposal_clarifications');
   if (!hasProposalClarifications) {
-    estimatorDb.exec("ALTER TABLE settings_v1 ADD COLUMN proposal_clarifications TEXT NOT NULL DEFAULT ''");
+    db.exec("ALTER TABLE settings_v1 ADD COLUMN proposal_clarifications TEXT NOT NULL DEFAULT ''");
   }
 
   const hasProposalAcceptanceLabel = settingsColumns.some((column) => column.name === 'proposal_acceptance_label');
   if (!hasProposalAcceptanceLabel) {
-    estimatorDb.exec("ALTER TABLE settings_v1 ADD COLUMN proposal_acceptance_label TEXT NOT NULL DEFAULT 'Accepted By'");
+    db.exec("ALTER TABLE settings_v1 ADD COLUMN proposal_acceptance_label TEXT NOT NULL DEFAULT 'Accepted By'");
   }
 
-  const takeoffColumns = estimatorDb.prepare("PRAGMA table_info(takeoff_lines_v1)").all() as Array<{ name: string }>;
+  const takeoffColumns = db.prepare("PRAGMA table_info(takeoff_lines_v1)").all() as Array<{ name: string }>;
 
-  const projectColumns = estimatorDb.prepare("PRAGMA table_info(projects_v1)").all() as Array<{ name: string }>;
+  const projectColumns = db.prepare("PRAGMA table_info(projects_v1)").all() as Array<{ name: string }>;
   const hasPricingMode = projectColumns.some((column) => column.name === 'pricing_mode');
   if (!hasPricingMode) {
-    estimatorDb.exec("ALTER TABLE projects_v1 ADD COLUMN pricing_mode TEXT NOT NULL DEFAULT 'labor_and_material'");
+    db.exec("ALTER TABLE projects_v1 ADD COLUMN pricing_mode TEXT NOT NULL DEFAULT 'labor_and_material'");
   }
 
   const hasJobConditions = projectColumns.some((column) => column.name === 'job_conditions_json');
   if (!hasJobConditions) {
-    estimatorDb.exec("ALTER TABLE projects_v1 ADD COLUMN job_conditions_json TEXT NOT NULL DEFAULT '{}'");
+    db.exec("ALTER TABLE projects_v1 ADD COLUMN job_conditions_json TEXT NOT NULL DEFAULT '{}'");
   }
 
   const hasScopeCategories = projectColumns.some((column) => column.name === 'scope_categories_json');
   if (!hasScopeCategories) {
-    estimatorDb.exec("ALTER TABLE projects_v1 ADD COLUMN scope_categories_json TEXT NOT NULL DEFAULT '[]'");
+    db.exec("ALTER TABLE projects_v1 ADD COLUMN scope_categories_json TEXT NOT NULL DEFAULT '[]'");
   }
 
   const hasSpecialNotes = projectColumns.some((column) => column.name === 'special_notes');
   if (!hasSpecialNotes) {
-    estimatorDb.exec('ALTER TABLE projects_v1 ADD COLUMN special_notes TEXT');
+    db.exec('ALTER TABLE projects_v1 ADD COLUMN special_notes TEXT');
   }
 
   const hasGeneralContractor = projectColumns.some((column) => column.name === 'general_contractor');
   if (!hasGeneralContractor) {
-    estimatorDb.exec('ALTER TABLE projects_v1 ADD COLUMN general_contractor TEXT');
+    db.exec('ALTER TABLE projects_v1 ADD COLUMN general_contractor TEXT');
   }
 
   const hasProposalDate = projectColumns.some((column) => column.name === 'proposal_date');
   if (!hasProposalDate) {
-    estimatorDb.exec('ALTER TABLE projects_v1 ADD COLUMN proposal_date TEXT');
+    db.exec('ALTER TABLE projects_v1 ADD COLUMN proposal_date TEXT');
   }
 
   const hasLaborOverheadPercent = projectColumns.some((column) => column.name === 'labor_overhead_percent');
   if (!hasLaborOverheadPercent) {
-    estimatorDb.exec('ALTER TABLE projects_v1 ADD COLUMN labor_overhead_percent REAL NOT NULL DEFAULT 15');
-    estimatorDb.exec('UPDATE projects_v1 SET labor_overhead_percent = overhead_percent');
+    db.exec('ALTER TABLE projects_v1 ADD COLUMN labor_overhead_percent REAL NOT NULL DEFAULT 15');
+    db.exec('UPDATE projects_v1 SET labor_overhead_percent = overhead_percent');
   }
 
   const hasLaborProfitPercent = projectColumns.some((column) => column.name === 'labor_profit_percent');
   if (!hasLaborProfitPercent) {
-    estimatorDb.exec('ALTER TABLE projects_v1 ADD COLUMN labor_profit_percent REAL NOT NULL DEFAULT 10');
-    estimatorDb.exec('UPDATE projects_v1 SET labor_profit_percent = profit_percent');
+    db.exec('ALTER TABLE projects_v1 ADD COLUMN labor_profit_percent REAL NOT NULL DEFAULT 10');
+    db.exec('UPDATE projects_v1 SET labor_profit_percent = profit_percent');
   }
 
   const hasSubLaborFeeEnabled = projectColumns.some((column) => column.name === 'sub_labor_management_fee_enabled');
   if (!hasSubLaborFeeEnabled) {
-    estimatorDb.exec('ALTER TABLE projects_v1 ADD COLUMN sub_labor_management_fee_enabled INTEGER NOT NULL DEFAULT 0');
+    db.exec('ALTER TABLE projects_v1 ADD COLUMN sub_labor_management_fee_enabled INTEGER NOT NULL DEFAULT 0');
   }
 
   const hasSubLaborFeePercent = projectColumns.some((column) => column.name === 'sub_labor_management_fee_percent');
   if (!hasSubLaborFeePercent) {
-    estimatorDb.exec('ALTER TABLE projects_v1 ADD COLUMN sub_labor_management_fee_percent REAL NOT NULL DEFAULT 5');
+    db.exec('ALTER TABLE projects_v1 ADD COLUMN sub_labor_management_fee_percent REAL NOT NULL DEFAULT 5');
   }
 
   const hasProposalIncludeSpecialNotes = projectColumns.some((column) => column.name === 'proposal_include_special_notes');
   if (!hasProposalIncludeSpecialNotes) {
-    estimatorDb.exec('ALTER TABLE projects_v1 ADD COLUMN proposal_include_special_notes INTEGER NOT NULL DEFAULT 0');
+    db.exec('ALTER TABLE projects_v1 ADD COLUMN proposal_include_special_notes INTEGER NOT NULL DEFAULT 0');
   }
 
-  estimatorDb.exec("UPDATE projects_v1 SET job_conditions_json = '{}' WHERE job_conditions_json IS NULL OR trim(job_conditions_json) = ''");
-  estimatorDb.exec("UPDATE projects_v1 SET scope_categories_json = '[]' WHERE scope_categories_json IS NULL OR trim(scope_categories_json) = ''");
+  db.exec("UPDATE projects_v1 SET job_conditions_json = '{}' WHERE job_conditions_json IS NULL OR trim(job_conditions_json) = ''");
+  db.exec("UPDATE projects_v1 SET scope_categories_json = '[]' WHERE scope_categories_json IS NULL OR trim(scope_categories_json) = ''");
   const hasBaseMaterialCost = takeoffColumns.some((column) => column.name === 'base_material_cost');
   if (!hasBaseMaterialCost) {
-    estimatorDb.exec("ALTER TABLE takeoff_lines_v1 ADD COLUMN base_material_cost REAL NOT NULL DEFAULT 0");
-    estimatorDb.exec("UPDATE takeoff_lines_v1 SET base_material_cost = material_cost WHERE base_material_cost = 0");
+    db.exec("ALTER TABLE takeoff_lines_v1 ADD COLUMN base_material_cost REAL NOT NULL DEFAULT 0");
+    db.exec("UPDATE takeoff_lines_v1 SET base_material_cost = material_cost WHERE base_material_cost = 0");
   }
 
   const hasBaseLaborCost = takeoffColumns.some((column) => column.name === 'base_labor_cost');
   if (!hasBaseLaborCost) {
-    estimatorDb.exec("ALTER TABLE takeoff_lines_v1 ADD COLUMN base_labor_cost REAL NOT NULL DEFAULT 0");
-    estimatorDb.exec("UPDATE takeoff_lines_v1 SET base_labor_cost = labor_cost WHERE base_labor_cost = 0");
+    db.exec("ALTER TABLE takeoff_lines_v1 ADD COLUMN base_labor_cost REAL NOT NULL DEFAULT 0");
+    db.exec("UPDATE takeoff_lines_v1 SET base_labor_cost = labor_cost WHERE base_labor_cost = 0");
   }
 
   const hasPricingSource = takeoffColumns.some((column) => column.name === 'pricing_source');
   if (!hasPricingSource) {
-    estimatorDb.exec("ALTER TABLE takeoff_lines_v1 ADD COLUMN pricing_source TEXT NOT NULL DEFAULT 'auto'");
+    db.exec("ALTER TABLE takeoff_lines_v1 ADD COLUMN pricing_source TEXT NOT NULL DEFAULT 'auto'");
   }
 
-  estimatorDb.exec(`
+  db.exec(`
     UPDATE takeoff_lines_v1
     SET pricing_source = CASE
       WHEN abs(coalesce(unit_sell, 0) - round(coalesce(material_cost, 0) + coalesce(labor_cost, 0), 2)) > 0.009 THEN 'manual'
@@ -311,7 +311,7 @@ export function initEstimatorSchema() {
   `);
 
   if (Number.isFinite(defaultLaborRatePerHour) && defaultLaborRatePerHour > 0) {
-    const rows = estimatorDb.prepare(`
+    const rows = db.prepare(`
       SELECT id, qty, material_cost, labor_minutes, labor_cost, base_labor_cost, pricing_source, unit_sell
       FROM takeoff_lines_v1
       WHERE labor_minutes > 0
@@ -327,7 +327,7 @@ export function initEstimatorSchema() {
       unit_sell: number;
     }>;
 
-    const updateLine = estimatorDb.prepare(`
+    const updateLine = db.prepare(`
       UPDATE takeoff_lines_v1
       SET labor_cost = ?,
           base_labor_cost = ?,
@@ -360,7 +360,7 @@ export function initEstimatorSchema() {
       );
     });
 
-    estimatorDb.prepare(`
+    db.prepare(`
       UPDATE bundle_items_v1
       SET labor_cost = round((labor_minutes / 60.0) * ?, 2)
       WHERE labor_minutes > 0
@@ -368,8 +368,24 @@ export function initEstimatorSchema() {
     `).run(defaultLaborRatePerHour);
   }
 
+  const catalogItemColumns = db.prepare('PRAGMA table_info(catalog_items)').all() as Array<{ name: string }>;
+  if (catalogItemColumns.length > 0) {
+    if (!catalogItemColumns.some((c) => c.name === 'brand')) {
+      db.exec('ALTER TABLE catalog_items ADD COLUMN brand TEXT');
+    }
+    if (!catalogItemColumns.some((c) => c.name === 'model_number')) {
+      db.exec('ALTER TABLE catalog_items ADD COLUMN model_number TEXT');
+    }
+    if (!catalogItemColumns.some((c) => c.name === 'series')) {
+      db.exec('ALTER TABLE catalog_items ADD COLUMN series TEXT');
+    }
+    if (!catalogItemColumns.some((c) => c.name === 'image_url')) {
+      db.exec('ALTER TABLE catalog_items ADD COLUMN image_url TEXT');
+    }
+  }
+
   if (!settingsExists) {
-    estimatorDb.prepare(`
+    db.prepare(`
       INSERT INTO settings_v1 (
         id, company_name, company_address, company_phone, company_email, logo_url, default_labor_rate_per_hour,
         default_overhead_percent, default_profit_percent, default_tax_percent, default_labor_burden_percent,
@@ -395,31 +411,31 @@ export function initEstimatorSchema() {
       new Date().toISOString()
     );
   } else {
-    estimatorDb.prepare(`
+    db.prepare(`
       UPDATE settings_v1
       SET default_labor_rate_per_hour = ?, updated_at = ?
       WHERE id = 'global' AND (default_labor_rate_per_hour IS NULL OR default_labor_rate_per_hour <= 0)
     `).run(defaultLaborRatePerHour, new Date().toISOString());
 
-    estimatorDb.prepare(`
+    db.prepare(`
       UPDATE settings_v1
       SET company_name = ?, updated_at = ?
       WHERE id = 'global' AND company_name = 'Brighten Install'
     `).run('Brighten Builders, LLC', new Date().toISOString());
 
-    estimatorDb.prepare(`
+    db.prepare(`
       UPDATE settings_v1
       SET company_address = ?, updated_at = ?
       WHERE id = 'global' AND (company_address IS NULL OR company_address = '')
     `).run('512 S. 70th Street, Kansas City, KS 66611', new Date().toISOString());
 
-    estimatorDb.prepare(`
+    db.prepare(`
       UPDATE settings_v1
       SET logo_url = ?, updated_at = ?
       WHERE id = 'global' AND (logo_url IS NULL OR logo_url = '')
     `).run('https://static.wixstatic.com/media/18d091_be2178f095264ea0a1d2c8d78520b2ce%7Emv2.png/v1/fit/w_2500,h_1330,al_c/18d091_be2178f095264ea0a1d2c8d78520b2ce%7Emv2.png', new Date().toISOString());
 
-    const settingsRow = estimatorDb.prepare(`
+    const settingsRow = db.prepare(`
       SELECT proposal_intro, proposal_terms, proposal_exclusions, proposal_clarifications, proposal_acceptance_label
       FROM settings_v1
       WHERE id = 'global'
@@ -447,7 +463,7 @@ export function initEstimatorSchema() {
         sanitized.proposalClarifications !== settingsRow.proposal_clarifications ||
         sanitized.proposalAcceptanceLabel !== settingsRow.proposal_acceptance_label
       ) {
-        estimatorDb.prepare(`
+        db.prepare(`
           UPDATE settings_v1
           SET proposal_intro = ?, proposal_terms = ?, proposal_exclusions = ?, proposal_clarifications = ?, proposal_acceptance_label = ?, updated_at = ?
           WHERE id = 'global'
@@ -463,10 +479,10 @@ export function initEstimatorSchema() {
     }
   }
 
-  const modifiersCount = estimatorDb.prepare('SELECT COUNT(*) as count FROM modifiers_v1').get() as { count: number };
+  const modifiersCount = db.prepare('SELECT COUNT(*) as count FROM modifiers_v1').get() as { count: number };
   if (modifiersCount.count === 0) {
     const now = new Date().toISOString();
-    const insertModifier = estimatorDb.prepare(`
+    const insertModifier = db.prepare(`
       INSERT INTO modifiers_v1 (
         id, name, modifier_key, applies_to_categories, add_labor_minutes, add_material_cost,
         percent_labor, percent_material, active, updated_at
@@ -478,13 +494,13 @@ export function initEstimatorSchema() {
     insertModifier.run('mod-stainless', 'Stainless Upgrade', 'STAINLESS', JSON.stringify(['Toilet Accessories', 'Partitions']), 0, 40, 0, 10, 1, now);
   }
 
-  const bundleCount = estimatorDb.prepare('SELECT COUNT(*) as count FROM bundles_v1').get() as { count: number };
+  const bundleCount = db.prepare('SELECT COUNT(*) as count FROM bundles_v1').get() as { count: number };
   if (bundleCount.count === 0) {
     const now = new Date().toISOString();
-    estimatorDb.prepare('INSERT INTO bundles_v1 (id, bundle_name, category, active, updated_at) VALUES (?, ?, ?, ?, ?)')
+    db.prepare('INSERT INTO bundles_v1 (id, bundle_name, category, active, updated_at) VALUES (?, ?, ?, ?, ?)')
       .run('bundle-ada-single-stall', 'ADA Single Stall Restroom Bundle', 'Restroom', 1, now);
 
-    const insertBundleItem = estimatorDb.prepare(`
+    const insertBundleItem = db.prepare(`
       INSERT INTO bundle_items_v1 (
         id, bundle_id, catalog_item_id, sku, description, qty, material_cost, labor_minutes, labor_cost, sort_order, notes
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -495,9 +511,9 @@ export function initEstimatorSchema() {
     insertBundleItem.run('bundle-item-3', 'bundle-ada-single-stall', 'c6', 'TD-262', 'Paper Towel Dispenser, Surface', 1, 85, 20, 18, 3, null);
   }
 
-  const syncStatusExists = estimatorDb.prepare('SELECT 1 FROM catalog_sync_status_v1 WHERE id = ?').get('catalog');
+  const syncStatusExists = db.prepare('SELECT 1 FROM catalog_sync_status_v1 WHERE id = ?').get('catalog');
   if (!syncStatusExists) {
-    estimatorDb.prepare(`
+    db.prepare(`
       INSERT INTO catalog_sync_status_v1 (
         id, last_attempt_at, last_success_at, status, message, items_synced, modifiers_synced, bundles_synced, bundle_items_synced, warnings_json
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

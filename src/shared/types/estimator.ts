@@ -150,6 +150,8 @@ export interface TakeoffLineRecord {
   bundleId: string | null;
   catalogItemId: string | null;
   variantId: string | null;
+  /** Applied line modifiers (e.g. Recessed); server-computed from line_modifiers_v1, not a DB column on takeoff_lines_v1. */
+  modifierNames?: string[];
   createdAt: string;
   updatedAt: string;
 }

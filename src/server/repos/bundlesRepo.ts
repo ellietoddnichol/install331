@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { estimatorDb } from '../db/connection.ts';
+import { getEstimatorDb } from '../db/connection.ts';
 import { BundleItemRecord, BundleRecord, TakeoffLineRecord } from '../../shared/types/estimator.ts';
 import { createTakeoffLine, resolveUnitLaborCostFromMinutes } from './takeoffRepo.ts';
 
@@ -30,17 +30,17 @@ function mapBundleItem(row: any): BundleItemRecord {
 }
 
 export function listBundles(): BundleRecord[] {
-  const rows = estimatorDb.prepare('SELECT * FROM bundles_v1 WHERE active = 1 ORDER BY bundle_name').all();
+  const rows = getEstimatorDb().prepare('SELECT * FROM bundles_v1 WHERE active = 1 ORDER BY bundle_name').all();
   return rows.map(mapBundle);
 }
 
 export function getBundle(bundleId: string): BundleRecord | null {
-  const row = estimatorDb.prepare('SELECT * FROM bundles_v1 WHERE id = ?').get(bundleId);
+  const row = getEstimatorDb().prepare('SELECT * FROM bundles_v1 WHERE id = ?').get(bundleId);
   return row ? mapBundle(row) : null;
 }
 
 export function listBundleItems(bundleId: string): BundleItemRecord[] {
-  const rows = estimatorDb.prepare('SELECT * FROM bundle_items_v1 WHERE bundle_id = ? ORDER BY sort_order, id').all(bundleId);
+  const rows = getEstimatorDb().prepare('SELECT * FROM bundle_items_v1 WHERE bundle_id = ? ORDER BY sort_order, id').all(bundleId);
   return rows.map(mapBundleItem);
 }
 
@@ -54,7 +54,7 @@ export function createBundle(input: { bundleName: string; category?: string | nu
     updatedAt: now
   };
 
-  estimatorDb.prepare('INSERT INTO bundles_v1 (id, bundle_name, category, active, updated_at) VALUES (?, ?, ?, ?, ?)')
+  getEstimatorDb().prepare('INSERT INTO bundles_v1 (id, bundle_name, category, active, updated_at) VALUES (?, ?, ?, ?, ?)')
     .run(bundle.id, bundle.bundleName, bundle.category, 1, bundle.updatedAt);
 
   const items: BundleItemRecord[] = [];
@@ -73,7 +73,7 @@ export function createBundle(input: { bundleName: string; category?: string | nu
       notes: item.notes ?? null
     };
 
-    estimatorDb.prepare(`
+    getEstimatorDb().prepare(`
       INSERT INTO bundle_items_v1 (
         id, bundle_id, catalog_item_id, sku, description, qty, material_cost, labor_minutes, labor_cost, sort_order, notes
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

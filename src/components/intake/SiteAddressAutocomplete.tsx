@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { apiFetch } from '../../services/api';
 
 type Props = {
   id?: string;
@@ -23,7 +24,7 @@ export function SiteAddressAutocomplete({ id, value, className = '', placeholder
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/v1/projects/address-suggest?q=${encodeURIComponent(q.trim())}`);
+      const res = await apiFetch(`/api/v1/projects/address-suggest?q=${encodeURIComponent(q.trim())}`);
       if (!res.ok) throw new Error('bad');
       const json = (await res.json()) as { data?: { suggestions?: { label: string }[] } };
       const list = json?.data?.suggestions;

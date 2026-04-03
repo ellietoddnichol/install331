@@ -5,6 +5,11 @@ import { IntakeParseRequest, IntakeParseResult } from '../shared/types/intake';
 
 const API_BASE = '/api';
 
+/** Same-origin API wrapper — use for future auth cookies (`credentials: 'include'`). */
+export function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return fetch(input, { ...init, headers: init?.headers });
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let errorMessage = `Request failed with status ${res.status}`;
@@ -30,17 +35,17 @@ async function handleResponse<T>(res: Response): Promise<T> {
 
 export const api = {
   async getV1Projects(): Promise<ProjectRecord[]> {
-    const res = await fetch(`${API_BASE}/v1/projects`);
+    const res = await apiFetch(`${API_BASE}/v1/projects`);
     const payload = await handleResponse<{ data: ProjectRecord[] }>(res);
     return payload.data;
   },
   async getV1Project(id: string): Promise<ProjectRecord> {
-    const res = await fetch(`${API_BASE}/v1/projects/${id}`);
+    const res = await apiFetch(`${API_BASE}/v1/projects/${id}`);
     const payload = await handleResponse<{ data: ProjectRecord }>(res);
     return payload.data;
   },
   async createV1Project(project: Partial<ProjectRecord>): Promise<ProjectRecord> {
-    const res = await fetch(`${API_BASE}/v1/projects`, {
+    const res = await apiFetch(`${API_BASE}/v1/projects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(project),
@@ -49,7 +54,7 @@ export const api = {
     return payload.data;
   },
   async updateV1Project(id: string, project: Partial<ProjectRecord>): Promise<ProjectRecord> {
-    const res = await fetch(`${API_BASE}/v1/projects/${id}`, {
+    const res = await apiFetch(`${API_BASE}/v1/projects/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(project),
@@ -58,15 +63,15 @@ export const api = {
     return payload.data;
   },
   async archiveV1Project(id: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/v1/projects/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(`${API_BASE}/v1/projects/${id}`, { method: 'DELETE' });
     await handleResponse<{ data: { archived: boolean } }>(res);
   },
   async deleteV1Project(id: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/v1/projects/${id}?permanent=true`, { method: 'DELETE' });
+    const res = await apiFetch(`${API_BASE}/v1/projects/${id}?permanent=true`, { method: 'DELETE' });
     await handleResponse<{ data: { deleted: boolean } }>(res);
   },
   async getV1ProjectFiles(projectId: string): Promise<ProjectFileRecord[]> {
-    const res = await fetch(`${API_BASE}/v1/projects/${encodeURIComponent(projectId)}/files`);
+    const res = await apiFetch(`${API_BASE}/v1/projects/${encodeURIComponent(projectId)}/files`);
     const payload = await handleResponse<{ data: ProjectFileRecord[] }>(res);
     return payload.data;
   },
@@ -77,7 +82,7 @@ export const api = {
     sizeBytes: number;
     dataBase64: string;
   }): Promise<ProjectFileRecord> {
-    const res = await fetch(`${API_BASE}/v1/projects/${encodeURIComponent(input.projectId)}/files`, {
+    const res = await apiFetch(`${API_BASE}/v1/projects/${encodeURIComponent(input.projectId)}/files`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -94,18 +99,18 @@ export const api = {
     return `${API_BASE}/v1/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(fileId)}/download`;
   },
   async deleteV1ProjectFile(projectId: string, fileId: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/v1/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(fileId)}`, {
+    const res = await apiFetch(`${API_BASE}/v1/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(fileId)}`, {
       method: 'DELETE',
     });
     await handleResponse<{ data: { deleted: boolean } }>(res);
   },
   async getV1Rooms(projectId: string): Promise<RoomRecord[]> {
-    const res = await fetch(`${API_BASE}/v1/rooms?projectId=${encodeURIComponent(projectId)}`);
+    const res = await apiFetch(`${API_BASE}/v1/rooms?projectId=${encodeURIComponent(projectId)}`);
     const payload = await handleResponse<{ data: RoomRecord[] }>(res);
     return payload.data;
   },
   async createV1Room(input: { projectId: string; roomName: string; notes?: string }): Promise<RoomRecord> {
-    const res = await fetch(`${API_BASE}/v1/rooms`, {
+    const res = await apiFetch(`${API_BASE}/v1/rooms`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -114,7 +119,7 @@ export const api = {
     return payload.data;
   },
   async updateV1Room(roomId: string, input: Partial<RoomRecord>): Promise<RoomRecord> {
-    const res = await fetch(`${API_BASE}/v1/rooms/${roomId}`, {
+    const res = await apiFetch(`${API_BASE}/v1/rooms/${roomId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -123,7 +128,7 @@ export const api = {
     return payload.data;
   },
   async duplicateV1Room(roomId: string): Promise<RoomRecord> {
-    const res = await fetch(`${API_BASE}/v1/rooms/${roomId}/duplicate`, {
+    const res = await apiFetch(`${API_BASE}/v1/rooms/${roomId}/duplicate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -131,18 +136,18 @@ export const api = {
     return payload.data;
   },
   async deleteV1Room(roomId: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/v1/rooms/${roomId}`, { method: 'DELETE' });
+    const res = await apiFetch(`${API_BASE}/v1/rooms/${roomId}`, { method: 'DELETE' });
     await handleResponse<{ data: { deleted: boolean } }>(res);
   },
   async getV1TakeoffLines(projectId: string, roomId?: string): Promise<TakeoffLineRecord[]> {
     const query = new URLSearchParams({ projectId });
     if (roomId) query.set('roomId', roomId);
-    const res = await fetch(`${API_BASE}/v1/takeoff/lines?${query.toString()}`);
+    const res = await apiFetch(`${API_BASE}/v1/takeoff/lines?${query.toString()}`);
     const payload = await handleResponse<{ data: TakeoffLineRecord[] }>(res);
     return payload.data;
   },
   async createV1TakeoffLine(input: Partial<TakeoffLineRecord> & { projectId: string; roomId: string; description: string }): Promise<TakeoffLineRecord> {
-    const res = await fetch(`${API_BASE}/v1/takeoff/lines`, {
+    const res = await apiFetch(`${API_BASE}/v1/takeoff/lines`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -151,7 +156,7 @@ export const api = {
     return payload.data;
   },
   async updateV1TakeoffLine(lineId: string, input: Partial<TakeoffLineRecord>): Promise<TakeoffLineRecord> {
-    const res = await fetch(`${API_BASE}/v1/takeoff/lines/${lineId}`, {
+    const res = await apiFetch(`${API_BASE}/v1/takeoff/lines/${lineId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -160,16 +165,16 @@ export const api = {
     return payload.data;
   },
   async deleteV1TakeoffLine(lineId: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/v1/takeoff/lines/${lineId}`, { method: 'DELETE' });
+    const res = await apiFetch(`${API_BASE}/v1/takeoff/lines/${lineId}`, { method: 'DELETE' });
     await handleResponse<{ data: { deleted: boolean } }>(res);
   },
   async getV1Summary(projectId: string): Promise<EstimateSummary> {
-    const res = await fetch(`${API_BASE}/v1/takeoff/summary/${projectId}`);
+    const res = await apiFetch(`${API_BASE}/v1/takeoff/summary/${projectId}`);
     const payload = await handleResponse<{ data: EstimateSummary }>(res);
     return payload.data;
   },
   async generateV1InstallReviewEmail(projectId: string): Promise<InstallReviewEmailDraft> {
-    const res = await fetch(`${API_BASE}/v1/takeoff/install-review-email/${encodeURIComponent(projectId)}`, {
+    const res = await apiFetch(`${API_BASE}/v1/takeoff/install-review-email/${encodeURIComponent(projectId)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -177,7 +182,7 @@ export const api = {
     return payload.data;
   },
   async repriceV1ProjectTakeoff(projectId: string): Promise<TakeoffLineRecord[]> {
-    const res = await fetch(`${API_BASE}/v1/takeoff/reprice/${encodeURIComponent(projectId)}`, {
+    const res = await apiFetch(`${API_BASE}/v1/takeoff/reprice/${encodeURIComponent(projectId)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -191,7 +196,7 @@ export const api = {
     summary: EstimateSummary | null;
     settings: Partial<SettingsRecord>;
   }): Promise<Partial<SettingsRecord>> {
-    const res = await fetch(`${API_BASE}/v1/settings/proposal-draft`, {
+    const res = await apiFetch(`${API_BASE}/v1/settings/proposal-draft`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -200,7 +205,7 @@ export const api = {
     return payload.data;
   },
   async finalizeV1ParserLines(lines: Array<Partial<TakeoffLineRecord>>): Promise<TakeoffLineRecord[]> {
-    const res = await fetch(`${API_BASE}/v1/takeoff/finalize-parser-lines`, {
+    const res = await apiFetch(`${API_BASE}/v1/takeoff/finalize-parser-lines`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ lines }),
@@ -209,7 +214,7 @@ export const api = {
     return payload.data;
   },
   async getV1Modifiers(): Promise<ModifierRecord[]> {
-    const res = await fetch(`${API_BASE}/v1/modifiers`);
+    const res = await apiFetch(`${API_BASE}/v1/modifiers`);
     const payload = await handleResponse<{ data: ModifierRecord[] }>(res);
     return payload.data;
   },
@@ -224,7 +229,7 @@ export const api = {
     percentLabor: number;
     createdAt: string;
   }>> {
-    const res = await fetch(`${API_BASE}/v1/modifiers/line/${lineId}`);
+    const res = await apiFetch(`${API_BASE}/v1/modifiers/line/${lineId}`);
     const payload = await handleResponse<{ data: Array<{
       id: string;
       lineId: string;
@@ -239,7 +244,7 @@ export const api = {
     return payload.data;
   },
   async applyV1ModifierToLine(lineId: string, modifierId: string): Promise<{ line: TakeoffLineRecord; modifier: any }> {
-    const res = await fetch(`${API_BASE}/v1/modifiers/line/${lineId}/apply`, {
+    const res = await apiFetch(`${API_BASE}/v1/modifiers/line/${lineId}/apply`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ modifierId }),
@@ -248,12 +253,12 @@ export const api = {
     return payload.data;
   },
   async removeV1LineModifier(lineId: string, lineModifierId: string): Promise<{ line: TakeoffLineRecord; removed: boolean }> {
-    const res = await fetch(`${API_BASE}/v1/modifiers/line/${lineId}/${lineModifierId}`, { method: 'DELETE' });
+    const res = await apiFetch(`${API_BASE}/v1/modifiers/line/${lineId}/${lineModifierId}`, { method: 'DELETE' });
     const payload = await handleResponse<{ data: { line: TakeoffLineRecord; removed: boolean } }>(res);
     return payload.data;
   },
   async getV1Bundles(): Promise<BundleRecord[]> {
-    const res = await fetch(`${API_BASE}/v1/bundles`);
+    const res = await apiFetch(`${API_BASE}/v1/bundles`);
     const payload = await handleResponse<{ data: BundleRecord[] }>(res);
     return payload.data;
   },
@@ -270,7 +275,7 @@ export const api = {
     sortOrder: number;
     notes: string | null;
   }>> {
-    const res = await fetch(`${API_BASE}/v1/bundles/${encodeURIComponent(bundleId)}/items`);
+    const res = await apiFetch(`${API_BASE}/v1/bundles/${encodeURIComponent(bundleId)}/items`);
     const payload = await handleResponse<{ data: Array<{
       id: string;
       bundleId: string;
@@ -287,7 +292,7 @@ export const api = {
     return payload.data;
   },
   async applyV1Bundle(bundleId: string, projectId: string, roomId: string): Promise<TakeoffLineRecord[]> {
-    const res = await fetch(`${API_BASE}/v1/bundles/${bundleId}/apply`, {
+    const res = await apiFetch(`${API_BASE}/v1/bundles/${bundleId}/apply`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectId, roomId }),
@@ -296,12 +301,12 @@ export const api = {
     return payload.data;
   },
   async getV1Settings(): Promise<SettingsRecord> {
-    const res = await fetch(`${API_BASE}/v1/settings`);
+    const res = await apiFetch(`${API_BASE}/v1/settings`);
     const payload = await handleResponse<{ data: SettingsRecord }>(res);
     return payload.data;
   },
   async updateV1Settings(input: Partial<SettingsRecord>): Promise<SettingsRecord> {
-    const res = await fetch(`${API_BASE}/v1/settings`, {
+    const res = await apiFetch(`${API_BASE}/v1/settings`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -310,7 +315,7 @@ export const api = {
     return payload.data;
   },
   async getCatalogSyncStatus(): Promise<CatalogSyncStatusRecord> {
-    const res = await fetch(`${API_BASE}/v1/settings/catalog-sync-status`);
+    const res = await apiFetch(`${API_BASE}/v1/settings/catalog-sync-status`);
     const payload = await handleResponse<{ data: CatalogSyncStatusRecord }>(res);
     return payload.data;
   },
@@ -325,7 +330,7 @@ export const api = {
     bundleItemsSynced: number;
     warnings: string[];
   }>> {
-    const res = await fetch(`${API_BASE}/v1/settings/catalog-sync-runs?limit=${encodeURIComponent(String(limit))}`);
+    const res = await apiFetch(`${API_BASE}/v1/settings/catalog-sync-runs?limit=${encodeURIComponent(String(limit))}`);
     const payload = await handleResponse<{ data: Array<{
       id: string;
       attemptedAt: string;
@@ -350,7 +355,7 @@ export const api = {
     warnings: string[];
     syncedAt: string;
   }> {
-    const res = await fetch(`${API_BASE}/v1/settings/sync-catalog`, { method: 'POST' });
+    const res = await apiFetch(`${API_BASE}/v1/settings/sync-catalog`, { method: 'POST' });
     const payload = await handleResponse<{ data: {
       message: string;
       spreadsheetId: string;
@@ -372,7 +377,7 @@ export const api = {
     warnings: string[];
     syncedAt: string;
   }> {
-    const res = await fetch(`${API_BASE}/v1/settings/backfill-takeoff-registry`, { method: 'POST' });
+    const res = await apiFetch(`${API_BASE}/v1/settings/backfill-takeoff-registry`, { method: 'POST' });
     const payload = await handleResponse<{ data: {
       message: string;
       spreadsheetId: string;
@@ -409,7 +414,7 @@ export const api = {
     }>;
     warnings: string[];
   }> {
-    const res = await fetch(`${API_BASE}/v1/intake/extract`, {
+    const res = await apiFetch(`${API_BASE}/v1/intake/extract`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -436,7 +441,7 @@ export const api = {
     return payload.data;
   },
   async parseV1Intake(input: IntakeParseRequest): Promise<IntakeParseResult> {
-    const res = await fetch(`${API_BASE}/v1/intake/parse`, {
+    const res = await apiFetch(`${API_BASE}/v1/intake/parse`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -445,15 +450,15 @@ export const api = {
     return payload.data;
   },
   async getProjects(): Promise<Project[]> {
-    const res = await fetch(`${API_BASE}/projects`);
+    const res = await apiFetch(`${API_BASE}/projects`);
     return handleResponse<Project[]>(res);
   },
   async getProject(id: string): Promise<Project> {
-    const res = await fetch(`${API_BASE}/projects/${id}`);
+    const res = await apiFetch(`${API_BASE}/projects/${id}`);
     return handleResponse<Project>(res);
   },
   async createProject(project: Project): Promise<Project> {
-    const res = await fetch(`${API_BASE}/projects`, {
+    const res = await apiFetch(`${API_BASE}/projects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(project),
@@ -461,7 +466,7 @@ export const api = {
     return handleResponse<Project>(res);
   },
   async updateProject(project: Project): Promise<Project> {
-    const res = await fetch(`${API_BASE}/projects/${project.id}`, {
+    const res = await apiFetch(`${API_BASE}/projects/${project.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(project),
@@ -469,15 +474,15 @@ export const api = {
     return handleResponse<Project>(res);
   },
   async deleteProject(id: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/projects/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(`${API_BASE}/projects/${id}`, { method: 'DELETE' });
     await handleResponse<void>(res);
   },
   async getCatalog(): Promise<CatalogItem[]> {
-    const res = await fetch(`${API_BASE}/catalog/items`);
+    const res = await apiFetch(`${API_BASE}/catalog/items`);
     return handleResponse<CatalogItem[]>(res);
   },
   async createCatalogItem(item: CatalogItem): Promise<CatalogItem> {
-    const res = await fetch(`${API_BASE}/catalog/items`, {
+    const res = await apiFetch(`${API_BASE}/catalog/items`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(item),
@@ -485,7 +490,7 @@ export const api = {
     return handleResponse<CatalogItem>(res);
   },
   async updateCatalogItem(item: CatalogItem): Promise<CatalogItem> {
-    const res = await fetch(`${API_BASE}/catalog/items/${item.id}`, {
+    const res = await apiFetch(`${API_BASE}/catalog/items/${item.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(item),
@@ -493,15 +498,15 @@ export const api = {
     return handleResponse<CatalogItem>(res);
   },
   async deleteCatalogItem(id: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/catalog/items/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(`${API_BASE}/catalog/items/${id}`, { method: 'DELETE' });
     await handleResponse<void>(res);
   },
   async getCatalogModifiers(): Promise<ModifierRecord[]> {
-    const res = await fetch(`${API_BASE}/catalog/modifiers`);
+    const res = await apiFetch(`${API_BASE}/catalog/modifiers`);
     return handleResponse<ModifierRecord[]>(res);
   },
   async createCatalogModifier(input: Partial<ModifierRecord>): Promise<ModifierRecord> {
-    const res = await fetch(`${API_BASE}/catalog/modifiers`, {
+    const res = await apiFetch(`${API_BASE}/catalog/modifiers`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -509,7 +514,7 @@ export const api = {
     return handleResponse<ModifierRecord>(res);
   },
   async updateCatalogModifier(input: Partial<ModifierRecord> & { id: string }): Promise<ModifierRecord> {
-    const res = await fetch(`${API_BASE}/catalog/modifiers/${input.id}`, {
+    const res = await apiFetch(`${API_BASE}/catalog/modifiers/${input.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -517,15 +522,15 @@ export const api = {
     return handleResponse<ModifierRecord>(res);
   },
   async deleteCatalogModifier(id: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/catalog/modifiers/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(`${API_BASE}/catalog/modifiers/${id}`, { method: 'DELETE' });
     await handleResponse<void>(res);
   },
   async getCatalogBundles(): Promise<BundleRecord[]> {
-    const res = await fetch(`${API_BASE}/catalog/bundles`);
+    const res = await apiFetch(`${API_BASE}/catalog/bundles`);
     return handleResponse<BundleRecord[]>(res);
   },
   async updateCatalogBundle(input: Partial<BundleRecord> & { id: string }): Promise<BundleRecord> {
-    const res = await fetch(`${API_BASE}/catalog/bundles/${input.id}`, {
+    const res = await apiFetch(`${API_BASE}/catalog/bundles/${input.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -533,11 +538,11 @@ export const api = {
     return handleResponse<BundleRecord>(res);
   },
   async deleteCatalogBundle(id: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/catalog/bundles/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(`${API_BASE}/catalog/bundles/${id}`, { method: 'DELETE' });
     await handleResponse<void>(res);
   },
   async calculateEstimate(project: Project): Promise<EstimateResult> {
-    const res = await fetch(`${API_BASE}/estimate/calculate`, {
+    const res = await apiFetch(`${API_BASE}/estimate/calculate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(project),
@@ -545,11 +550,11 @@ export const api = {
     return handleResponse<EstimateResult>(res);
   },
   async getSettings(): Promise<UserProfile> {
-    const res = await fetch(`${API_BASE}/settings`);
+    const res = await apiFetch(`${API_BASE}/settings`);
     return handleResponse<UserProfile>(res);
   },
   async updateSettings(settings: UserProfile): Promise<UserProfile> {
-    const res = await fetch(`${API_BASE}/settings`, {
+    const res = await apiFetch(`${API_BASE}/settings`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings),
@@ -564,7 +569,7 @@ export const api = {
     bundleItemsSynced?: number;
     warnings?: string[];
   }> {
-    const res = await fetch(`${API_BASE}/sync/sheets`, { method: 'POST' });
+    const res = await apiFetch(`${API_BASE}/sync/sheets`, { method: 'POST' });
     return handleResponse<{
       message: string;
       itemsSynced?: number;
@@ -575,11 +580,11 @@ export const api = {
     }>(res);
   },
   async getGlobalBundles(): Promise<any[]> {
-    const res = await fetch(`${API_BASE}/global/bundles`);
+    const res = await apiFetch(`${API_BASE}/global/bundles`);
     return handleResponse<any[]>(res);
   },
   async getGlobalAddIns(): Promise<any[]> {
-    const res = await fetch(`${API_BASE}/global/addins`);
+    const res = await apiFetch(`${API_BASE}/global/addins`);
     return handleResponse<any[]>(res);
   }
 };

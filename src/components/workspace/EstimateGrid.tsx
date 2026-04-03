@@ -43,6 +43,7 @@ interface DisplayRow {
   lineTotal: number;
   bundleId: string | null;
   canDelete: boolean;
+  modifierNames: string[];
 }
 
 function normalizeGroupKey(line: TakeoffLineRecord): string {
@@ -85,6 +86,15 @@ export function EstimateGrid({ lines, rooms, categories, roomNamesById, pricingM
 
   function itemCellDisplay(description: string, sku: string | null) {
     return formatClientProposalItemDisplay(String(description || '').trim(), sku);
+  }
+
+  function modifierLine(names: string[]) {
+    if (!names.length) return null;
+    return (
+      <div className="mt-0.5 text-[10px] font-medium leading-snug text-indigo-800/90">
+        {names.join(' · ')}
+      </div>
+    );
   }
 
   const sourceBadgeClass = (sourceType: string) => {
@@ -133,10 +143,22 @@ export function EstimateGrid({ lines, rooms, categories, roomNamesById, pricingM
         lineTotal: line.lineTotal,
         bundleId: line.bundleId,
         canDelete: true,
+        modifierNames: [...(line.modifierNames || [])],
       }));
     }
 
-    const byItem = new Map<string, DisplayRow & { roomIds: Set<string>; notesSet: Set<string>; totalMaterial: number; totalLabor: number; totalLaborMinutes: number; totalSell: number }>();
+    const byItem = new Map<
+      string,
+      DisplayRow & {
+        roomIds: Set<string>;
+        notesSet: Set<string>;
+        modSet: Set<string>;
+        totalMaterial: number;
+        totalLabor: number;
+        totalLaborMinutes: number;
+        totalSell: number;
+      }
+    >();
     lines.forEach((line) => {
       const key = normalizeGroupKey(line);
       const existing = byItem.get(key) || {
@@ -161,8 +183,10 @@ export function EstimateGrid({ lines, rooms, categories, roomNamesById, pricingM
         lineTotal: 0,
         bundleId: null,
         canDelete: false,
+        modifierNames: [],
         roomIds: new Set<string>(),
         notesSet: new Set<string>(),
+        modSet: new Set<string>(),
         totalMaterial: 0,
         totalLabor: 0,
         totalLaborMinutes: 0,
@@ -177,6 +201,7 @@ export function EstimateGrid({ lines, rooms, categories, roomNamesById, pricingM
       existing.totalSell += Number(line.unitSell || 0) * Number(line.qty || 0);
       existing.roomIds.add(line.roomId);
       if (line.notes) existing.notesSet.add(line.notes.trim());
+      (line.modifierNames || []).forEach((m) => existing.modSet.add(m));
       if (!existing.category && line.category) existing.category = line.category;
       if (!existing.sku && line.sku) existing.sku = line.sku;
       if (!existing.sourceRef && line.sourceRef) existing.sourceRef = line.sourceRef;
@@ -185,26 +210,42 @@ export function EstimateGrid({ lines, rooms, categories, roomNamesById, pricingM
       byItem.set(key, existing);
     });
 
-    return Array.from(byItem.values()).map((entry) => {
-      const roomNames = Array.from(entry.roomIds).map((roomId) => roomNamesById[roomId] || 'Unassigned');
-      const roomLabel = roomNames.length === 1 ? roomNames[0] : `${roomNames.length} rooms`;
-      const roomHint = roomNames.slice(0, 4).join(', ');
-      const notes = Array.from(entry.notesSet).slice(0, 2).join(' | ') || null;
-      const qty = entry.qty || 1;
-      const laborMinutesExtended = entry.totalLaborMinutes;
-      const laborMinutesPerUnit = qty > 0 ? Number((laborMinutesExtended / qty).toFixed(2)) : 0;
-      return {
-        ...entry,
-        roomLabel,
-        roomHint,
-        notes,
-        laborMinutesExtended,
-        laborMinutesPerUnit,
-        materialCost: Number((entry.totalMaterial / qty).toFixed(2)),
-        laborCost: Number((entry.totalLabor / qty).toFixed(2)),
-        unitSell: Number((entry.totalSell / qty).toFixed(2)),
-      };
-    }).sort((left, right) => right.lineTotal - left.lineTotal || left.description.localeCompare(right.description));
+    return Array.from(byItem.values())
+      .map((entry) => {
+        const roomNames = Array.from(entry.roomIds).map((roomId) => roomNamesById[roomId] || 'Unassigned');
+        const roomLabel = roomNames.length === 1 ? roomNames[0] : `${roomNames.length} rooms`;
+        const roomHint = roomNames.slice(0, 4).join(', ');
+        const notes = Array.from(entry.notesSet).slice(0, 2).join(' | ') || null;
+        const qty = entry.qty || 1;
+        const laborMinutesExtended = entry.totalLaborMinutes;
+        const laborMinutesPerUnit = qty > 0 ? Number((laborMinutesExtended / qty).toFixed(2)) : 0;
+        const modifierNames = Array.from(entry.modSet).sort((a, b) => a.localeCompare(b));
+        return {
+          id: entry.id,
+          lineId: entry.lineId,
+          roomLabel,
+          roomHint,
+          category: entry.category,
+          description: entry.description,
+          qty: entry.qty,
+          unit: entry.unit,
+          notes,
+          matched: entry.matched,
+          sourceType: entry.sourceType,
+          sourceRef: entry.sourceRef,
+          sku: entry.sku,
+          materialCost: Number((entry.totalMaterial / qty).toFixed(2)),
+          laborCost: Number((entry.totalLabor / qty).toFixed(2)),
+          laborMinutesPerUnit,
+          laborMinutesExtended,
+          unitSell: Number((entry.totalSell / qty).toFixed(2)),
+          lineTotal: entry.lineTotal,
+          bundleId: entry.bundleId,
+          canDelete: entry.canDelete,
+          modifierNames,
+        };
+      })
+      .sort((left, right) => right.lineTotal - left.lineTotal || left.description.localeCompare(right.description));
   }, [lines, organizeBy, roomNamesById]);
 
   return (
@@ -357,11 +398,12 @@ export function EstimateGrid({ lines, rooms, categories, roomNamesById, pricingM
                       <td className="px-2.5 py-2 align-top min-w-0">
                         <div
                           className="line-clamp-2 text-sm font-semibold text-slate-900"
-                          title={[row.description, row.sku ? `SKU ${row.sku}` : '', row.notes || ''].filter(Boolean).join(' · ')}
+                          title={[row.description, row.modifierNames?.length ? row.modifierNames.join(' · ') : '', row.sku ? `SKU ${row.sku}` : '', row.notes || ''].filter(Boolean).join(' · ')}
                         >
                           {disp.title || row.description || '—'}
                         </div>
                         {disp.subtitle ? <div className="mt-0.5 line-clamp-2 text-[11px] text-slate-500">{disp.subtitle}</div> : null}
+                        {modifierLine(row.modifierNames)}
                       </td>
                       <td className="px-2.5 py-2 align-top">
                         <div className="truncate text-xs font-medium text-slate-800" title={row.roomHint || row.roomLabel}>

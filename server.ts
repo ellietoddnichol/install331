@@ -6,7 +6,6 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import { randomUUID } from 'crypto';
-import db, { initDb } from "./src/server/db.ts";
 import { calculateEstimate } from "./src/server/engine.ts";
 import { Project, CatalogItem } from "./src/types.ts";
 import {
@@ -15,8 +14,18 @@ import {
   upsertItemInGoogleSheet,
   upsertModifierInGoogleSheet,
 } from "./src/server/services/googleSheetsCatalogSync.ts";
-import { initEstimatorSchema } from "./src/server/db/schema.ts";
+import { getEstimatorDb } from "./src/server/db/connection.ts";
 import { v1Router } from "./src/server/routes/v1/index.ts";
+
+/** SQLite is the app source of truth; Google Sheets sync is best-effort and must not block saves. */
+async function syncCatalogToGoogleSheetOptional(label: string, fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn();
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[catalog] Google Sheets sync skipped (${label}): ${message}`);
+  }
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -41,9 +50,6 @@ if (fs.existsSync(envExamplePath)) {
 }
 
 async function startServer() {
-  initDb();
-  initEstimatorSchema();
-  
   const app = express();
   const PORT = Number(process.env.PORT || 3000);
 
@@ -59,7 +65,7 @@ async function startServer() {
 
   // Projects
   app.get("/api/projects", (req, res) => {
-    const projects = db.prepare('SELECT * FROM projects ORDER BY created_date DESC').all();
+    const projects = getEstimatorDb().prepare('SELECT * FROM projects ORDER BY created_date DESC').all();
     res.json(projects.map((p: any) => ({
       id: p.id,
       projectNumber: p.project_number,
@@ -84,7 +90,7 @@ async function startServer() {
   });
 
   app.get("/api/projects/:id", (req, res) => {
-    const p: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
+    const p: any = getEstimatorDb().prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
     if (!p) return res.status(404).json({ error: "Project not found" });
     res.json({
       id: p.id,
@@ -111,7 +117,7 @@ async function startServer() {
 
   app.post("/api/projects", (req, res) => {
     const p: Project = req.body;
-    db.prepare(`
+    getEstimatorDb().prepare(`
       INSERT INTO projects (id, project_number, name, client_name, gc_name, address, bid_date, due_date, project_type, estimator, status, created_date, settings, proposal_settings, scopes, rooms, bundles, alternates, lines)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -124,7 +130,7 @@ async function startServer() {
 
   app.put("/api/projects/:id", (req, res) => {
     const p: Project = req.body;
-    db.prepare(`
+    getEstimatorDb().prepare(`
       UPDATE projects SET 
         project_number = ?, name = ?, client_name = ?, gc_name = ?, address = ?, bid_date = ?, due_date = ?, project_type = ?, estimator = ?, status = ?, 
         settings = ?, proposal_settings = ?, scopes = ?, rooms = ?, bundles = ?, alternates = ?, lines = ?
@@ -139,18 +145,20 @@ async function startServer() {
   });
 
   app.delete("/api/projects/:id", (req, res) => {
-    db.prepare('DELETE FROM projects WHERE id = ?').run(req.params.id);
+    getEstimatorDb().prepare('DELETE FROM projects WHERE id = ?').run(req.params.id);
     res.status(204).send();
   });
 
   // Catalog
   app.get("/api/catalog/items", (req, res) => {
-    const items = db.prepare('SELECT * FROM catalog_items WHERE active = 1').all();
+    const items = getEstimatorDb().prepare('SELECT * FROM catalog_items WHERE active = 1').all();
     res.json(items.map((i: any) => ({
       ...i,
       baseMaterialCost: i.base_material_cost,
       baseLaborMinutes: i.base_labor_minutes,
       laborUnitType: i.labor_unit_type,
+      modelNumber: i.model_number,
+      imageUrl: i.image_url,
       taxable: !!i.taxable,
       adaFlag: !!i.ada_flag,
       tags: i.tags ? JSON.parse(i.tags) : []
@@ -160,24 +168,32 @@ async function startServer() {
   app.post("/api/catalog/items", async (req, res) => {
     const i: CatalogItem = req.body;
     try {
-      await upsertItemInGoogleSheet({
-        sku: i.sku,
-        category: i.category,
-        manufacturer: i.manufacturer || null,
-        model: i.model || null,
-        description: i.description,
-        unit: i.uom,
-        baseMaterialCost: i.baseMaterialCost,
-        baseLaborMinutes: i.baseLaborMinutes,
-        active: i.active,
-      });
-
-      db.prepare(`
-        INSERT INTO catalog_items (id, sku, category, subcategory, family, description, manufacturer, model, uom, base_material_cost, base_labor_minutes, labor_unit_type, taxable, ada_flag, tags, notes, active)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      getEstimatorDb().prepare(`
+        INSERT INTO catalog_items (id, sku, category, subcategory, family, description, manufacturer, brand, model, model_number, series, image_url, uom, base_material_cost, base_labor_minutes, labor_unit_type, taxable, ada_flag, tags, notes, active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        i.id, i.sku, i.category, i.subcategory || null, i.family || null, i.description, i.manufacturer || null, i.model || null, i.uom,
+        i.id, i.sku, i.category, i.subcategory || null, i.family || null, i.description, i.manufacturer || null, i.brand || null, i.model || null, i.modelNumber || null, i.series || null, i.imageUrl || null, i.uom,
         i.baseMaterialCost, i.baseLaborMinutes, i.laborUnitType || null, i.taxable ? 1 : 0, i.adaFlag ? 1 : 0, JSON.stringify(i.tags || []), i.notes || null, i.active ? 1 : 0
+      );
+      await syncCatalogToGoogleSheetOptional('create item', () =>
+        upsertItemInGoogleSheet({
+          sku: i.sku,
+          category: i.category,
+          manufacturer: i.manufacturer || null,
+          brand: i.brand || null,
+          model: i.model || null,
+          modelNumber: i.modelNumber || null,
+          series: i.series || null,
+          imageUrl: i.imageUrl || null,
+          family: i.family || null,
+          subcategory: i.subcategory || null,
+          tags: i.tags || [],
+          description: i.description,
+          unit: i.uom,
+          baseMaterialCost: i.baseMaterialCost,
+          baseLaborMinutes: i.baseLaborMinutes,
+          active: i.active,
+        })
       );
       res.status(201).json(i);
     } catch (error: any) {
@@ -188,27 +204,32 @@ async function startServer() {
   app.put("/api/catalog/items/:id", async (req, res) => {
     const i: CatalogItem = req.body;
     try {
-      await upsertItemInGoogleSheet({
-        sku: i.sku,
-        category: i.category,
-        manufacturer: i.manufacturer || null,
-        model: i.model || null,
-        description: i.description,
-        unit: i.uom,
-        baseMaterialCost: i.baseMaterialCost,
-        baseLaborMinutes: i.baseLaborMinutes,
-        active: i.active,
-      });
-
-      db.prepare(`
+      getEstimatorDb().prepare(`
         UPDATE catalog_items SET 
-          sku = ?, category = ?, subcategory = ?, family = ?, description = ?, manufacturer = ?, model = ?, uom = ?, 
+          sku = ?, category = ?, subcategory = ?, family = ?, description = ?, manufacturer = ?, brand = ?, model = ?, model_number = ?, series = ?, image_url = ?, uom = ?, 
           base_material_cost = ?, base_labor_minutes = ?, labor_unit_type = ?, taxable = ?, ada_flag = ?, tags = ?, notes = ?, active = ?
         WHERE id = ?
       `).run(
-        i.sku, i.category, i.subcategory || null, i.family || null, i.description, i.manufacturer || null, i.model || null, i.uom,
+        i.sku, i.category, i.subcategory || null, i.family || null, i.description, i.manufacturer || null, i.brand || null, i.model || null, i.modelNumber || null, i.series || null, i.imageUrl || null, i.uom,
         i.baseMaterialCost, i.baseLaborMinutes, i.laborUnitType || null, i.taxable ? 1 : 0, i.adaFlag ? 1 : 0, JSON.stringify(i.tags || []), i.notes || null, i.active ? 1 : 0,
         req.params.id
+      );
+      await syncCatalogToGoogleSheetOptional('update item', () =>
+        upsertItemInGoogleSheet({
+          sku: i.sku,
+          category: i.category,
+          manufacturer: i.manufacturer || null,
+          brand: i.brand || null,
+          model: i.model || null,
+          modelNumber: i.modelNumber || null,
+          series: i.series || null,
+          imageUrl: i.imageUrl || null,
+          description: i.description,
+          unit: i.uom,
+          baseMaterialCost: i.baseMaterialCost,
+          baseLaborMinutes: i.baseLaborMinutes,
+          active: i.active,
+        })
       );
       res.json(i);
     } catch (error: any) {
@@ -218,24 +239,40 @@ async function startServer() {
 
   app.delete("/api/catalog/items/:id", async (req, res) => {
     try {
-      const existing = db.prepare('SELECT * FROM catalog_items WHERE id = ?').get(req.params.id) as any;
+      const existing = getEstimatorDb().prepare('SELECT * FROM catalog_items WHERE id = ?').get(req.params.id) as any;
       if (!existing) {
         return res.status(404).json({ error: 'Catalog item not found.' });
       }
 
-      await upsertItemInGoogleSheet({
-        sku: existing.sku || existing.id,
-        category: existing.category || '',
-        manufacturer: existing.manufacturer || null,
-        model: existing.model || null,
-        description: existing.description || existing.sku || existing.id,
-        unit: existing.uom || 'EA',
-        baseMaterialCost: Number(existing.base_material_cost || 0),
-        baseLaborMinutes: Number(existing.base_labor_minutes || 0),
-        active: false,
-      });
-
-      db.prepare('UPDATE catalog_items SET active = 0 WHERE id = ?').run(req.params.id);
+      getEstimatorDb().prepare('UPDATE catalog_items SET active = 0 WHERE id = ?').run(req.params.id);
+      await syncCatalogToGoogleSheetOptional('deactivate item', () =>
+        upsertItemInGoogleSheet({
+          sku: existing.sku || existing.id,
+          category: existing.category || '',
+          manufacturer: existing.manufacturer || null,
+          brand: existing.brand || null,
+          model: existing.model || null,
+          modelNumber: existing.model_number || null,
+          series: existing.series || null,
+          imageUrl: existing.image_url || null,
+          family: existing.family || null,
+          subcategory: existing.subcategory || null,
+          tags: (() => {
+            if (!existing.tags) return [];
+            try {
+              const parsed = JSON.parse(existing.tags);
+              return Array.isArray(parsed) ? parsed : [];
+            } catch {
+              return [];
+            }
+          })(),
+          description: existing.description || existing.sku || existing.id,
+          unit: existing.uom || 'EA',
+          baseMaterialCost: Number(existing.base_material_cost || 0),
+          baseLaborMinutes: Number(existing.base_labor_minutes || 0),
+          active: false,
+        })
+      );
       res.status(204).send();
     } catch (error: any) {
       res.status(500).json({ error: error.message || 'Failed to deactivate catalog item.' });
@@ -243,7 +280,7 @@ async function startServer() {
   });
 
   app.get('/api/catalog/modifiers', (_req, res) => {
-    const rows = db.prepare('SELECT * FROM modifiers_v1 ORDER BY name').all() as any[];
+    const rows = getEstimatorDb().prepare('SELECT * FROM modifiers_v1 ORDER BY name').all() as any[];
     res.json(rows.map((row) => ({
       id: row.id,
       name: row.name,
@@ -275,8 +312,7 @@ async function startServer() {
     };
 
     try {
-      await upsertModifierInGoogleSheet(record);
-      db.prepare(`
+      getEstimatorDb().prepare(`
         INSERT INTO modifiers_v1 (
           id, name, modifier_key, applies_to_categories, add_labor_minutes, add_material_cost,
           percent_labor, percent_material, active, updated_at
@@ -293,6 +329,7 @@ async function startServer() {
         record.active ? 1 : 0,
         record.updatedAt,
       );
+      await syncCatalogToGoogleSheetOptional('create modifier', () => upsertModifierInGoogleSheet(record));
       res.status(201).json(record);
     } catch (error: any) {
       res.status(500).json({ error: error.message || 'Failed to create modifier.' });
@@ -300,7 +337,7 @@ async function startServer() {
   });
 
   app.put('/api/catalog/modifiers/:id', async (req, res) => {
-    const existing = db.prepare('SELECT * FROM modifiers_v1 WHERE id = ?').get(req.params.id) as any;
+    const existing = getEstimatorDb().prepare('SELECT * FROM modifiers_v1 WHERE id = ?').get(req.params.id) as any;
     if (!existing) return res.status(404).json({ error: 'Modifier not found.' });
 
     const input = req.body || {};
@@ -319,8 +356,7 @@ async function startServer() {
     };
 
     try {
-      await upsertModifierInGoogleSheet(record);
-      db.prepare(`
+      getEstimatorDb().prepare(`
         UPDATE modifiers_v1
         SET name = ?, modifier_key = ?, applies_to_categories = ?, add_labor_minutes = ?, add_material_cost = ?,
             percent_labor = ?, percent_material = ?, active = ?, updated_at = ?
@@ -337,6 +373,7 @@ async function startServer() {
         record.updatedAt,
         record.id,
       );
+      await syncCatalogToGoogleSheetOptional('update modifier', () => upsertModifierInGoogleSheet(record));
       res.json(record);
     } catch (error: any) {
       res.status(500).json({ error: error.message || 'Failed to update modifier.' });
@@ -344,21 +381,23 @@ async function startServer() {
   });
 
   app.delete('/api/catalog/modifiers/:id', async (req, res) => {
-    const existing = db.prepare('SELECT * FROM modifiers_v1 WHERE id = ?').get(req.params.id) as any;
+    const existing = getEstimatorDb().prepare('SELECT * FROM modifiers_v1 WHERE id = ?').get(req.params.id) as any;
     if (!existing) return res.status(404).json({ error: 'Modifier not found.' });
 
     try {
-      await upsertModifierInGoogleSheet({
-        modifierKey: existing.modifier_key,
-        name: existing.name,
-        appliesToCategories: JSON.parse(existing.applies_to_categories || '[]'),
-        addLaborMinutes: Number(existing.add_labor_minutes || 0),
-        addMaterialCost: Number(existing.add_material_cost || 0),
-        percentLabor: Number(existing.percent_labor || 0),
-        percentMaterial: Number(existing.percent_material || 0),
-        active: false,
-      });
-      db.prepare('UPDATE modifiers_v1 SET active = 0, updated_at = ? WHERE id = ?').run(new Date().toISOString(), req.params.id);
+      getEstimatorDb().prepare('UPDATE modifiers_v1 SET active = 0, updated_at = ? WHERE id = ?').run(new Date().toISOString(), req.params.id);
+      await syncCatalogToGoogleSheetOptional('deactivate modifier', () =>
+        upsertModifierInGoogleSheet({
+          modifierKey: existing.modifier_key,
+          name: existing.name,
+          appliesToCategories: JSON.parse(existing.applies_to_categories || '[]'),
+          addLaborMinutes: Number(existing.add_labor_minutes || 0),
+          addMaterialCost: Number(existing.add_material_cost || 0),
+          percentLabor: Number(existing.percent_labor || 0),
+          percentMaterial: Number(existing.percent_material || 0),
+          active: false,
+        })
+      );
       res.status(204).send();
     } catch (error: any) {
       res.status(500).json({ error: error.message || 'Failed to deactivate modifier.' });
@@ -366,7 +405,7 @@ async function startServer() {
   });
 
   app.get('/api/catalog/bundles', (_req, res) => {
-    const rows = db.prepare('SELECT * FROM bundles_v1 ORDER BY bundle_name').all() as any[];
+    const rows = getEstimatorDb().prepare('SELECT * FROM bundles_v1 ORDER BY bundle_name').all() as any[];
     res.json(rows.map((row) => ({
       id: row.id,
       bundleName: row.bundle_name,
@@ -377,12 +416,12 @@ async function startServer() {
   });
 
   app.put('/api/catalog/bundles/:id', async (req, res) => {
-    const existing = db.prepare('SELECT * FROM bundles_v1 WHERE id = ?').get(req.params.id) as any;
+    const existing = getEstimatorDb().prepare('SELECT * FROM bundles_v1 WHERE id = ?').get(req.params.id) as any;
     if (!existing) return res.status(404).json({ error: 'Bundle not found.' });
 
     const input = req.body || {};
     const now = new Date().toISOString();
-    const bundleItems = db.prepare('SELECT sku FROM bundle_items_v1 WHERE bundle_id = ? ORDER BY sort_order, id').all(req.params.id) as Array<{ sku: string | null }>;
+    const bundleItems = getEstimatorDb().prepare('SELECT sku FROM bundle_items_v1 WHERE bundle_id = ? ORDER BY sort_order, id').all(req.params.id) as Array<{ sku: string | null }>;
     const record = {
       bundleId: existing.id,
       bundleName: String((input.bundleName ?? existing.bundle_name) || '').trim(),
@@ -393,9 +432,9 @@ async function startServer() {
     };
 
     try {
-      await upsertBundleInGoogleSheet(record);
-      db.prepare('UPDATE bundles_v1 SET bundle_name = ?, category = ?, active = ?, updated_at = ? WHERE id = ?')
+      getEstimatorDb().prepare('UPDATE bundles_v1 SET bundle_name = ?, category = ?, active = ?, updated_at = ? WHERE id = ?')
         .run(record.bundleName, record.category, record.active ? 1 : 0, now, record.bundleId);
+      await syncCatalogToGoogleSheetOptional('update bundle', () => upsertBundleInGoogleSheet(record));
       res.json({ ...record, updatedAt: now });
     } catch (error: any) {
       res.status(500).json({ error: error.message || 'Failed to update bundle.' });
@@ -403,20 +442,22 @@ async function startServer() {
   });
 
   app.delete('/api/catalog/bundles/:id', async (req, res) => {
-    const existing = db.prepare('SELECT * FROM bundles_v1 WHERE id = ?').get(req.params.id) as any;
+    const existing = getEstimatorDb().prepare('SELECT * FROM bundles_v1 WHERE id = ?').get(req.params.id) as any;
     if (!existing) return res.status(404).json({ error: 'Bundle not found.' });
 
-    const bundleItems = db.prepare('SELECT sku FROM bundle_items_v1 WHERE bundle_id = ? ORDER BY sort_order, id').all(req.params.id) as Array<{ sku: string | null }>;
+    const bundleItems = getEstimatorDb().prepare('SELECT sku FROM bundle_items_v1 WHERE bundle_id = ? ORDER BY sort_order, id').all(req.params.id) as Array<{ sku: string | null }>;
     try {
-      await upsertBundleInGoogleSheet({
-        bundleId: existing.id,
-        bundleName: existing.bundle_name,
-        category: existing.category,
-        includedSkus: bundleItems.map((row) => row.sku || '').filter(Boolean),
-        includedModifiers: [],
-        active: false,
-      });
-      db.prepare('UPDATE bundles_v1 SET active = 0, updated_at = ? WHERE id = ?').run(new Date().toISOString(), req.params.id);
+      getEstimatorDb().prepare('UPDATE bundles_v1 SET active = 0, updated_at = ? WHERE id = ?').run(new Date().toISOString(), req.params.id);
+      await syncCatalogToGoogleSheetOptional('deactivate bundle', () =>
+        upsertBundleInGoogleSheet({
+          bundleId: existing.id,
+          bundleName: existing.bundle_name,
+          category: existing.category,
+          includedSkus: bundleItems.map((row) => row.sku || '').filter(Boolean),
+          includedModifiers: [],
+          active: false,
+        })
+      );
       res.status(204).send();
     } catch (error: any) {
       res.status(500).json({ error: error.message || 'Failed to deactivate bundle.' });
@@ -425,7 +466,7 @@ async function startServer() {
 
   // Global Bundles
   app.get("/api/global/bundles", (req, res) => {
-    const bundles = db.prepare('SELECT * FROM global_bundles').all();
+    const bundles = getEstimatorDb().prepare('SELECT * FROM global_bundles').all();
     res.json(bundles.map((b: any) => ({
       id: b.id,
       name: b.name,
@@ -435,7 +476,7 @@ async function startServer() {
 
   // Global AddIns
   app.get("/api/global/addins", (req, res) => {
-    const addins = db.prepare('SELECT * FROM global_addins').all();
+    const addins = getEstimatorDb().prepare('SELECT * FROM global_addins').all();
     res.json(addins.map((a: any) => ({
       id: a.id,
       name: a.name,
@@ -456,11 +497,12 @@ async function startServer() {
   // Estimate
   app.post("/api/estimate/calculate", (req, res) => {
     const project: Project = req.body;
-    const catalog = db.prepare('SELECT * FROM catalog_items').all().map((i: any) => ({
+    const catalog = getEstimatorDb().prepare('SELECT * FROM catalog_items').all().map((i: any) => ({
       ...i,
       baseMaterialCost: i.base_material_cost,
       baseLaborMinutes: i.base_labor_minutes,
       laborUnitType: i.labor_unit_type,
+      modelNumber: i.model_number,
       taxable: !!i.taxable,
       adaFlag: !!i.ada_flag,
       tags: i.tags ? JSON.parse(i.tags) : []
@@ -471,12 +513,12 @@ async function startServer() {
 
   // Settings
   app.get("/api/settings", (req, res) => {
-    const s: any = db.prepare('SELECT value FROM settings WHERE key = ?').get('global');
+    const s: any = getEstimatorDb().prepare('SELECT value FROM settings WHERE key = ?').get('global');
     res.json(JSON.parse(s.value));
   });
 
   app.put("/api/settings", (req, res) => {
-    db.prepare('UPDATE settings SET value = ? WHERE key = ?').run(JSON.stringify(req.body), 'global');
+    getEstimatorDb().prepare('UPDATE settings SET value = ? WHERE key = ?').run(JSON.stringify(req.body), 'global');
     res.json(req.body);
   });
 

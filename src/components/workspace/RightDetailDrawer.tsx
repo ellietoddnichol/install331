@@ -72,6 +72,9 @@ export function RightDetailDrawer({
         {selectedLine ? (
           <div className="space-y-1.5">
             <input className="h-7 w-full rounded border border-slate-300 px-2 text-xs focus:outline-none focus:border-blue-300" value={selectedLine.description} onChange={(e) => onPatchLine(selectedLine.id, { description: e.target.value })} onBlur={() => onPersistLine(selectedLine.id)} />
+            {selectedLine.modifierNames?.length ? (
+              <div className="text-[10px] font-medium text-indigo-800/90">{selectedLine.modifierNames.join(' · ')}</div>
+            ) : null}
             <div className="grid grid-cols-2 gap-2">
               <DrawerQtyInput lineId={selectedLine.id} qty={selectedLine.qty} onPatchLine={onPatchLine} onPersistLine={onPersistLine} />
               <input className="h-7 w-full rounded border border-slate-300 px-2 text-xs focus:outline-none focus:border-blue-300" value={selectedLine.unit} onChange={(e) => onPatchLine(selectedLine.id, { unit: e.target.value })} onBlur={() => onPersistLine(selectedLine.id)} />

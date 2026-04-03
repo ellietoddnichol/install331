@@ -181,6 +181,7 @@ export function Catalog() {
       await loadCatalogWorkspace();
     } catch (err) {
       console.error('Failed to save item', err);
+      window.alert(err instanceof Error ? err.message : 'Failed to save catalog item.');
     }
   }
 
@@ -449,7 +450,20 @@ export function Catalog() {
                 </thead>
                 <tbody>
                   {filteredItems.map((item) => (
-                    <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50/70">
+                    <tr
+                      key={item.id}
+                      role="button"
+                      tabIndex={0}
+                      title="Click row to edit"
+                      className="border-b border-slate-100 hover:bg-slate-50/70 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400/50"
+                      onClick={() => setEditingItem(item)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setEditingItem(item);
+                        }
+                      }}
+                    >
                       <td className="py-2 px-3 align-top">
                         <div className="font-medium text-slate-800">{item.sku || 'No SKU'}</div>
                         <div className="text-[10px] text-slate-500">{item.id.slice(0, 12)}</div>
@@ -470,19 +484,14 @@ export function Catalog() {
                           {item.active ? 'Yes' : 'No'}
                         </span>
                       </td>
-                      <td className="py-2 px-3">
+                      <td className="py-2 px-3" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
                           <button
                             type="button"
-                            onClick={() => setEditingItem(item)}
-                            className="h-7 px-2 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1 outline-none focus-visible:ring-2 focus-visible:ring-blue-400/40"
-                          >
-                            <Edit2 className="w-3 h-3" />
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleDeleteItem(item.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleDeleteItem(item.id);
+                            }}
                             className="h-7 px-2 rounded border border-red-200 text-red-700 hover:bg-red-50 inline-flex items-center gap-1 outline-none focus-visible:ring-2 focus-visible:ring-red-400/40"
                           >
                             <Trash2 className="w-3 h-3" />
@@ -691,6 +700,21 @@ export function Catalog() {
                     className="w-full h-9 px-2 border border-slate-300 rounded text-sm"
                     value={editingItem.baseLaborMinutes}
                     onChange={(e) => setEditingItem({ ...editingItem, baseLaborMinutes: parseFloat(e.target.value) || 0 })}
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Image URL (optional)</label>
+                  <input
+                    type="url"
+                    placeholder="https://…"
+                    className="w-full h-9 px-2 border border-slate-300 rounded text-sm"
+                    value={editingItem.imageUrl ?? ''}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        imageUrl: e.target.value.trim() ? e.target.value.trim() : undefined,
+                      })
+                    }
                   />
                 </div>
                 <div className="col-span-2 flex items-center gap-4 text-xs text-slate-700">

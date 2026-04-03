@@ -1,4 +1,4 @@
-import { estimatorDb } from '../db/connection.ts';
+import { getEstimatorDb } from '../db/connection.ts';
 import { CatalogSyncStatusRecord, SettingsRecord } from '../../shared/types/estimator.ts';
 import { sanitizeProposalSettings } from '../../shared/utils/proposalDefaults.ts';
 
@@ -25,7 +25,7 @@ function mapSettingsRow(row: any): SettingsRecord {
 }
 
 export function getSettings(): SettingsRecord {
-  const row = estimatorDb.prepare('SELECT * FROM settings_v1 WHERE id = ?').get('global');
+  const row = getEstimatorDb().prepare('SELECT * FROM settings_v1 WHERE id = ?').get('global');
   return mapSettingsRow(row);
 }
 
@@ -40,7 +40,7 @@ export function updateSettings(input: Partial<SettingsRecord>): SettingsRecord {
   const next = sanitizeProposalSettings(merged) as SettingsRecord;
   next.updatedAt = merged.updatedAt;
 
-  estimatorDb.prepare(`
+  getEstimatorDb().prepare(`
     UPDATE settings_v1 SET
       company_name = ?, company_address = ?, company_phone = ?, company_email = ?, logo_url = ?, default_labor_rate_per_hour = ?,
       default_overhead_percent = ?, default_profit_percent = ?, default_tax_percent = ?, default_labor_burden_percent = ?,
@@ -69,7 +69,7 @@ export function updateSettings(input: Partial<SettingsRecord>): SettingsRecord {
 }
 
 export function getCatalogSyncStatus(): CatalogSyncStatusRecord {
-  const row = estimatorDb.prepare('SELECT * FROM catalog_sync_status_v1 WHERE id = ?').get('catalog') as any;
+  const row = getEstimatorDb().prepare('SELECT * FROM catalog_sync_status_v1 WHERE id = ?').get('catalog') as any;
 
   return {
     id: row.id,
@@ -96,7 +96,7 @@ export function listCatalogSyncRuns(limit = 10): Array<{
   bundleItemsSynced: number;
   warnings: string[];
 }> {
-  const rows = estimatorDb.prepare(`
+  const rows = getEstimatorDb().prepare(`
     SELECT *
     FROM catalog_sync_runs_v1
     ORDER BY attempted_at DESC

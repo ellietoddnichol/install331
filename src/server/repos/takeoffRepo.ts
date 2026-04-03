@@ -1,11 +1,11 @@
 import { randomUUID } from 'crypto';
-import { estimatorDb } from '../db/connection.ts';
+import { getEstimatorDb } from '../db/connection.ts';
 import { TakeoffLineRecord, TakeoffPricingSource } from '../../shared/types/estimator.ts';
 
 const DEFAULT_LABOR_RATE_PER_HOUR = Number(process.env.DEFAULT_LABOR_RATE_PER_HOUR || 100);
 
 export function getConfiguredLaborRatePerHour(): number {
-  const row = estimatorDb.prepare('SELECT default_labor_rate_per_hour FROM settings_v1 WHERE id = ?').get('global') as { default_labor_rate_per_hour?: number } | undefined;
+  const row = getEstimatorDb().prepare('SELECT default_labor_rate_per_hour FROM settings_v1 WHERE id = ?').get('global') as { default_labor_rate_per_hour?: number } | undefined;
   const rate = Number(row?.default_labor_rate_per_hour);
   return Number.isFinite(rate) && rate > 0 ? rate : DEFAULT_LABOR_RATE_PER_HOUR;
 }
@@ -68,16 +68,52 @@ function mapTakeoffRow(row: any): TakeoffLineRecord {
   };
 }
 
+/** Takeoff row from DB only (no line_modifiers). Use for pricing math and internal joins. */
+export function getTakeoffLineCore(lineId: string): TakeoffLineRecord | null {
+  const row = getEstimatorDb().prepare('SELECT * FROM takeoff_lines_v1 WHERE id = ?').get(lineId);
+  return row ? mapTakeoffRow(row) : null;
+}
+
+function batchModifierNamesByLineIds(lineIds: string[]): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  if (lineIds.length === 0) return map;
+  const db = getEstimatorDb();
+  const placeholders = lineIds.map(() => '?').join(',');
+  const rows = db
+    .prepare(`SELECT line_id, name FROM line_modifiers_v1 WHERE line_id IN (${placeholders}) ORDER BY created_at`)
+    .all(...lineIds) as Array<{ line_id: string; name: string }>;
+  for (const row of rows) {
+    const list = map.get(row.line_id) || [];
+    const n = String(row.name || '').trim();
+    if (n) list.push(n);
+    map.set(row.line_id, list);
+  }
+  return map;
+}
+
+export function enrichLineWithModifierNames(line: TakeoffLineRecord): TakeoffLineRecord {
+  const names = batchModifierNamesByLineIds([line.id]).get(line.id);
+  return {
+    ...line,
+    modifierNames: names && names.length > 0 ? names : undefined,
+  };
+}
+
 export function listTakeoffLines(projectId: string, roomId?: string): TakeoffLineRecord[] {
   const rows = roomId
-    ? estimatorDb.prepare('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? AND room_id = ? ORDER BY created_at').all(projectId, roomId)
-    : estimatorDb.prepare('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? ORDER BY created_at').all(projectId);
-  return rows.map(mapTakeoffRow);
+    ? getEstimatorDb().prepare('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? AND room_id = ? ORDER BY created_at').all(projectId, roomId)
+    : getEstimatorDb().prepare('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? ORDER BY created_at').all(projectId);
+  const lines = rows.map(mapTakeoffRow);
+  const byLine = batchModifierNamesByLineIds(lines.map((l) => l.id));
+  return lines.map((line) => ({
+    ...line,
+    modifierNames: byLine.get(line.id)?.length ? byLine.get(line.id) : undefined,
+  }));
 }
 
 export function getTakeoffLine(lineId: string): TakeoffLineRecord | null {
-  const row = estimatorDb.prepare('SELECT * FROM takeoff_lines_v1 WHERE id = ?').get(lineId);
-  return row ? mapTakeoffRow(row) : null;
+  const line = getTakeoffLineCore(lineId);
+  return line ? enrichLineWithModifierNames(line) : null;
 }
 
 function computeLineTotal(
@@ -102,7 +138,7 @@ function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): {
   laborMinutes?: number;
 } {
   if (input.catalogItemId) {
-    const row = estimatorDb.prepare('SELECT base_material_cost, base_labor_minutes FROM catalog_items WHERE id = ? LIMIT 1').get(input.catalogItemId) as
+    const row = getEstimatorDb().prepare('SELECT base_material_cost, base_labor_minutes FROM catalog_items WHERE id = ? LIMIT 1').get(input.catalogItemId) as
       | { base_material_cost: number; base_labor_minutes: number }
       | undefined;
     if (row) {
@@ -114,7 +150,7 @@ function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): {
   }
 
   if (input.sku) {
-    const row = estimatorDb.prepare('SELECT base_material_cost, base_labor_minutes FROM catalog_items WHERE lower(sku) = lower(?) LIMIT 1').get(input.sku) as
+    const row = getEstimatorDb().prepare('SELECT base_material_cost, base_labor_minutes FROM catalog_items WHERE lower(sku) = lower(?) LIMIT 1').get(input.sku) as
       | { base_material_cost: number; base_labor_minutes: number }
       | undefined;
     if (row) {
@@ -175,7 +211,7 @@ export function createTakeoffLine(input: Partial<TakeoffLineRecord> & { projectI
     updatedAt: now
   };
 
-  estimatorDb.prepare(`
+  getEstimatorDb().prepare(`
     INSERT INTO takeoff_lines_v1 (
       id, project_id, room_id, source_type, source_ref, description, sku, category, subcategory, base_type,
       qty, unit, material_cost, base_material_cost, labor_minutes, labor_cost, base_labor_cost, pricing_source, unit_sell, line_total, notes, bundle_id, catalog_item_id,
@@ -210,12 +246,15 @@ export function createTakeoffLine(input: Partial<TakeoffLineRecord> & { projectI
     line.updatedAt
   );
 
-  return line;
+  return enrichLineWithModifierNames(line);
 }
 
 export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineRecord>): TakeoffLineRecord | null {
-  const existing = getTakeoffLine(lineId);
+  const existing = getTakeoffLineCore(lineId);
   if (!existing) return null;
+
+  const sanitizedInput = { ...input };
+  delete (sanitizedInput as Partial<{ modifierNames?: unknown }>).modifierNames;
 
   const laborRatePerHour = getConfiguredLaborRatePerHour();
   const qty = input.qty ?? existing.qty;
@@ -233,13 +272,13 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
     qty,
     materialCost,
     laborCost,
-    input.unitSell ?? (pricingSource === 'manual' ? existing.unitSell : undefined),
+    sanitizedInput.unitSell ?? (pricingSource === 'manual' ? existing.unitSell : undefined),
     pricingSource
   );
 
   const next: TakeoffLineRecord = {
     ...existing,
-    ...input,
+    ...sanitizedInput,
     id: lineId,
     qty,
     laborMinutes,
@@ -253,7 +292,7 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
     updatedAt: new Date().toISOString()
   };
 
-  estimatorDb.prepare(`
+  getEstimatorDb().prepare(`
     UPDATE takeoff_lines_v1 SET
       room_id = ?, source_type = ?, source_ref = ?, description = ?, sku = ?, category = ?, subcategory = ?, base_type = ?,
       qty = ?, unit = ?, material_cost = ?, base_material_cost = ?, labor_minutes = ?, labor_cost = ?, base_labor_cost = ?, pricing_source = ?, unit_sell = ?, line_total = ?, notes = ?,
@@ -286,10 +325,10 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
     lineId
   );
 
-  return next;
+  return enrichLineWithModifierNames(next);
 }
 
 export function deleteTakeoffLine(lineId: string): boolean {
-  const result = estimatorDb.prepare('DELETE FROM takeoff_lines_v1 WHERE id = ?').run(lineId);
+  const result = getEstimatorDb().prepare('DELETE FROM takeoff_lines_v1 WHERE id = ?').run(lineId);
   return result.changes > 0;
 }

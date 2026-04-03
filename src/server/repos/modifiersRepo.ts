@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
-import { estimatorDb } from '../db/connection.ts';
+import { getEstimatorDb } from '../db/connection.ts';
 import { LineModifierRecord, ModifierRecord } from '../../shared/types/estimator.ts';
-import { getTakeoffLine, resolveUnitLaborCostFromMinutes, updateTakeoffLine } from './takeoffRepo.ts';
+import { getTakeoffLineCore, resolveUnitLaborCostFromMinutes, updateTakeoffLine } from './takeoffRepo.ts';
 
 function mapModifier(row: any): ModifierRecord {
   return {
@@ -33,17 +33,17 @@ function mapLineModifier(row: any): LineModifierRecord {
 }
 
 export function listModifiers(): ModifierRecord[] {
-  const rows = estimatorDb.prepare('SELECT * FROM modifiers_v1 WHERE active = 1 ORDER BY name').all();
+  const rows = getEstimatorDb().prepare('SELECT * FROM modifiers_v1 WHERE active = 1 ORDER BY name').all();
   return rows.map(mapModifier);
 }
 
 export function listLineModifiers(lineId: string): LineModifierRecord[] {
-  const rows = estimatorDb.prepare('SELECT * FROM line_modifiers_v1 WHERE line_id = ? ORDER BY created_at').all(lineId);
+  const rows = getEstimatorDb().prepare('SELECT * FROM line_modifiers_v1 WHERE line_id = ? ORDER BY created_at').all(lineId);
   return rows.map(mapLineModifier);
 }
 
 export function recalculateLineFromModifiers(lineId: string) {
-  const line = getTakeoffLine(lineId);
+  const line = getTakeoffLineCore(lineId);
   if (!line) return null;
 
   const lineModifiers = listLineModifiers(lineId);
@@ -68,20 +68,20 @@ export function recalculateLineFromModifiers(lineId: string) {
 }
 
 export function recalculateProjectLinePricing(projectId: string) {
-  const rows = estimatorDb.prepare('SELECT id FROM takeoff_lines_v1 WHERE project_id = ? ORDER BY created_at').all(projectId) as Array<{ id: string }>;
+  const rows = getEstimatorDb().prepare('SELECT id FROM takeoff_lines_v1 WHERE project_id = ? ORDER BY created_at').all(projectId) as Array<{ id: string }>;
   return rows.map((row) => recalculateLineFromModifiers(row.id)).filter(Boolean);
 }
 
 export function recalculateAllLinePricing() {
-  const rows = estimatorDb.prepare('SELECT id FROM takeoff_lines_v1 ORDER BY created_at').all() as Array<{ id: string }>;
+  const rows = getEstimatorDb().prepare('SELECT id FROM takeoff_lines_v1 ORDER BY created_at').all() as Array<{ id: string }>;
   return rows.map((row) => recalculateLineFromModifiers(row.id)).filter(Boolean);
 }
 
 export function applyModifierToLine(lineId: string, modifierId: string): { line: any; modifier: LineModifierRecord } | null {
-  const line = getTakeoffLine(lineId);
+  const line = getTakeoffLineCore(lineId);
   if (!line) return null;
 
-  const modifierRow = estimatorDb.prepare('SELECT * FROM modifiers_v1 WHERE id = ? AND active = 1').get(modifierId);
+  const modifierRow = getEstimatorDb().prepare('SELECT * FROM modifiers_v1 WHERE id = ? AND active = 1').get(modifierId);
   if (!modifierRow) return null;
 
   const modifier = mapModifier(modifierRow);
@@ -98,7 +98,7 @@ export function applyModifierToLine(lineId: string, modifierId: string): { line:
     createdAt: new Date().toISOString()
   };
 
-  estimatorDb.prepare(`
+  getEstimatorDb().prepare(`
     INSERT INTO line_modifiers_v1 (
       id, line_id, modifier_id, name, add_material_cost, add_labor_minutes, percent_material, percent_labor, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -120,10 +120,10 @@ export function applyModifierToLine(lineId: string, modifierId: string): { line:
 }
 
 export function removeLineModifier(lineId: string, lineModifierId: string): { line: any; removed: boolean } | null {
-  const line = getTakeoffLine(lineId);
+  const line = getTakeoffLineCore(lineId);
   if (!line) return null;
 
-  const result = estimatorDb.prepare('DELETE FROM line_modifiers_v1 WHERE id = ? AND line_id = ?').run(lineModifierId, lineId);
+  const result = getEstimatorDb().prepare('DELETE FROM line_modifiers_v1 WHERE id = ? AND line_id = ?').run(lineModifierId, lineId);
   if (result.changes === 0) {
     return null;
   }

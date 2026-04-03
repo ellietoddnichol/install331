@@ -1,5 +1,5 @@
 import type { CatalogItem } from '../../../types.ts';
-import { estimatorDb } from '../../db/connection.ts';
+import { getEstimatorDb } from '../../db/connection.ts';
 
 export const TAKEOFF_TOKEN_ALIAS_MAP: Record<string, string[]> = {
   gb: ['grab', 'bar', 'grab bar'],
@@ -283,7 +283,7 @@ export const TAKEOFF_CATALOG_SEED_ITEMS: CatalogItem[] = [
 ];
 
 function findExistingItemId(seedItem: CatalogItem): string | null {
-  const existing = estimatorDb.prepare(`
+  const existing = getEstimatorDb().prepare(`
     SELECT id
     FROM catalog_items
     WHERE id = ?
@@ -296,21 +296,21 @@ function findExistingItemId(seedItem: CatalogItem): string | null {
 }
 
 export function ensureTakeoffCatalogSeeded(): void {
-  const upsert = estimatorDb.prepare(`
+  const upsert = getEstimatorDb().prepare(`
     INSERT INTO catalog_items (
-      id, sku, category, subcategory, family, description, manufacturer, model, uom,
+      id, sku, category, subcategory, family, description, manufacturer, brand, model, model_number, series, image_url, uom,
       base_material_cost, base_labor_minutes, labor_unit_type, taxable, ada_flag, tags, notes, active
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  const update = estimatorDb.prepare(`
+  const update = getEstimatorDb().prepare(`
     UPDATE catalog_items
-    SET sku = ?, category = ?, subcategory = ?, family = ?, description = ?, manufacturer = ?, model = ?, uom = ?,
+    SET sku = ?, category = ?, subcategory = ?, family = ?, description = ?, manufacturer = ?, brand = ?, model = ?, model_number = ?, series = ?, image_url = ?, uom = ?,
         base_material_cost = ?, base_labor_minutes = ?, labor_unit_type = ?, taxable = ?, ada_flag = ?, tags = ?, notes = ?, active = ?
     WHERE id = ?
   `);
 
-  const transaction = estimatorDb.transaction((items: CatalogItem[]) => {
+  const transaction = getEstimatorDb().transaction((items: CatalogItem[]) => {
     items.forEach((item) => {
       const targetId = findExistingItemId(item);
       const values = [
@@ -320,7 +320,11 @@ export function ensureTakeoffCatalogSeeded(): void {
         item.family || null,
         item.description,
         item.manufacturer || null,
+        item.brand || null,
         item.model || null,
+        item.modelNumber || null,
+        item.series || null,
+        item.imageUrl || null,
         item.uom,
         item.baseMaterialCost,
         item.baseLaborMinutes,

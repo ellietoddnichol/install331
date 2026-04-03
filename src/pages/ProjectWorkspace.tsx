@@ -697,9 +697,14 @@ export function ProjectWorkspace() {
     const currentLine = lines.find((l) => l.id === lineId);
     const line = currentLine ? { ...currentLine, ...(overrides || {}) } : null;
     if (!line) return;
-    const saved = await api.updateV1TakeoffLine(lineId, line);
-    setLines((prev) => prev.map((item) => (item.id === lineId ? saved : item)));
-    await refreshTakeoff(project.id);
+    try {
+      const saved = await api.updateV1TakeoffLine(lineId, line);
+      setLines((prev) => prev.map((item) => (item.id === lineId ? saved : item)));
+      await refreshTakeoff(project.id);
+    } catch (e) {
+      console.error('Failed to save line', e);
+      window.alert(e instanceof Error ? e.message : 'Could not save line changes.');
+    }
   }
 
   const lineEditorId = selectedLine?.id ?? '';

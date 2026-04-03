@@ -11,7 +11,7 @@ const AUTH_KEY = 'brighten-auth-email';
 
 function safeGetAuthEmail(): string | null {
   try {
-    return localStorage.getItem(AUTH_KEY);
+    return localStorage.getItem(AUTH_KEY) || sessionStorage.getItem(AUTH_KEY);
   } catch {
     return null;
   }
@@ -25,9 +25,18 @@ function safeSetAuthEmail(value: string): void {
   }
 }
 
+function safeSetSessionAuthEmail(value: string): void {
+  try {
+    sessionStorage.setItem(AUTH_KEY, value);
+  } catch {
+    /* ignore */
+  }
+}
+
 function safeClearAuthEmail(): void {
   try {
     localStorage.removeItem(AUTH_KEY);
+    sessionStorage.removeItem(AUTH_KEY);
   } catch {
     // Ignore storage failures; in-memory state still updates.
   }
@@ -44,9 +53,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const normalizedEmail = email.trim().toLowerCase();
 
     if (remember) {
+      try {
+        sessionStorage.removeItem(AUTH_KEY);
+      } catch {
+        /* ignore */
+      }
       safeSetAuthEmail(normalizedEmail);
     } else {
-      safeClearAuthEmail();
+      try {
+        localStorage.removeItem(AUTH_KEY);
+      } catch {
+        /* ignore */
+      }
+      safeSetSessionAuthEmail(normalizedEmail);
     }
 
     setUserEmail(normalizedEmail);

@@ -5,6 +5,12 @@ import path from 'path';
 import type { IntakeProjectAssumption, IntakeProposalAssist } from '../../shared/types/intake.ts';
 import { isPlausibleProjectTitle, looksLikeIntakePricingSummaryOrDisclaimerLine } from '../../shared/utils/intakeTextGuards.ts';
 import { intakeGeminiResponseSchema, INTAKE_GEMINI_MODEL } from './structuredExtractionSchemas.ts';
+import { extractIntakeMetadataHintsFromText, mergeNlpHintsIntoPartialMetadata } from './naturalLanguageService.ts';
+import {
+  enrichSiteAddressWithMapsGrounding,
+  isMapsGroundingEnabled,
+  shouldAttemptMapsGroundingForAddress,
+} from './mapsGroundingLiteService.ts';
 
 export interface GeminiExtractionLine {
   roomArea: string;
@@ -146,6 +152,65 @@ function addQualityWarnings(result: GeminiExtractionResult, input: ExtractInput)
   };
 }
 
+async function enrichGeminiResultWithNaturalLanguage(
+  result: GeminiExtractionResult,
+  input: ExtractInput
+): Promise<GeminiExtractionResult> {
+  const text = input.extractedText?.trim() || '';
+  if (text.length < 40) return result;
+
+  const hints = await extractIntakeMetadataHintsFromText(text);
+  if (!hints.client?.trim() && !hints.generalContractor?.trim() && !hints.address?.trim()) {
+    return result;
+  }
+
+  const merged = mergeNlpHintsIntoPartialMetadata(
+    {
+      client: result.client,
+      generalContractor: result.generalContractor,
+      address: result.address,
+    },
+    hints
+  );
+
+  return {
+    ...result,
+    client: merged.client ?? result.client,
+    generalContractor: merged.generalContractor ?? result.generalContractor,
+    address: merged.address ?? result.address,
+  };
+}
+
+async function enrichGeminiResultWithMapsGrounding(
+  result: GeminiExtractionResult,
+  input: ExtractInput
+): Promise<GeminiExtractionResult> {
+  const text = input.extractedText?.trim() || '';
+  if (text.length < 40 || !isMapsGroundingEnabled()) return result;
+  if (!shouldAttemptMapsGroundingForAddress(result.address)) return result;
+
+  const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || '';
+  if (!geminiKey) return result;
+
+  const enriched = await enrichSiteAddressWithMapsGrounding({
+    geminiApiKey: geminiKey,
+    contextText: text,
+    hintAddress: result.address,
+  });
+  if (!enriched?.addressLine?.trim()) return result;
+
+  const warnings = [...result.warnings];
+  if (enriched.placeUrl) {
+    warnings.push(`Google Maps source (show attribution near address): ${enriched.placeUrl}`);
+  }
+
+  return {
+    ...result,
+    address: enriched.addressLine,
+    warnings: Array.from(new Set(warnings)),
+  };
+}
+
 export async function extractIntakeFromGemini(input: ExtractInput): Promise<GeminiExtractionResult> {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || '';
   if (!apiKey) {
@@ -243,7 +308,9 @@ export async function extractIntakeFromGemini(input: ExtractInput): Promise<Gemi
       parsed = {};
     }
 
-    return addQualityWarnings(sanitizeResult(parsed), input);
+    const base = addQualityWarnings(sanitizeResult(parsed), input);
+    const withNlp = await enrichGeminiResultWithNaturalLanguage(base, input);
+    return enrichGeminiResultWithMapsGrounding(withNlp, input);
   } finally {
     if (tempFilePath) {
       try {
