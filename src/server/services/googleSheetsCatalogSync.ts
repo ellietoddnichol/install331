@@ -49,6 +49,16 @@ function normalizeHeader(input: string): string {
   return String(input || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+/**
+ * Default: merge mode — sheet upserts only touch rows present in the sheet; other DB rows stay as-is.
+ * Bulk-imported items (ids not `sheet-item-*`) are never mass-deactivated.
+ * Set CATALOG_SYNC_REPLACE_MODE=1 to restore legacy behavior: first matching sheet row deactivates the whole table, then sheet rows reactivate.
+ */
+function isReplaceCatalogSyncMode(): boolean {
+  const v = String(process.env.CATALOG_SYNC_REPLACE_MODE || '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
 function parseBoolean(input: unknown, defaultValue = true): boolean {
   const value = String(input ?? '').trim().toLowerCase();
   if (!value) return defaultValue;
@@ -757,15 +767,25 @@ function validateSheetRows(values: string[][], tabName: string): string[][] {
 }
 
 /**
- * ITEMS tab header sets we support include the “Labor Estimator - Catalog cleaned” workbook:
- * SKU, Category, Manufacturer, Model, Series, Description, Unit, BaseMaterialCost, BaseLaborMinutes,
- * Active, UpdatedAt, GenericItemName, DefaultModifiers, ImageURL, …
+ * ITEMS tab: supports “Labor Estimator - Catalog cleaned” and common Excel exports (aliases in upsertItems).
+ * Sync defaults to merge mode (see isReplaceCatalogSyncMode).
  */
-function upsertItems(rows: string[][], warnings: string[]): number {
+function upsertItems(rows: string[][], warnings: string[], replaceMode: boolean): number {
   const headers = rows[0].map(normalizeHeader);
-  const skuCol = columnIndex(headers, ['sku', 'item sku']);
+  const skuCol = columnIndex(headers, [
+    'sku',
+    'item sku',
+    'item code',
+    'product sku',
+    'catalog sku',
+    'vendor item',
+    'vendor part',
+    'vendor sku',
+    'mfg item',
+    'style number',
+  ]);
   const itemKeyCol = columnIndex(headers, ['item id', 'itemid', 'item key', 'search key', 'search key', 'search_key', 'key']);
-  const categoryCol = columnIndex(headers, ['scope category', 'category']);
+  const categoryCol = columnIndex(headers, ['scope category', 'category', 'product category', 'commodity']);
   const manufacturerCol = columnIndex(headers, ['manufacturer', 'mfr', 'make']);
   const brandCol = columnIndex(headers, ['brand', 'brand name', 'brand line']);
   const modelCol = columnIndex(headers, ['model', 'item model']);
@@ -776,6 +796,8 @@ function upsertItems(rows: string[][], warnings: string[]): number {
     'mfg model',
     'part number',
     'catalog number',
+    'mfg part',
+    'mpn',
   ]);
   const seriesCol = columnIndex(headers, ['series', 'product series', 'collection', 'family line']);
   const imageUrlCol = columnIndex(headers, [
@@ -787,9 +809,24 @@ function upsertItems(rows: string[][], warnings: string[]): number {
     'thumbnail',
     'product image',
   ]);
-  const descriptionCol = columnIndex(headers, ['description', 'item description']);
-  const itemCol = columnIndex(headers, ['item', 'item name', 'itemname']);
-  const uomCol = columnIndex(headers, ['unit', 'uom', 'base unit']);
+  const descriptionCol = columnIndex(headers, [
+    'description',
+    'item description',
+    'long description',
+    'product description',
+    'desc',
+    'details',
+    'specification',
+    'spec',
+  ]);
+  const itemCol = columnIndex(headers, [
+    'item',
+    'item name',
+    'itemname',
+    'product name',
+    'short description',
+  ]);
+  const uomCol = columnIndex(headers, ['unit', 'uom', 'base unit', 'um', 'measure']);
   // Order matters: avoid bare "material" — it matches "Material Type" etc. before "Material Price".
   const materialCol = columnIndex(headers, [
     'base material cost',
@@ -807,8 +844,15 @@ function upsertItems(rows: string[][], warnings: string[]): number {
     'each price',
     'material unit cost',
   ]);
-  const laborCol = columnIndex(headers, ['baselaborminutes', 'base labor minutes', 'labor minutes', 'labor mins']);
-  const tagsCol = columnIndex(headers, ['keywords', 'tags', 'search terms']);
+  const laborCol = columnIndex(headers, [
+    'baselaborminutes',
+    'base labor minutes',
+    'labor minutes',
+    'labor mins',
+    'install minutes',
+    'install time',
+  ]);
+  const tagsCol = columnIndex(headers, ['keywords', 'tags', 'search terms', 'aliases']);
   const activeCol = columnIndex(headers, ['active', 'is active', 'isactive', 'enabled']);
   const notesCol = columnIndex(headers, ['notes', 'remarks']);
   const familyCol = columnIndex(headers, ['family', 'genericitemname', 'generic item name', 'item family']);
@@ -821,7 +865,7 @@ function upsertItems(rows: string[][], warnings: string[]): number {
   ]);
 
   if (descriptionCol === null && itemCol === null) {
-    throw new Error('ITEMS tab is missing required headers. Expected Item or Description columns.');
+    throw new Error('ITEMS tab is missing required headers. Expected Item, Name, Description, or similar columns.');
   }
 
   if (skuCol === null && itemKeyCol === null) warnings.push('ITEMS: neither SKU nor Item Key header found; using fallback key for some rows.');
@@ -831,10 +875,8 @@ function upsertItems(rows: string[][], warnings: string[]): number {
     );
   }
 
-  // One-way master: every row is deactivated first; only rows present in the ITEMS sheet are
-  // reactivated. A Sheet with fewer rows than your SQLite DB will hide the rest from the app
-  // until you import again or POST /v1/settings/activate-all-catalog-items.
-  getEstimatorDb().prepare('UPDATE catalog_items SET active = 0').run();
+  let replaceDeactivateDone = false;
+  const syncedSheetItemIds: string[] = [];
 
   let synced = 0;
 
@@ -847,6 +889,11 @@ function upsertItems(rows: string[][], warnings: string[]): number {
     const description = getCell(row, descriptionCol) || itemName;
 
     if (!description) continue;
+
+    if (replaceMode && !replaceDeactivateDone) {
+      getEstimatorDb().prepare('UPDATE catalog_items SET active = 0').run();
+      replaceDeactivateDone = true;
+    }
 
     const active = parseBoolean(getCell(row, activeCol), true);
     const stableKey = sku || itemKey || keyFromParts(category, itemName || description);
@@ -925,13 +972,24 @@ function upsertItems(rows: string[][], warnings: string[]): number {
       );
     }
 
+    syncedSheetItemIds.push(id);
     synced += 1;
+  }
+
+  if (!replaceMode) {
+    const uniq = Array.from(new Set(syncedSheetItemIds));
+    if (uniq.length > 0) {
+      const placeholders = uniq.map(() => '?').join(',');
+      getEstimatorDb()
+        .prepare(`UPDATE catalog_items SET active = 0 WHERE id LIKE 'sheet-item-%' AND id NOT IN (${placeholders})`)
+        .run(...uniq);
+    }
   }
 
   return synced;
 }
 
-function upsertModifiers(rows: string[][], warnings: string[]): number {
+function upsertModifiers(rows: string[][], warnings: string[], replaceMode: boolean): number {
   const headers = rows[0].map(normalizeHeader);
   const keyCol = columnIndex(headers, ['modifier key', 'modifierkey', 'key', 'modifier']);
   const nameCol = columnIndex(headers, ['name', 'modifier name', 'modifiername', 'modifier', 'title', 'label', 'description']);
@@ -946,8 +1004,8 @@ function upsertModifiers(rows: string[][], warnings: string[]): number {
     throw new Error('MODIFIERS tab is missing required headers. Expected Name, Modifier, or Modifier Key.');
   }
 
-  // One-way master mode: Google Sheet defines active modifiers.
-  getEstimatorDb().prepare('UPDATE modifiers_v1 SET active = 0').run();
+  let replaceDeactivateDone = false;
+  const syncedSheetModifierIds: string[] = [];
 
   let synced = 0;
 
@@ -955,6 +1013,11 @@ function upsertModifiers(rows: string[][], warnings: string[]): number {
     const row = rows[i];
     const name = getCell(row, nameCol) || getCell(row, keyCol);
     if (!name) continue;
+
+    if (replaceMode && !replaceDeactivateDone) {
+      getEstimatorDb().prepare('UPDATE modifiers_v1 SET active = 0').run();
+      replaceDeactivateDone = true;
+    }
 
     const modifierKey = (getCell(row, keyCol) || keyFromParts(name)).toUpperCase().replace(/\s+/g, '_');
     const existing = getEstimatorDb().prepare('SELECT id FROM modifiers_v1 WHERE modifier_key = ? LIMIT 1').get(modifierKey) as { id: string } | undefined;
@@ -1000,13 +1063,24 @@ function upsertModifiers(rows: string[][], warnings: string[]): number {
       );
     }
 
+    syncedSheetModifierIds.push(id);
     synced += 1;
+  }
+
+  if (!replaceMode) {
+    const uniq = Array.from(new Set(syncedSheetModifierIds));
+    if (uniq.length > 0) {
+      const placeholders = uniq.map(() => '?').join(',');
+      getEstimatorDb()
+        .prepare(`UPDATE modifiers_v1 SET active = 0 WHERE id LIKE 'sheet-mod-%' AND id NOT IN (${placeholders})`)
+        .run(...uniq);
+    }
   }
 
   return synced;
 }
 
-function upsertBundles(rows: string[][], warnings: string[]): { bundlesSynced: number; bundleItemsSynced: number } {
+function upsertBundles(rows: string[][], warnings: string[], replaceMode: boolean): { bundlesSynced: number; bundleItemsSynced: number } {
   const headers = rows[0].map(normalizeHeader);
   const idCol = columnIndex(headers, ['bundle id', 'id']);
   const nameCol = columnIndex(headers, ['bundle name', 'name']);
@@ -1019,8 +1093,8 @@ function upsertBundles(rows: string[][], warnings: string[]): { bundlesSynced: n
     throw new Error('BUNDLES tab is missing required Bundle Name header.');
   }
 
-  // One-way master mode: Google Sheet defines active bundles.
-  getEstimatorDb().prepare('UPDATE bundles_v1 SET active = 0').run();
+  let replaceDeactivateDone = false;
+  const syncedSheetBundleIds: string[] = [];
 
   const catalogSkuRows = getEstimatorDb().prepare(`
     SELECT id, sku, description, base_material_cost, base_labor_minutes
@@ -1135,7 +1209,18 @@ function upsertBundles(rows: string[][], warnings: string[]): { bundlesSynced: n
       warnings.push(`BUNDLES row ${i + 1} (${bundleName}): no included SKUs provided.`);
     }
 
+    syncedSheetBundleIds.push(bundleId);
     bundlesSynced += 1;
+  }
+
+  if (!replaceMode) {
+    const uniq = Array.from(new Set(syncedSheetBundleIds));
+    if (uniq.length > 0) {
+      const placeholders = uniq.map(() => '?').join(',');
+      getEstimatorDb()
+        .prepare(`UPDATE bundles_v1 SET active = 0 WHERE id LIKE 'sheet-bundle-%' AND id NOT IN (${placeholders})`)
+        .run(...uniq);
+    }
   }
 
   return { bundlesSynced, bundleItemsSynced };
@@ -1168,10 +1253,12 @@ export async function syncCatalogFromGoogleSheets(): Promise<CatalogSyncResult> 
     const modifierRows = validateSheetRows((modifiersRes.data.values || []) as string[][], modifiersTab);
     const bundleRows = validateSheetRows((bundlesRes.data.values || []) as string[][], bundlesTab);
 
+    const replaceMode = isReplaceCatalogSyncMode();
+
     const tx = getEstimatorDb().transaction(() => {
-      const itemsSynced = upsertItems(itemRows, warnings);
-      const modifiersSynced = upsertModifiers(modifierRows, warnings);
-      const bundleData = upsertBundles(bundleRows, warnings);
+      const itemsSynced = upsertItems(itemRows, warnings, replaceMode);
+      const modifiersSynced = upsertModifiers(modifierRows, warnings, replaceMode);
+      const bundleData = upsertBundles(bundleRows, warnings, replaceMode);
       return {
         itemsSynced,
         modifiersSynced,

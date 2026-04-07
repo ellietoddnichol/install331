@@ -38,6 +38,14 @@ export function Catalog() {
     void loadCatalogWorkspace();
   }, []);
 
+  useEffect(() => {
+    const onSynced = () => {
+      void loadCatalogWorkspace();
+    };
+    window.addEventListener('catalog-synced', onSynced);
+    return () => window.removeEventListener('catalog-synced', onSynced);
+  }, []);
+
   async function loadCatalogWorkspace() {
     try {
       const [itemData, modifierData, bundleData, syncData, inv] = await Promise.all([

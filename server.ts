@@ -541,6 +541,16 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+
+    const autoStart = String(process.env.AUTO_SYNC_CATALOG_ON_START || '').trim().toLowerCase();
+    if (autoStart === '1' || autoStart === 'true' || autoStart === 'yes') {
+      setTimeout(() => {
+        syncCatalogFromGoogleSheets().catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn(`[catalog] startup sync failed: ${message}`);
+        });
+      }, 2500);
+    }
   });
 }
 

@@ -201,8 +201,6 @@ export function prepareCatalogMatch(input: CatalogMatchInput, catalog: CatalogIt
         ? 'possible'
         : 'none';
 
-    if (confidence === 'none') continue;
-
     const reasons: string[] = [];
     if (skuExact) reasons.push('Exact item code / SKU match');
     else if (aliasExact) reasons.push('Exact alias / search-key match');
@@ -215,8 +213,15 @@ export function prepareCatalogMatch(input: CatalogMatchInput, catalog: CatalogIt
     if (descriptionOverlap >= 0.55) reasons.push('Description tokens strongly overlap');
     else if (descriptionOverlap >= 0.3) reasons.push('Description tokens partially overlap');
     if (categoryOverlap >= 0.45) reasons.push('Category alignment detected');
+    if (searchOverlap >= 0.2) reasons.push('Catalog search fields overlap takeoff tokens');
     if (!unitCompatible) reasons.push('Unit differs from catalog item');
     if (manufacturerModelOverlap >= 0.4) reasons.push('Manufacturer / model tokens overlap');
+    if (confidence === 'none') {
+      if (searchOverlap >= 0.12 && !reasons.some((r) => r.includes('search fields'))) {
+        reasons.push('Catalog fields share tokens with takeoff line');
+      }
+      if (descriptionOverlap >= 0.18) reasons.push('Description tokens weakly overlap catalog');
+    }
 
     const scored: CatalogMatchScore = {
       item,
@@ -230,12 +235,25 @@ export function prepareCatalogMatch(input: CatalogMatchInput, catalog: CatalogIt
     }
   }
 
-  if (!best) {
+  if (!best || best.score < 0.28) {
     return { catalogMatch: null, suggestedMatch: null };
   }
 
-  return {
-    catalogMatch: best.confidence === 'strong' ? toCatalogMatch(best) : null,
-    suggestedMatch: best.confidence === 'possible' ? toCatalogMatch(best) : null,
-  };
+  const catalogMatch = best.confidence === 'strong' ? toCatalogMatch(best) : null;
+  let suggestedMatch: IntakeCatalogMatch | null = null;
+  if (best.confidence === 'strong') {
+    suggestedMatch = null;
+  } else if (best.confidence === 'possible') {
+    suggestedMatch = toCatalogMatch(best);
+  } else if (best.confidence === 'none' && best.score >= 0.28) {
+    suggestedMatch = toCatalogMatch({
+      ...best,
+      confidence: 'possible',
+      reason: best.reason.toLowerCase().includes('weak')
+        ? best.reason
+        : `${best.reason} (weak text match)`,
+    });
+  }
+
+  return { catalogMatch, suggestedMatch };
 }

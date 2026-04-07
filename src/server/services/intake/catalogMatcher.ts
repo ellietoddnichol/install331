@@ -1,6 +1,7 @@
 import type { CatalogItem } from '../../../types.ts';
 import type { CatalogMatchCandidate, IntakeCatalogMatch, NormalizedIntakeItem } from '../../../shared/types/intake.ts';
 import { intakeAsText, normalizeComparableText } from '../metadataExtractorService.ts';
+import { prepareCatalogMatch } from '../intakeCatalogMatching.ts';
 import { interpretTakeoffHeader, normalizeTakeoffHeader } from './headerInterpreter.ts';
 
 /** Ranked alternatives returned per header — scoring still runs over the full catalog. */
@@ -182,6 +183,63 @@ function toCandidate(
   };
 }
 
+function mergePrepareCatalogMatch(
+  rawHeader: string,
+  interpretation: ReturnType<typeof interpretTakeoffHeader>,
+  merged: CatalogMatchCandidate[],
+  catalogItems: CatalogItem[]
+): CatalogMatchCandidate[] {
+  if (!catalogItems.length) return merged;
+  const prep = prepareCatalogMatch(
+    {
+      description: rawHeader,
+      itemName: rawHeader,
+      category: interpretation.categoryHint || '',
+      notes: '',
+    },
+    catalogItems
+  );
+  const prepMatch = prep.catalogMatch || prep.suggestedMatch;
+  if (!prepMatch?.catalogItemId) return merged;
+
+  const byId = new Map<string, CatalogMatchCandidate>();
+  for (const c of merged) {
+    if (c.catalogItemId) byId.set(c.catalogItemId, c);
+  }
+
+  const base = typeof prepMatch.score === 'number' ? prepMatch.score : 0.45;
+  const tierBoost = prepMatch.confidence === 'strong' ? 0.06 : prepMatch.confidence === 'possible' ? 0.03 : 0;
+  const pc: CatalogMatchCandidate = {
+    catalogItemId: prepMatch.catalogItemId,
+    matchedName: prepMatch.description,
+    description: prepMatch.description,
+    sku: prepMatch.sku,
+    category: prepMatch.category,
+    unit: prepMatch.unit,
+    manufacturer: null,
+    model: null,
+    materialCost: prepMatch.materialCost,
+    laborMinutes: prepMatch.laborMinutes,
+    matchMethod: 'fuzzy',
+    confidence: clamp(Math.min(0.9, base + tierBoost)),
+    reasons: [`Intake catalog match: ${prepMatch.reason}`],
+    parsedFamily: interpretation.parsedFamily,
+    parsedModelTokens: interpretation.modelTokens,
+    parsedDimensions: interpretation.dimensions.inches || [],
+    familyOnly: false,
+    catalogCoverageGap: false,
+  };
+
+  const prev = byId.get(pc.catalogItemId);
+  if (!prev || pc.confidence > prev.confidence) {
+    byId.set(pc.catalogItemId, pc);
+  }
+
+  return Array.from(byId.values())
+    .sort((left, right) => right.confidence - left.confidence || Number(Boolean(right.catalogCoverageGap)) - Number(Boolean(left.catalogCoverageGap)))
+    .slice(0, MAX_CATALOG_MATCH_CANDIDATES);
+}
+
 function buildCoverageGapCandidate(rawHeader: string, input: {
   parsedFamily: string | null;
   parsedModelTokens: string[];
@@ -355,24 +413,24 @@ export function matchMatrixHeaderToCatalog(rawHeader: string, catalogItems: Cata
   if (!candidates.length) {
     const lexical = lexicalCatalogCandidates(rawHeader, catalogItems);
     if (lexical.length) {
-      return lexical;
+      return mergePrepareCatalogMatch(rawHeader, interpretation, lexical, catalogItems);
     }
     if (parsedFamily) {
-      return [buildCoverageGapCandidate(rawHeader, {
+      return mergePrepareCatalogMatch(rawHeader, interpretation, [buildCoverageGapCandidate(rawHeader, {
         parsedFamily,
         parsedModelTokens,
         parsedDimensions: requestedDimensions,
         reason: parsedModelTokens.length > 0
           ? `No catalog candidate found for ${parsedFamily} with model ${parsedModelTokens.join(', ')}. Catalog coverage may be missing.`
           : `No catalog candidate found for inferred family ${parsedFamily}. Catalog coverage may be missing.`,
-      })];
+      })], catalogItems);
     }
-    return [buildCoverageGapCandidate(rawHeader, {
+    return mergePrepareCatalogMatch(rawHeader, interpretation, [buildCoverageGapCandidate(rawHeader, {
       parsedFamily: null,
       parsedModelTokens,
       parsedDimensions: requestedDimensions,
       reason: `No catalog candidate found for header "${rawHeader}".`,
-    })];
+    })], catalogItems);
   }
 
   let merged = candidates
@@ -398,6 +456,7 @@ export function matchMatrixHeaderToCatalog(rawHeader: string, catalogItems: Cata
       .slice(0, MAX_CATALOG_MATCH_CANDIDATES);
   }
 
+  merged = mergePrepareCatalogMatch(rawHeader, interpretation, merged, catalogItems);
   return merged;
 }
 
