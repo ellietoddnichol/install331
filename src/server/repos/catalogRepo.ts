@@ -35,3 +35,37 @@ export function listActiveCatalogItems(): CatalogItem[] {
     .all();
   return rows.map(mapCatalogRow);
 }
+
+/** API / workspace: active-only for matching; admin Catalog can load every row. */
+export function listCatalogItemsForApi(includeInactive: boolean): CatalogItem[] {
+  ensureTakeoffCatalogSeeded();
+  const sql = includeInactive
+    ? 'SELECT * FROM catalog_items ORDER BY category, description'
+    : 'SELECT * FROM catalog_items WHERE active = 1 ORDER BY category, description';
+  const rows = getEstimatorDb().prepare(sql).all();
+  return rows.map(mapCatalogRow);
+}
+
+export function getCatalogInventoryCounts(): { total: number; active: number; inactive: number } {
+  ensureTakeoffCatalogSeeded();
+  const row = getEstimatorDb()
+    .prepare(
+      `SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) AS active,
+        SUM(CASE WHEN active = 0 THEN 1 ELSE 0 END) AS inactive
+      FROM catalog_items`
+    )
+    .get() as { total: number; active: number | null; inactive: number | null };
+  return {
+    total: row.total,
+    active: Number(row.active ?? 0),
+    inactive: Number(row.inactive ?? 0),
+  };
+}
+
+/** Use after bulk DB import or when Sheet sync left most rows inactive. */
+export function reactivateAllCatalogItems(): number {
+  const result = getEstimatorDb().prepare('UPDATE catalog_items SET active = 1').run();
+  return result.changes;
+}

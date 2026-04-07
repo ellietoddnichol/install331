@@ -477,9 +477,23 @@ export const api = {
     const res = await apiFetch(`${API_BASE}/projects/${id}`, { method: 'DELETE' });
     await handleResponse<void>(res);
   },
-  async getCatalog(): Promise<CatalogItem[]> {
-    const res = await apiFetch(`${API_BASE}/catalog/items`);
+  async getCatalog(options?: { includeInactive?: boolean }): Promise<CatalogItem[]> {
+    const q =
+      options?.includeInactive === true
+        ? '?includeInactive=1'
+        : '';
+    const res = await apiFetch(`${API_BASE}/catalog/items${q}`);
     return handleResponse<CatalogItem[]>(res);
+  },
+  async getV1CatalogInventory(): Promise<{ total: number; active: number; inactive: number }> {
+    const res = await apiFetch(`${API_BASE}/v1/settings/catalog-inventory`);
+    const payload = await handleResponse<{ data: { total: number; active: number; inactive: number } }>(res);
+    return payload.data;
+  },
+  async activateAllV1CatalogItems(): Promise<{ changed: number; total: number; active: number; inactive: number }> {
+    const res = await apiFetch(`${API_BASE}/v1/settings/activate-all-catalog-items`, { method: 'POST' });
+    const payload = await handleResponse<{ data: { changed: number; total: number; active: number; inactive: number } }>(res);
+    return payload.data;
   },
   async createCatalogItem(item: CatalogItem): Promise<CatalogItem> {
     const res = await apiFetch(`${API_BASE}/catalog/items`, {

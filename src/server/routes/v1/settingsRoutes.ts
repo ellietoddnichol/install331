@@ -1,4 +1,8 @@
 import { Router } from 'express';
+import {
+  getCatalogInventoryCounts,
+  reactivateAllCatalogItems,
+} from '../../repos/catalogRepo.ts';
 import { getCatalogSyncStatus, getSettings, listCatalogSyncRuns, updateSettings } from '../../repos/settingsRepo.ts';
 import { recalculateAllLinePricing } from '../../repos/modifiersRepo.ts';
 import { backfillTakeoffRegistryToGoogleSheets, syncCatalogFromGoogleSheets } from '../../services/googleSheetsCatalogSync.ts';
@@ -37,6 +41,16 @@ settingsRouter.get('/catalog-sync-status', (_req, res) => {
 settingsRouter.get('/catalog-sync-runs', (req, res) => {
   const limit = Math.max(1, Math.min(50, Number(req.query.limit || 10)));
   return res.json({ data: listCatalogSyncRuns(limit) });
+});
+
+settingsRouter.get('/catalog-inventory', (_req, res) => {
+  return res.json({ data: getCatalogInventoryCounts() });
+});
+
+/** Sets every catalog row to active (e.g. after SQLite import). Sheet sync normally deactivates rows not in the sheet. */
+settingsRouter.post('/activate-all-catalog-items', (_req, res) => {
+  const changed = reactivateAllCatalogItems();
+  return res.json({ data: { changed, ...getCatalogInventoryCounts() } });
 });
 
 settingsRouter.post('/sync-catalog', async (_req, res) => {

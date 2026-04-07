@@ -831,7 +831,9 @@ function upsertItems(rows: string[][], warnings: string[]): number {
     );
   }
 
-  // One-way master mode: Google Sheet defines active catalog records.
+  // One-way master: every row is deactivated first; only rows present in the ITEMS sheet are
+  // reactivated. A Sheet with fewer rows than your SQLite DB will hide the rest from the app
+  // until you import again or POST /v1/settings/activate-all-catalog-items.
   getEstimatorDb().prepare('UPDATE catalog_items SET active = 0').run();
 
   let synced = 0;

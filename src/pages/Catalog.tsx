@@ -21,6 +21,8 @@ export function Catalog() {
   const [modifiers, setModifiers] = useState<ModifierRecord[]>([]);
   const [bundles, setBundles] = useState<BundleRecord[]>([]);
   const [syncStatus, setSyncStatus] = useState<CatalogSyncStatusRecord | null>(null);
+  const [inventory, setInventory] = useState<{ total: number; active: number; inactive: number } | null>(null);
+  const [activatingAll, setActivatingAll] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -38,20 +40,40 @@ export function Catalog() {
 
   async function loadCatalogWorkspace() {
     try {
-      const [itemData, modifierData, bundleData, syncData] = await Promise.all([
-        api.getCatalog(),
+      const [itemData, modifierData, bundleData, syncData, inv] = await Promise.all([
+        api.getCatalog({ includeInactive: true }),
         api.getCatalogModifiers(),
         api.getCatalogBundles(),
         api.getCatalogSyncStatus(),
+        api.getV1CatalogInventory(),
       ]);
       setItems(itemData);
       setModifiers(modifierData);
       setBundles(bundleData);
       setSyncStatus(syncData);
+      setInventory(inv);
     } catch (err) {
       console.error('Failed to load catalog workspace', err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleActivateAllCatalogItems() {
+    if (!inventory || inventory.inactive === 0) return;
+    const ok = window.confirm(
+      `Set all ${inventory.total} catalog rows to Active? This fixes items hidden after a Google Sheet sync that listed fewer rows than your database.`
+    );
+    if (!ok) return;
+    setActivatingAll(true);
+    try {
+      await api.activateAllV1CatalogItems();
+      await loadCatalogWorkspace();
+    } catch (error) {
+      console.error('Activate all failed', error);
+      alert(error instanceof Error ? error.message : 'Could not activate catalog items.');
+    } finally {
+      setActivatingAll(false);
     }
   }
 
@@ -277,7 +299,9 @@ export function Catalog() {
           <div>
             <p className="ui-label">Catalog Database</p>
             <h1 className="ui-title mt-1">Catalog</h1>
-            <p className="text-xs text-slate-500">Source of truth: Google Sheets sync into local estimate database.</p>
+            <p className="text-xs text-slate-500">
+              Local SQLite holds every row. Syncing from Google Sheets deactivates anything not on the sheet — use “Activate all” after a bulk DB import if counts look wrong.
+            </p>
           </div>
           <div className="flex items-center gap-2 text-xs">
             <span className="inline-flex items-center gap-1 rounded border border-slate-300 bg-slate-50 px-2 py-1 text-slate-700">
@@ -298,12 +322,34 @@ export function Catalog() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-xs">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2 text-xs">
           <div className="ui-surface-soft px-2 py-1.5 text-slate-700">Syncing ITEMS, MODIFIERS, and BUNDLES</div>
           <div className="ui-surface-soft px-2 py-1.5 text-slate-700">Last synced: {lastSynced ? new Date(lastSynced).toLocaleString() : 'Never'}</div>
-          <div className="ui-surface-soft px-2 py-1.5 text-slate-700">Items: {syncStatus?.itemsSynced || items.length}</div>
-          <div className="ui-surface-soft px-2 py-1.5 text-slate-700">Modifiers: {syncStatus?.modifiersSynced || modifiers.length} | Bundles: {syncStatus?.bundlesSynced || bundles.length}</div>
+          <div className="ui-surface-soft px-2 py-1.5 text-slate-700">
+            DB rows: {inventory ? `${inventory.total} total · ${inventory.active} active · ${inventory.inactive} inactive` : '—'}
+          </div>
+          <div className="ui-surface-soft px-2 py-1.5 text-slate-700">Last sheet sync: {syncStatus?.itemsSynced ?? '—'} items</div>
+          <div className="ui-surface-soft px-2 py-1.5 text-slate-700">
+            Modifiers: {syncStatus?.modifiersSynced || modifiers.length} | Bundles: {syncStatus?.bundlesSynced || bundles.length}
+          </div>
         </div>
+
+        {inventory && inventory.inactive > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+            <p>
+              <span className="font-semibold">{inventory.inactive} catalog row(s) are inactive</span> — hidden from estimates and intake unless you filter “Inactive” here.
+              Often caused by syncing Google Sheets when the sheet has fewer rows than this database.
+            </p>
+            <button
+              type="button"
+              onClick={() => void handleActivateAllCatalogItems()}
+              disabled={activatingAll}
+              className="shrink-0 rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-[11px] font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-50"
+            >
+              {activatingAll ? 'Updating…' : 'Activate all catalog items'}
+            </button>
+          </div>
+        ) : null}
 
         {syncStatus?.warnings?.length ? (
           <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">

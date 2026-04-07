@@ -15,6 +15,7 @@ import {
   upsertModifierInGoogleSheet,
 } from "./src/server/services/googleSheetsCatalogSync.ts";
 import { getEstimatorDb } from "./src/server/db/connection.ts";
+import { listCatalogItemsForApi } from "./src/server/repos/catalogRepo.ts";
 import { v1Router } from "./src/server/routes/v1/index.ts";
 
 /** SQLite is the app source of truth; Google Sheets sync is best-effort and must not block saves. */
@@ -151,18 +152,11 @@ async function startServer() {
 
   // Catalog
   app.get("/api/catalog/items", (req, res) => {
-    const items = getEstimatorDb().prepare('SELECT * FROM catalog_items WHERE active = 1').all();
-    res.json(items.map((i: any) => ({
-      ...i,
-      baseMaterialCost: i.base_material_cost,
-      baseLaborMinutes: i.base_labor_minutes,
-      laborUnitType: i.labor_unit_type,
-      modelNumber: i.model_number,
-      imageUrl: i.image_url,
-      taxable: !!i.taxable,
-      adaFlag: !!i.ada_flag,
-      tags: i.tags ? JSON.parse(i.tags) : []
-    })));
+    const includeInactive =
+      req.query.includeInactive === "1" ||
+      req.query.includeInactive === "true";
+    const items = listCatalogItemsForApi(includeInactive);
+    res.json(items);
   });
 
   app.post("/api/catalog/items", async (req, res) => {
