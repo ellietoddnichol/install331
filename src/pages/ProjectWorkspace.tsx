@@ -167,6 +167,7 @@ export function ProjectWorkspace() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [loading, setLoading] = useState(true);
+  const [workspaceLoadError, setWorkspaceLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(() => tabFromSearchParam(searchParams.get('tab')));
 
   const [project, setProject] = useState<ProjectRecord | null>(null);
@@ -231,6 +232,7 @@ export function ProjectWorkspace() {
 
   useEffect(() => {
     if (!id) return;
+    setWorkspaceLoadError(null);
     void loadWorkspace(id);
   }, [id]);
 
@@ -321,7 +323,12 @@ export function ProjectWorkspace() {
   async function loadWorkspace(projectId: string) {
     try {
       setLoading(true);
-      await api.repriceV1ProjectTakeoff(projectId);
+      setWorkspaceLoadError(null);
+      try {
+        await api.repriceV1ProjectTakeoff(projectId);
+      } catch (repriceErr) {
+        console.warn('Takeoff reprice skipped (workspace still loads)', repriceErr);
+      }
       const [projectData, roomData, lineData, catalogData, summaryData, settingsData, modifiersData, bundlesData, filesData] = await Promise.all([
         api.getV1Project(projectId),
         api.getV1Rooms(projectId),
@@ -364,9 +371,15 @@ export function ProjectWorkspace() {
       const linePick =
         ui.selectedLineId && lineData.some((l) => l.id === ui.selectedLineId) ? ui.selectedLineId : null;
       setSelectedLineId(linePick);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Failed to load project workspace', error);
-      navigate('/');
+      const message = error instanceof Error ? error.message : 'Failed to load project.';
+      const looksNotFound = /404|not found/i.test(message);
+      if (looksNotFound) {
+        navigate('/');
+        return;
+      }
+      setWorkspaceLoadError(message);
     } finally {
       setLoading(false);
     }
@@ -1188,7 +1201,31 @@ export function ProjectWorkspace() {
     setSettings(ensureProposalDefaults(next));
   }
 
-  if (loading || !project) {
+  if (loading) {
+    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspace…</div>;
+  }
+
+  if (workspaceLoadError) {
+    return (
+      <div className="ui-page flex min-h-[50vh] flex-col items-center justify-center gap-4 p-8 text-center">
+        <p className="text-sm font-semibold text-slate-900">Could not open this project</p>
+        <p className="max-w-md text-sm text-slate-600">{workspaceLoadError}</p>
+        <p className="max-w-md text-xs text-slate-500">
+          The project is still in your library unless it was deleted. Try again, or go back and open it from the list.
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <button type="button" className="ui-btn-primary h-9 px-4 text-sm" onClick={() => id && void loadWorkspace(id)}>
+            Retry
+          </button>
+          <button type="button" className="ui-btn-secondary h-9 px-4 text-sm" onClick={() => navigate('/projects')}>
+            All projects
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!project) {
     return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspace…</div>;
   }
 

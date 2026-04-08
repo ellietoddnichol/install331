@@ -2,12 +2,13 @@ import { useEffect, useRef } from 'react';
 import { api } from '../services/api';
 
 const STORAGE_KEY = 'catalogAutoSyncLastAtMs';
-/** Background sync at most once per this interval (override in code if needed). */
-const SYNC_INTERVAL_MS = 3 * 60 * 60 * 1000;
+/** Minimum time between successful background pulls from Google Sheets (was 3h; shorter feels more “automatic”). */
+const SYNC_INTERVAL_MS = 30 * 60 * 1000;
 
 /**
- * After sign-in, periodically pulls catalog from Google Sheets in the background so SQLite matches the sheet
- * without visiting Settings or Catalog. Throttled via localStorage; failures are silent (missing SA creds, offline).
+ * After sign-in, pulls catalog from Google Sheets in the background so SQLite matches the sheet
+ * without visiting Settings or Catalog. Throttled by last successful sync in localStorage. If sync fails,
+ * the timestamp is not updated so the next full page load will try again (use Settings → Sync for immediate pull).
  */
 export function CatalogAutoSync() {
   const ranRef = useRef(false);
@@ -16,16 +17,18 @@ export function CatalogAutoSync() {
     if (ranRef.current) return;
     ranRef.current = true;
 
-    const last = Number(localStorage.getItem(STORAGE_KEY) || '0');
-    if (Number.isFinite(last) && Date.now() - last < SYNC_INTERVAL_MS) return;
+    const lastSuccess = Number(localStorage.getItem(STORAGE_KEY) || '0');
+    const now = Date.now();
+    const sinceSuccess = Number.isFinite(lastSuccess) && lastSuccess > 0 ? now - lastSuccess : Infinity;
+    if (sinceSuccess < SYNC_INTERVAL_MS) return;
 
     void (async () => {
       try {
         await api.syncV1Catalog();
         localStorage.setItem(STORAGE_KEY, String(Date.now()));
         window.dispatchEvent(new CustomEvent('catalog-synced'));
-      } catch {
-        // Expected when GOOGLE_SERVICE_ACCOUNT_* is unset or Sheets API errors.
+      } catch (err) {
+        console.warn('[catalog] Background Google Sheets sync failed (manual sync in Settings still works).', err);
       }
     })();
   }, []);
