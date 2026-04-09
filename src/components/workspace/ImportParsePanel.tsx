@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { CatalogItem } from '../../types';
 import { TakeoffLineRecord } from '../../shared/types/estimator';
+import { getErrorMessage } from '../../shared/utils/errorMessage';
 
 interface ReviewLine extends Partial<TakeoffLineRecord> {
   reviewStatus: 'accepted' | 'rejected' | 'pending';
@@ -89,9 +90,9 @@ export function ImportParsePanel({ catalog, projectId, roomId, onFinalize, varia
       setStatus('ready');
       const quantityTotal = Number(parsed.reduce((total, line) => total + Number(line.qty || 0), 0).toFixed(2));
       setStatusMessage(`${parsed.length} lines parsed totaling ${quantityTotal} units. Review and accept before importing.`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       setStatus('error');
-      setStatusMessage(`Parse failed: ${error.message}`);
+      setStatusMessage(`Parse failed: ${getErrorMessage(error, 'Unknown error')}`);
     }
   }
 
@@ -155,9 +156,9 @@ export function ImportParsePanel({ catalog, projectId, roomId, onFinalize, varia
       setRawText('');
       setReviewLines([]);
       setUploadedFileName('');
-    } catch (error: any) {
+    } catch (error: unknown) {
       setStatus('error');
-      setStatusMessage(`Import failed: ${error.message}`);
+      setStatusMessage(`Import failed: ${getErrorMessage(error, 'Unknown error')}`);
     }
   }
 

@@ -2,7 +2,53 @@ import { getEstimatorDb } from '../db/connection.ts';
 import { CatalogSyncStatusRecord, SettingsRecord } from '../../shared/types/estimator.ts';
 import { sanitizeProposalSettings } from '../../shared/utils/proposalDefaults.ts';
 
-function mapSettingsRow(row: any): SettingsRecord {
+type SettingsDbRow = {
+  id: string;
+  company_name: string | null;
+  company_address: string | null;
+  company_phone: string | null;
+  company_email: string | null;
+  logo_url: string | null;
+  default_labor_rate_per_hour: number | null;
+  default_overhead_percent: number | null;
+  default_profit_percent: number | null;
+  default_tax_percent: number | null;
+  default_labor_burden_percent: number | null;
+  default_labor_overhead_percent: number | null;
+  proposal_intro: string | null;
+  proposal_terms: string | null;
+  proposal_exclusions: string | null;
+  proposal_clarifications: string | null;
+  proposal_acceptance_label: string | null;
+  updated_at: string;
+};
+
+type CatalogSyncStatusDbRow = {
+  id: string;
+  last_attempt_at: string | null;
+  last_success_at: string | null;
+  status: string;
+  message: string | null;
+  items_synced: number | null;
+  modifiers_synced: number | null;
+  bundles_synced: number | null;
+  bundle_items_synced: number | null;
+  warnings_json: string | null;
+};
+
+type CatalogSyncRunDbRow = {
+  id: string;
+  attempted_at: string;
+  status: 'success' | 'failed';
+  message: string | null;
+  items_synced: number | null;
+  modifiers_synced: number | null;
+  bundles_synced: number | null;
+  bundle_items_synced: number | null;
+  warnings_json: string | null;
+};
+
+function mapSettingsRow(row: SettingsDbRow): SettingsRecord {
   return sanitizeProposalSettings({
     id: row.id,
     companyName: row.company_name,
@@ -26,7 +72,7 @@ function mapSettingsRow(row: any): SettingsRecord {
 }
 
 export function getSettings(): SettingsRecord {
-  const row = getEstimatorDb().prepare('SELECT * FROM settings_v1 WHERE id = ?').get('global');
+  const row = getEstimatorDb().prepare('SELECT * FROM settings_v1 WHERE id = ?').get('global') as SettingsDbRow;
   return mapSettingsRow(row);
 }
 
@@ -71,13 +117,13 @@ export function updateSettings(input: Partial<SettingsRecord>): SettingsRecord {
 }
 
 export function getCatalogSyncStatus(): CatalogSyncStatusRecord {
-  const row = getEstimatorDb().prepare('SELECT * FROM catalog_sync_status_v1 WHERE id = ?').get('catalog') as any;
+  const row = getEstimatorDb().prepare('SELECT * FROM catalog_sync_status_v1 WHERE id = ?').get('catalog') as CatalogSyncStatusDbRow;
 
   return {
     id: row.id,
     lastAttemptAt: row.last_attempt_at,
     lastSuccessAt: row.last_success_at,
-    status: row.status,
+    status: row.status as CatalogSyncStatusRecord['status'],
     message: row.message,
     itemsSynced: Number(row.items_synced || 0),
     modifiersSynced: Number(row.modifiers_synced || 0),
@@ -103,7 +149,7 @@ export function listCatalogSyncRuns(limit = 10): Array<{
     FROM catalog_sync_runs_v1
     ORDER BY attempted_at DESC
     LIMIT ?
-  `).all(limit) as any[];
+  `).all(limit) as CatalogSyncRunDbRow[];
 
   return rows.map((row) => ({
     id: row.id,

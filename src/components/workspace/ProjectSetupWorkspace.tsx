@@ -63,7 +63,7 @@ export interface ProjectSetupWorkspaceProps {
   selectedScopeCategories: string[];
   toggleScopeCategory: (category: string) => void;
   rooms: RoomRecord[];
-  setActiveTab: (tab: 'overview' | 'setup' | 'takeoff' | 'estimate' | 'files' | 'proposal' | 'scope-review' | 'handoff') => void;
+  setActiveTab: (tab: 'overview' | 'setup' | 'takeoff' | 'estimate' | 'files' | 'proposal' | 'scope-review') => void;
   summary: SummaryLite | null;
   settings: SettingsRecord | null;
   distanceError: string | null;

@@ -279,6 +279,7 @@ async function startServer() {
       id: row.id,
       name: row.name,
       modifierKey: row.modifier_key,
+      description: row.description != null ? String(row.description) : '',
       appliesToCategories: JSON.parse(row.applies_to_categories || '[]'),
       addLaborMinutes: Number(row.add_labor_minutes || 0),
       addMaterialCost: Number(row.add_material_cost || 0),
@@ -296,6 +297,7 @@ async function startServer() {
       id: input.id || randomUUID(),
       name: String(input.name || '').trim(),
       modifierKey: String(input.modifierKey || input.name || '').trim().toUpperCase().replace(/\s+/g, '_'),
+      description: String(input.description ?? '').trim(),
       appliesToCategories: Array.isArray(input.appliesToCategories) ? input.appliesToCategories : [],
       addLaborMinutes: Number(input.addLaborMinutes || 0),
       addMaterialCost: Number(input.addMaterialCost || 0),
@@ -308,13 +310,14 @@ async function startServer() {
     try {
       getEstimatorDb().prepare(`
         INSERT INTO modifiers_v1 (
-          id, name, modifier_key, applies_to_categories, add_labor_minutes, add_material_cost,
+          id, name, modifier_key, description, applies_to_categories, add_labor_minutes, add_material_cost,
           percent_labor, percent_material, active, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         record.id,
         record.name,
         record.modifierKey,
+        record.description,
         JSON.stringify(record.appliesToCategories),
         record.addLaborMinutes,
         record.addMaterialCost,
@@ -384,6 +387,7 @@ async function startServer() {
         upsertModifierInGoogleSheet({
           modifierKey: existing.modifier_key,
           name: existing.name,
+          description: existing.description != null ? String(existing.description) : '',
           appliesToCategories: JSON.parse(existing.applies_to_categories || '[]'),
           addLaborMinutes: Number(existing.add_labor_minutes || 0),
           addMaterialCost: Number(existing.add_material_cost || 0),

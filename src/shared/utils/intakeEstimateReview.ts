@@ -88,6 +88,51 @@ export function scopeBucketLabel(bucket: IntakeScopeBucket): string {
   return labels[bucket];
 }
 
+/** Compact labels for intake review UI (enum unchanged in code). */
+export function scopeBucketShortLabel(bucket: IntakeScopeBucket): string {
+  const labels: Record<IntakeScopeBucket, string> = {
+    priced_base_scope: 'Base scope',
+    line_condition: 'Line condition',
+    project_condition: 'Project condition',
+    deduction_alternate: 'Alternate / deduct',
+    excluded_by_others: 'Excluded',
+    allowance: 'Allowance',
+    informational_only: 'Info only',
+    unknown: 'Review',
+  };
+  return labels[bucket];
+}
+
+/** Single-line parsing hint for subtitle; null when nothing useful to show. */
+export function formatParsingHintSubtitle(ai: IntakeAiLineClassification | undefined): string | null {
+  if (!ai) return null;
+  const pr = (ai.pricingRole || '').trim();
+  const dk = (ai.documentLineKind || '').trim();
+  if (!pr && !dk) return null;
+  const parts: string[] = [];
+  if (dk) parts.push(dk.replace(/_/g, ' '));
+  if (pr) parts.push(pr.replace(/_/g, ' '));
+  return parts.length ? `Parsing hint: ${parts.join(' · ')}` : null;
+}
+
+/** Short scan-friendly tags derived from matcher reason text (not raw debug). */
+export function matchSignalTags(reason: string, matcherSignals?: string[]): string[] {
+  const r = String(reason || '').toLowerCase();
+  const tags: string[] = [];
+  if (/exact item code|exact alias/.test(r)) tags.push('Exact SKU');
+  if (/manufacturer\/ model|manufacturer/.test(r)) tags.push('Mfr / model');
+  if (/category alignment/.test(r)) tags.push('Category fit');
+  if (/cross-line consistency/.test(r)) tags.push('Cross-line match');
+  if (/search fields overlap|catalog fields share|search fields weakly/.test(r)) tags.push('Catalog text');
+  if (/item name closely|item name strongly|item name partially/.test(r)) tags.push('Name match');
+  if (/description tokens strongly|description tokens partially|description text closely/.test(r)) tags.push('Description');
+  if (/item code family/.test(r)) tags.push('Code family');
+  for (const s of matcherSignals || []) {
+    if (s === 'cross_line_top_candidate' && !tags.includes('Cross-line match')) tags.push('Cross-line match');
+  }
+  return tags.slice(0, 6);
+}
+
 export function applicationStatusLabel(status: IntakeApplicationStatus): string {
   const m: Record<IntakeApplicationStatus, string> = {
     suggested: 'Suggested',

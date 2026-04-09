@@ -128,6 +128,7 @@ test('modifier phrase maps to suggestedProjectModifierIds', () => {
       id: 'mod-night',
       name: 'Night work',
       modifierKey: 'night_work',
+      description: 'Work performed outside standard daytime hours; often carries labor premiums or productivity impacts.',
       appliesToCategories: [],
       addLaborMinutes: 0,
       addMaterialCost: 0,

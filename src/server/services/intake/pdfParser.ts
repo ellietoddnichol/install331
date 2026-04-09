@@ -174,7 +174,7 @@ function chunkPdfDocument(document: ExtractedPdfDocument): PdfChunk[] {
 function getPdfExtractionProvider(): PdfExtractionProvider {
   const provider = String(process.env.UPLOAD_PDF_PROVIDER || 'fallback-text').toLowerCase();
   if (provider === 'google-document-ai' || provider === 'azure-document-intelligence') {
-    // TODO: wire external PDF extraction providers using service credentials.
+    // External providers are not wired yet; see README “Upload parser” for Document AI / Azure notes. Until then, use fallback-text extraction.
     return new FallbackPdfExtractionProvider();
   }
   return new FallbackPdfExtractionProvider();

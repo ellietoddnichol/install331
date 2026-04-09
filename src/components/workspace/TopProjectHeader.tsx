@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowUpRight, Cloud, FileDown, FileText, Save, Send, Trash2 } from 'lucide-react';
+import { ArrowUpRight, Cloud, FileDown, Save, Send, Trash2 } from 'lucide-react';
 import { ProjectRecord } from '../../shared/types/estimator';
 import { formatCurrencySafe } from '../../utils/numberFormat';
 
@@ -9,7 +9,6 @@ interface Props {
   syncState: 'idle' | 'syncing' | 'ok' | 'error';
   lastSavedAt: string | null;
   onSave: () => Promise<void> | void;
-  onPreviewProposal: () => void;
   onExport: () => void;
   onSubmitBid: () => Promise<void> | void;
   onDeleteProject: () => Promise<void> | void;
@@ -22,7 +21,6 @@ export function TopProjectHeader({
   syncState,
   lastSavedAt,
   onSave,
-  onPreviewProposal,
   onExport,
   onSubmitBid,
   onDeleteProject,
@@ -44,7 +42,7 @@ export function TopProjectHeader({
         : 'text-slate-600 bg-slate-50 border border-slate-200';
 
   return (
-    <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 px-3 py-2.5 md:px-4 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-white/90">
+    <header className="workspace-top-header sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 px-3 py-2.5 md:px-4 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-white/90 print:hidden">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex items-start gap-4">
           <div className="min-w-0">
@@ -76,11 +74,13 @@ export function TopProjectHeader({
               <button type="button" onClick={() => onSave()} className="h-8 rounded-full px-3 text-[11px] font-medium text-slate-700 outline-none hover:bg-slate-100 flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-blue-400/40">
             <Save className="w-3.5 h-3.5" /> Save
           </button>
-              <button type="button" onClick={onPreviewProposal} className="h-8 rounded-full px-3 text-[11px] font-medium text-slate-700 outline-none hover:bg-slate-100 flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-blue-400/40">
-            <FileText className="w-3.5 h-3.5" /> <span className="hidden lg:inline">Preview</span>
-          </button>
-              <button type="button" onClick={onExport} className="h-8 rounded-full px-3 text-[11px] font-medium text-slate-700 outline-none hover:bg-slate-100 flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-blue-400/40">
-            <FileDown className="w-3.5 h-3.5" /> Export PDF
+              <button
+                type="button"
+                onClick={onExport}
+                title="Downloads an HTML file you can open in a browser. Use Print → Save as PDF for a PDF."
+                className="h-8 rounded-full px-3 text-[11px] font-medium text-slate-700 outline-none hover:bg-slate-100 flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-blue-400/40"
+              >
+            <FileDown className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Export </span>HTML
           </button>
             </div>
             <button type="button" onClick={() => onDeleteProject()} className="hidden md:inline-flex ui-ghost-btn items-center gap-1.5 text-[11px] text-red-700 hover:bg-red-50 hover:text-red-700">

@@ -37,6 +37,14 @@ import {
   ensureProposalDefaults,
 } from '../shared/utils/proposalDefaults';
 import type { EstimateWorkspaceView, WorkspaceTab } from '../shared/types/projectWorkflow';
+import { fingerprintProjectStable } from '../shared/utils/projectRecordFingerprint';
+import {
+  estimateViewFromSearchParams,
+  readWorkspaceUi,
+  tabFromSearchParam,
+  writeWorkspaceUi,
+} from '../shared/utils/projectWorkspaceSession';
+import { getErrorMessage } from '../shared/utils/errorMessage';
 import { scopeExceptionCount } from '../shared/utils/scopeReviewExceptions';
 import { TAKEOFF_ALL_ROOMS } from '../shared/constants/workspaceUi';
 import { ProjectHeader } from '../components/workflow/ProjectHeader';
@@ -54,7 +62,7 @@ import { BundlePickerModal } from '../components/workspace/BundlePickerModal';
 import { OverviewPage } from './project/OverviewPage';
 import { SetupPage } from './project/SetupPage';
 import { ScopeReviewPage } from './project/ScopeReviewPage';
-import { HandoffPage } from './project/HandoffPage';
+import { HandoffSummary } from '../components/workflow/HandoffSummary';
 import { formatCurrencySafe, formatLaborDurationMinutes, formatNumberSafe } from '../utils/numberFormat';
 import { getDistanceInMiles } from '../utils/geo';
 import { catalogItemMatchesQuery } from '../shared/utils/catalogItemSearch';
@@ -97,75 +105,6 @@ interface RoomCreationDraft {
   starterDescription: string;
   starterQty: number;
   starterUnit: string;
-}
-
-/** Persist room / takeoff view / selection across reloads and dev HMR so work isn’t reset to “first room”. */
-const WORKSPACE_UI_STORAGE_PREFIX = 'estimator:workspaceUi:v2:';
-
-type WorkspaceUiSnapshot = {
-  activeRoomId?: string;
-  takeoffRoomFilter?: string;
-  selectedLineId?: string | null;
-  estimateView?: EstimateWorkspaceView;
-};
-
-function readWorkspaceUi(projectId: string): WorkspaceUiSnapshot {
-  try {
-    const raw = sessionStorage.getItem(`${WORKSPACE_UI_STORAGE_PREFIX}${projectId}`);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as WorkspaceUiSnapshot;
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeWorkspaceUi(projectId: string, snapshot: WorkspaceUiSnapshot) {
-  try {
-    sessionStorage.setItem(`${WORKSPACE_UI_STORAGE_PREFIX}${projectId}`, JSON.stringify(snapshot));
-  } catch {
-    // ignore quota / private mode
-  }
-}
-
-const KNOWN_TABS = new Set<string>(['overview', 'setup', 'scope-review', 'estimate', 'proposal', 'handoff']);
-
-function tabFromSearchParam(value: string | null): WorkspaceTab {
-  if (!value) return 'estimate';
-  if (value === 'files') return 'overview';
-  if (value === 'takeoff' || value === 'rooms') return 'estimate';
-  if (KNOWN_TABS.has(value)) return value as WorkspaceTab;
-  return 'estimate';
-}
-
-function estimateViewFromSearchParams(searchParams: URLSearchParams): EstimateWorkspaceView {
-  if (searchParams.get('view') === 'quantities') return 'quantities';
-  const tab = searchParams.get('tab');
-  if (tab === 'takeoff' || tab === 'rooms') return 'quantities';
-  return 'pricing';
-}
-
-/** Canonical JSON for autosave dirty checks — avoids missed saves when key order or nested shapes differ. */
-function fingerprintProjectStable(p: ProjectRecord): string {
-  const { updatedAt: _u, createdAt: _c, ...rest } = p;
-  const normalized = {
-    ...rest,
-    jobConditions: normalizeProjectJobConditions(rest.jobConditions),
-    selectedScopeCategories: [...(rest.selectedScopeCategories || [])].sort(),
-  };
-  return stableStringify(normalized);
-}
-
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map((v) => stableStringify(v)).join(',')}]`;
-  }
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(',')}}`;
 }
 
 const DEFAULT_ROOM_CREATION_DRAFT: RoomCreationDraft = {
@@ -255,7 +194,6 @@ export function ProjectWorkspace() {
       { id: 'scope-review' as const, label: 'Scope review', badge: exceptionCount },
       { id: 'estimate' as const, label: 'Estimate' },
       { id: 'proposal' as const, label: 'Proposal' },
-      { id: 'handoff' as const, label: 'Handoff' },
     ],
     [exceptionCount]
   );
@@ -736,10 +674,6 @@ export function ProjectWorkspace() {
     }
   }
 
-  async function previewProposal() {
-    setActiveTab('proposal');
-  }
-
   function collectProposalStyles(): string {
     const cssChunks: string[] = [];
     for (const sheet of Array.from(document.styleSheets)) {
@@ -758,6 +692,9 @@ export function ProjectWorkspace() {
       body { color: #0f172a; }
       .print-proposal { max-width: 100% !important; margin: 0 auto !important; box-shadow: none !important; }
       .proposal-document { box-shadow: none !important; }
+      .proposal-document header { display: block !important; }
+      .proposal-document img { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .workspace-top-header { display: none !important; }
     `);
 
     return cssChunks.join('\n');
@@ -812,7 +749,7 @@ export function ProjectWorkspace() {
     const iwin = iframe.contentWindow;
     if (!idoc || !iwin) {
       iframe.remove();
-      window.alert('Unable to prepare printing. Use Export to save HTML, then open it and print.');
+      window.alert('Unable to prepare printing. Use Export HTML to save a file, then open it and print.');
       return;
     }
     idoc.open();
@@ -1152,8 +1089,8 @@ export function ProjectWorkspace() {
         dataBase64,
       });
       setProjectFiles(await api.getV1ProjectFiles(project.id));
-    } catch (error: any) {
-      window.alert(error.message || 'File upload failed.');
+    } catch (error: unknown) {
+      window.alert(getErrorMessage(error, 'File upload failed.'));
     } finally {
       setFileUploading(false);
     }
@@ -1186,15 +1123,11 @@ export function ProjectWorkspace() {
         return;
       }
 
-      const next = { ...settings } as SettingsRecord;
-      updates.forEach(([key, value]) => {
-        (next as any)[key] = value;
-      });
-
-      setSettings(ensureProposalDefaults(next));
+      const mergedFields = Object.fromEntries(updates) as Partial<SettingsRecord>;
+      setSettings(ensureProposalDefaults({ ...settings, ...mergedFields }));
       setActiveTab('proposal');
-    } catch (error: any) {
-      window.alert(error.message || 'Unable to generate proposal draft right now.');
+    } catch (error: unknown) {
+      window.alert(getErrorMessage(error, 'Unable to generate proposal draft right now.'));
     } finally {
       setProposalDrafting(null);
     }
@@ -1210,8 +1143,8 @@ export function ProjectWorkspace() {
       const draft = await api.generateV1InstallReviewEmail(project.id);
       setInstallReviewDraft(draft);
       setActiveTab('proposal');
-    } catch (error: any) {
-      window.alert(error.message || 'Unable to generate install review email right now.');
+    } catch (error: unknown) {
+      window.alert(getErrorMessage(error, 'Unable to generate install review email right now.'));
     } finally {
       setInstallReviewGenerating(false);
     }
@@ -1274,7 +1207,6 @@ export function ProjectWorkspace() {
         syncState={syncState}
         lastSavedAt={lastSavedAt}
         onSave={saveProject}
-        onPreviewProposal={previewProposal}
         onExport={exportProposal}
         onSubmitBid={submitBid}
         onDeleteProject={deleteProjectPermanently}
@@ -1686,7 +1618,7 @@ export function ProjectWorkspace() {
                   <p className="ui-label">Client proposal</p>
                   <h3 className="ui-title mt-1 text-[22px] sm:text-[26px]">Review, edit, export</h3>
                   <p className="ui-subtitle mt-2 max-w-xl">
-                    The preview matches print and export. Edit wording in the left column; optional AI tools stay tucked away below.
+                    What you see is what prints. Export saves standalone HTML (open it and use Print → Save as PDF for a PDF).
                   </p>
                 </div>
                 <div className="flex flex-shrink-0 flex-wrap items-center gap-2 lg:justify-end">
@@ -1707,24 +1639,41 @@ export function ProjectWorkspace() {
                   <button
                     type="button"
                     onClick={exportProposal}
+                    title="Downloads HTML. Open the file in a browser, then Print → Save as PDF if you need a PDF."
                     className="ui-btn-primary inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-[11px] font-semibold"
                   >
                     <Download className="h-3.5 w-3.5" />
-                    Export
+                    Export HTML
                   </button>
                 </div>
               </div>
 
-              <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-                <p className="text-xs text-slate-600">
-                  Internal install email lives on the{' '}
-                  <button type="button" onClick={() => setActiveTab('handoff')} className="font-semibold text-blue-800 underline decoration-slate-300 underline-offset-2">
-                    Handoff
-                  </button>{' '}
-                  tab — same workflow as before.
-                </p>
-              </div>
             </section>
+
+            <details className="ui-surface group mt-5 overflow-hidden open:shadow-md [&_summary::-webkit-details-marker]:hidden">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-slate-50/80 sm:px-5">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ring-slate-200/80 bg-slate-50 text-slate-700"
+                  >
+                    <Hammer className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Internal install email</p>
+                    <p className="text-[11px] text-slate-500">Crew-facing draft — not shown on the client proposal</p>
+                  </div>
+                </div>
+                <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition group-open:rotate-180" />
+              </summary>
+              <div className="border-t border-slate-200/80 px-4 pb-4 pt-3 sm:px-5">
+                <HandoffSummary
+                  draft={installReviewDraft}
+                  generating={installReviewGenerating}
+                  onGenerate={() => void generateInstallReviewEmail()}
+                  onCopy={() => void copyInstallReviewEmailBody()}
+                />
+              </div>
+            </details>
 
             <details className="ui-surface group overflow-hidden open:shadow-md [&_summary::-webkit-details-marker]:hidden">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-slate-50/80 sm:px-5">
@@ -1818,15 +1767,6 @@ export function ProjectWorkspace() {
           </div>
         )}
 
-        {activeTab === 'handoff' && (
-          <HandoffPage
-            setActiveTab={setActiveTab}
-            installReviewDraft={installReviewDraft}
-            installReviewGenerating={installReviewGenerating}
-            onGenerateInstallReview={() => void generateInstallReviewEmail()}
-            onCopyInstallReview={() => void copyInstallReviewEmailBody()}
-          />
-        )}
       </div>
 
       <ItemPicker

@@ -383,8 +383,13 @@
   aside {
     display: none !important;
   }
-  header {
-    display: none !important;
+  /* Do not use bare `header { display: none }` — proposal letterhead is a <header> inside .proposal-document. */
+  .proposal-document header {
+    display: block !important;
+  }
+  .proposal-document img {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
   .print-proposal {
     border: none !important;

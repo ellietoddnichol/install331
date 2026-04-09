@@ -260,10 +260,10 @@ export function ProjectSetup({ project, onUpdate }: Props) {
             Project Conditions
           </h2>
           <div className="grid grid-cols-2 gap-4">
-            {Object.entries(project.settings.selectedConditions).map(([key, active]) => (
+            {(Object.entries(project.settings.selectedConditions) as Array<[keyof ProjectSettings['selectedConditions'], boolean]>).map(([key, active]) => (
               <button
                 key={key}
-                onClick={() => handleConditionToggle(key as any)}
+                onClick={() => handleConditionToggle(key)}
                 className={`p-4 rounded-xl border-2 text-left transition-all flex justify-between items-center ${
                   active 
                     ? 'border-blue-600 bg-blue-50 text-blue-700' 

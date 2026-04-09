@@ -48,48 +48,8 @@ import {
   type EstimateReviewLineState,
 } from '../shared/utils/intakeEstimateReview';
 import { IntakeEstimateReviewPanel } from '../components/intake/IntakeEstimateReviewPanel';
-
-function IntakeFieldBadge({ kind }: { kind: 'required' | 'optional' | 'office' }) {
-  if (kind === 'required') {
-    return (
-      <span className="ml-1.5 inline-flex items-center rounded bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-blue-900">
-        Required
-      </span>
-    );
-  }
-  if (kind === 'optional') {
-    return (
-      <span className="ml-1.5 inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-600">
-        Optional
-      </span>
-    );
-  }
-  return (
-    <span className="ml-1.5 inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-600">
-      Office default
-    </span>
-  );
-}
-
-function IntakeFieldLegend() {
-  return (
-    <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2.5 text-[11px] text-slate-600">
-      <span className="font-semibold text-slate-700">Field types:</span>
-      <span className="inline-flex items-center gap-1.5">
-        <span className="h-2 w-2 rounded-full bg-blue-600" aria-hidden />
-        Required for this estimate
-      </span>
-      <span className="inline-flex items-center gap-1.5">
-        <span className="h-2 w-2 rounded-full bg-slate-400" aria-hidden />
-        Optional adjustment
-      </span>
-      <span className="inline-flex items-center gap-1.5">
-        <span className="h-2 w-2 rounded-full bg-slate-300" aria-hidden />
-        Usually office default
-      </span>
-    </div>
-  );
-}
+import { IntakeFieldBadge, IntakeFieldLegend } from '../components/intake/IntakeFieldChrome';
+import { createInitialProjectDraft } from './intake/projectIntakeDraft';
 
 type CreationMode = 'blank' | 'takeoff' | 'document' | 'template';
 type IntakeStep = 1 | 2 | 3 | 4 | 5;
@@ -1152,40 +1112,6 @@ function summarizeAssumptions(result: IntakeParseResult): string {
   return assumptions.map((assumption) => assumption.text).filter(Boolean).join('\n');
 }
 
-function createInitialProjectDraft(settings?: SettingsRecord | null): Partial<ProjectRecord> {
-  return {
-    projectName: '',
-    projectNumber: '',
-    clientName: '',
-    generalContractor: '',
-    estimator: '',
-    address: '',
-    proposalDate: '',
-    projectType: 'Commercial',
-    projectSize: 'Medium',
-    floorLevel: 'Ground',
-    accessDifficulty: 'Easy',
-    installHeight: 'Standard',
-    materialHandling: 'Standard',
-    wallSubstrate: 'Drywall',
-    laborBurdenPercent: settings?.defaultLaborBurdenPercent ?? 0,
-    overheadPercent: settings?.defaultOverheadPercent ?? 15,
-    profitPercent: 0,
-    laborOverheadPercent: settings?.defaultLaborOverheadPercent ?? 5,
-    laborProfitPercent: 0,
-    subLaborManagementFeeEnabled: false,
-    subLaborManagementFeePercent: 5,
-    taxPercent: settings?.defaultTaxPercent ?? 8.25,
-    pricingMode: 'labor_and_material',
-    selectedScopeCategories: [],
-    bidDate: '',
-    dueDate: '',
-    notes: '',
-    specialNotes: '',
-    jobConditions: createDefaultProjectJobConditions(),
-  };
-}
-
 export function ProjectIntake() {
   const navigate = useNavigate();
   const { userEmail } = useAuth();
@@ -1712,7 +1638,7 @@ export function ProjectIntake() {
             needsMatchLines: 0,
             modelUsed: 'review-state',
             confidenceSummary: { metadata: 1, lineExtraction: 0, matching: 0, overall: 0.33 },
-            confidenceNarrative: 'Review-state placeholder diagnostics.',
+            confidenceNarrative: 'Structured intake review — no automated parse was run for this path.',
             webEnrichmentUsed: false,
           },
         }, takeoffFileName || 'uploaded takeoff');
@@ -2563,7 +2489,7 @@ export function ProjectIntake() {
         }
       }
 
-      navigate(`/project/${createdProject.id}?tab=takeoff`);
+      navigate(`/project/${createdProject.id}?tab=estimate&view=quantities`);
     } catch (error) {
       console.error(error);
       alert('Failed to create project from reviewed items.');
@@ -3686,6 +3612,7 @@ export function ProjectIntake() {
               <IntakeEstimateReviewPanel
                 draft={lastIntakeParse.estimateDraft}
                 reviewLines={lastIntakeParse.reviewLines}
+                catalog={catalog}
                 aiSuggestions={lastIntakeParse.aiSuggestions ?? null}
                 modifiers={intakeModifiers}
                 lineByFingerprint={estimateReviewLines}

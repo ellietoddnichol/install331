@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { extractIntakeFromGemini } from '../../services/geminiIntakeExtraction.ts';
 import { parseUploadedIntake } from '../../services/parseRouterService.ts';
+import { getErrorMessage } from '../../../shared/utils/errorMessage.ts';
 
 export const intakeRouter = Router();
 
@@ -27,8 +28,8 @@ intakeRouter.post('/parse', async (req, res) => {
     });
 
     return res.json({ data: result });
-  } catch (error: any) {
-    return res.status(500).json({ error: error.message || 'Intake parsing failed.' });
+  } catch (error: unknown) {
+    return res.status(500).json({ error: getErrorMessage(error, 'Intake parsing failed.') });
   }
 });
 
@@ -63,7 +64,7 @@ intakeRouter.post('/extract', async (req, res) => {
     });
 
     return res.json({ data: result });
-  } catch (error: any) {
-    return res.status(500).json({ error: error.message || 'Gemini extraction failed.' });
+  } catch (error: unknown) {
+    return res.status(500).json({ error: getErrorMessage(error, 'Gemini extraction failed.') });
   }
 });

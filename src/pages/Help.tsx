@@ -26,7 +26,7 @@ const WORKFLOW_STEPS = [
   },
   {
     title: 'Generate the Proposal',
-    description: 'Review the proposal tab, refine wording, print the client-ready document, or export a PDF with detailed line-by-line scope.',
+    description: 'Review the proposal tab, refine wording, print the client-ready document, or export HTML and use your browser’s Print → Save as PDF when you need a PDF.',
     icon: FileText,
     actionLabel: 'Open Settings',
     actionPath: '/settings',
@@ -36,8 +36,8 @@ const WORKFLOW_STEPS = [
 const KEY_NOTES = [
   'Keep company defaults current in Settings so new projects start with the right labor rate, optional burden, labor overhead, material markups, and proposal text.',
   'Use Project Setup before adjusting estimate lines. Job conditions and labor multipliers affect the entire estimate, not just one room.',
-  'Store source files in the Files tab so parser inputs, reference drawings, and support documents stay attached to the project.',
-  'Proposal PDF export is intended for client handoff. Browser print remains available for quick physical copies or print-to-PDF workflows.',
+  'Attach source files from the project Overview so parser inputs, reference drawings, and support documents stay with the job.',
+  'Proposal export saves standalone HTML for client handoff; open the file and use Print → Save as PDF when you need a PDF. In-app Print uses the same layout.',
 ];
 
 export function Help() {

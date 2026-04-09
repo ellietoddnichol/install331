@@ -2,7 +2,18 @@ import { randomUUID } from 'crypto';
 import { getEstimatorDb } from '../db/connection.ts';
 import { ProjectFileRecord } from '../../shared/types/estimator.ts';
 
-function mapProjectFileRow(row: any): ProjectFileRecord {
+type ProjectFileDbRow = {
+  id: string;
+  project_id: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  /** Present on rows selected with `data_base64` (single-file fetch). */
+  data_base64?: string;
+  created_at: string;
+};
+
+function mapProjectFileRow(row: ProjectFileDbRow): ProjectFileRecord {
   return {
     id: row.id,
     projectId: row.project_id,
@@ -53,13 +64,13 @@ export function getProjectFile(projectId: string, fileId: string): (ProjectFileR
        FROM project_files_v1
        WHERE project_id = ? AND id = ?`
     )
-    .get(projectId, fileId) as any;
+    .get(projectId, fileId) as ProjectFileDbRow | undefined;
 
   if (!row) return null;
 
   return {
     ...mapProjectFileRow(row),
-    dataBase64: row.data_base64,
+    dataBase64: String(row.data_base64 ?? ''),
   };
 }
 

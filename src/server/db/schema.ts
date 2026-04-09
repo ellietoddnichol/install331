@@ -111,6 +111,7 @@ export function initEstimatorSchema(db: Database) {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       modifier_key TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
       applies_to_categories TEXT NOT NULL,
       add_labor_minutes REAL NOT NULL DEFAULT 0,
       add_material_cost REAL NOT NULL DEFAULT 0,
@@ -379,6 +380,23 @@ export function initEstimatorSchema(db: Database) {
     `).run(defaultLaborRatePerHour);
   }
 
+  const modifierColumns = db.prepare('PRAGMA table_info(modifiers_v1)').all() as Array<{ name: string }>;
+  if (modifierColumns.length > 0 && !modifierColumns.some((c) => c.name === 'description')) {
+    db.exec("ALTER TABLE modifiers_v1 ADD COLUMN description TEXT NOT NULL DEFAULT ''");
+    db.exec(`
+      UPDATE modifiers_v1 SET description = 'Americans with Disabilities Act (ADA) accessibility requirements—typically added clearances, reach ranges, and mounting heights for toilet accessories (e.g., grab bars, dispensers, mirrors). Use when scope must meet accessible restroom standards.'
+      WHERE id = 'mod-ada' AND trim(description) = ''
+    `);
+    db.exec(`
+      UPDATE modifiers_v1 SET description = 'Recessed or semi-recessed installation: fixture or accessory is set into the wall or chase for a flush finish. Expect added rough-opening, blocking, and finish-cut labor versus surface mount.'
+      WHERE id = 'mod-recessed' AND trim(description) = ''
+    `);
+    db.exec(`
+      UPDATE modifiers_v1 SET description = 'Stainless steel finish upgrade for durability and corrosion resistance in wet or high-traffic restrooms; material cost uplift versus painted or plated equivalents.'
+      WHERE id = 'mod-stainless' AND trim(description) = ''
+    `);
+  }
+
   const catalogItemColumns = db.prepare('PRAGMA table_info(catalog_items)').all() as Array<{ name: string }>;
   if (catalogItemColumns.length > 0) {
     if (!catalogItemColumns.some((c) => c.name === 'brand')) {
@@ -496,14 +514,50 @@ export function initEstimatorSchema(db: Database) {
     const now = new Date().toISOString();
     const insertModifier = db.prepare(`
       INSERT INTO modifiers_v1 (
-        id, name, modifier_key, applies_to_categories, add_labor_minutes, add_material_cost,
+        id, name, modifier_key, description, applies_to_categories, add_labor_minutes, add_material_cost,
         percent_labor, percent_material, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    insertModifier.run('mod-ada', 'ADA', 'ADA', JSON.stringify(['Toilet Accessories', 'Partitions']), 5, 0, 0, 0, 1, now);
-    insertModifier.run('mod-recessed', 'Recessed', 'RECESSED', JSON.stringify(['Toilet Accessories', 'Fire Specialties']), 10, 15, 0, 0, 1, now);
-    insertModifier.run('mod-stainless', 'Stainless Upgrade', 'STAINLESS', JSON.stringify(['Toilet Accessories', 'Partitions']), 0, 40, 0, 10, 1, now);
+    insertModifier.run(
+      'mod-ada',
+      'ADA',
+      'ADA',
+      'Americans with Disabilities Act (ADA) accessibility requirements—typically added clearances, reach ranges, and mounting heights for toilet accessories (e.g., grab bars, dispensers, mirrors). Use when scope must meet accessible restroom standards.',
+      JSON.stringify(['Toilet Accessories', 'Partitions']),
+      5,
+      0,
+      0,
+      0,
+      1,
+      now
+    );
+    insertModifier.run(
+      'mod-recessed',
+      'Recessed',
+      'RECESSED',
+      'Recessed or semi-recessed installation: fixture or accessory is set into the wall or chase for a flush finish. Expect added rough-opening, blocking, and finish-cut labor versus surface mount.',
+      JSON.stringify(['Toilet Accessories', 'Fire Specialties']),
+      10,
+      15,
+      0,
+      0,
+      1,
+      now
+    );
+    insertModifier.run(
+      'mod-stainless',
+      'Stainless Upgrade',
+      'STAINLESS',
+      'Stainless steel finish upgrade for durability and corrosion resistance in wet or high-traffic restrooms; material cost uplift versus painted or plated equivalents.',
+      JSON.stringify(['Toilet Accessories', 'Partitions']),
+      0,
+      40,
+      0,
+      10,
+      1,
+      now
+    );
   }
 
   const bundleCount = db.prepare('SELECT COUNT(*) as count FROM bundles_v1').get() as { count: number };

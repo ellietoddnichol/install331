@@ -1,14 +1,18 @@
-// @ts-nocheck
-import React, { type ErrorInfo, type PropsWithChildren, type ReactNode } from 'react';
+import { Component, type ErrorInfo, type ReactNode } from 'react';
 
-type ErrorBoundaryProps = PropsWithChildren<{}>;
+interface ErrorBoundaryProps {
+  children?: ReactNode;
+}
 
 interface ErrorBoundaryState {
   hasError: boolean;
   message: string;
 }
 
-export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  declare readonly props: Readonly<ErrorBoundaryProps>;
+  public state: ErrorBoundaryState;
+
   constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = { hasError: false, message: '' };
@@ -49,6 +53,6 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
       );
     }
 
-    return this.props.children;
+    return this.props.children ?? null;
   }
 }

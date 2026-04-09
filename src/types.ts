@@ -115,7 +115,8 @@ export interface Scope {
   id: string;
   name: string;
   division?: string;
-  pricingMode: 'material_only' | 'material_and_labor';
+  /** Aligns with v1 `PricingMode`; `material_and_labor` is accepted as a legacy alias in the estimate engine. */
+  pricingMode: 'material_only' | 'labor_only' | 'labor_and_material' | 'material_and_labor';
 }
 
 export interface Room {

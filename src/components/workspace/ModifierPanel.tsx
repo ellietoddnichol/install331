@@ -63,6 +63,9 @@ export function ModifierPanel({ modifiers, activeModifiers, selectedLinePresent,
                 <p className="mt-1 text-[11px] leading-4 text-slate-500">
                   +{formatCurrencySafe(modifier.addMaterialCost)} material, +{formatNumberSafe(modifier.addLaborMinutes, 1)} min, {formatPercentSafe(modifier.percentMaterial)} material, {formatPercentSafe(modifier.percentLabor)} labor
                 </p>
+                {modifier.description?.trim() ? (
+                  <p className="mt-1 text-[10px] leading-snug text-slate-500 line-clamp-2">{modifier.description.trim()}</p>
+                ) : null}
               </button>
             ))}
             {modifiers.length === 0 && <p className="text-xs text-slate-500">No modifiers available.</p>}

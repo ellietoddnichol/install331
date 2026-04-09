@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import { CatalogSyncStatusRecord, SettingsRecord } from '../shared/types/estimator';
 import { ensureProposalDefaults } from '../shared/utils/proposalDefaults';
+import { getErrorMessage } from '../shared/utils/errorMessage';
 
 export function Settings() {
   const [settings, setSettings] = useState<SettingsRecord | null>(null);
@@ -40,14 +41,14 @@ export function Settings() {
       const saved = await api.updateV1Settings(settings);
       setSettings(ensureProposalDefaults(saved));
       alert('Settings saved.');
-    } catch (error: any) {
-      alert(`Failed to save settings: ${error.message}`);
+    } catch (error: unknown) {
+      alert(`Failed to save settings: ${getErrorMessage(error, 'Unknown error')}`);
     } finally {
       setSaving(false);
     }
   }
 
-  async function syncSheets() {
+  async function syncGoogleSheetsCatalog() {
     setSyncing(true);
     try {
       const result = await api.syncV1Catalog();
@@ -55,8 +56,8 @@ export function Settings() {
       setSyncStatus(refreshedStatus);
       setSyncRuns(refreshedRuns);
       alert(`Google Sheets sync complete: ${result.itemsSynced} items, ${result.modifiersSynced} modifiers, ${result.bundlesSynced} bundles.`);
-    } catch (error: any) {
-      alert(`Google Sheets sync failed: ${error.message}`);
+    } catch (error: unknown) {
+      alert(`Google Sheets sync failed: ${getErrorMessage(error, 'Unknown error')}`);
       try {
         const [refreshedStatus, refreshedRuns] = await Promise.all([api.getCatalogSyncStatus(), api.getCatalogSyncRuns(8)]);
         setSyncStatus(refreshedStatus);
@@ -77,8 +78,8 @@ export function Settings() {
       setSyncStatus(refreshedStatus);
       setSyncRuns(refreshedRuns);
       alert(`Takeoff registry backfill complete: ${result.itemsBackfilled} items upserted to ${result.tabName}.`);
-    } catch (error: any) {
-      alert(`Takeoff registry backfill failed: ${error.message}`);
+    } catch (error: unknown) {
+      alert(`Takeoff registry backfill failed: ${getErrorMessage(error, 'Unknown error')}`);
       try {
         const [refreshedStatus, refreshedRuns] = await Promise.all([api.getCatalogSyncStatus(), api.getCatalogSyncRuns(8)]);
         setSyncStatus(refreshedStatus);
@@ -122,7 +123,7 @@ export function Settings() {
           <button type="button" onClick={() => void backfillTakeoffRegistry()} disabled={backfillingRegistry || syncing} className="ui-btn-secondary disabled:opacity-50">
             {backfillingRegistry ? 'Backfilling...' : 'Backfill Takeoff Registry'}
           </button>
-          <button type="button" onClick={() => void syncSheets()} disabled={syncing} className="ui-btn-secondary disabled:opacity-50">
+          <button type="button" onClick={() => void syncGoogleSheetsCatalog()} disabled={syncing} className="ui-btn-secondary disabled:opacity-50">
             {syncing ? 'Syncing...' : 'Sync Google Sheets'}
           </button>
           <button type="button" onClick={() => void saveSettings()} disabled={saving} className="ui-btn-primary disabled:opacity-60">

@@ -163,6 +163,8 @@ export interface ModifierRecord {
   id: string;
   name: string;
   modifierKey: string;
+  /** Estimator-facing explanation (ADA, recessed mount, finish upgrade, etc.). */
+  description: string;
   appliesToCategories: string[];
   addLaborMinutes: number;
   addMaterialCost: number;

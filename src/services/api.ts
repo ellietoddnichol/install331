@@ -575,24 +575,6 @@ export const api = {
     });
     return handleResponse<UserProfile>(res);
   },
-  async syncSheets(): Promise<{
-    message: string;
-    itemsSynced?: number;
-    modifiersSynced?: number;
-    bundlesSynced?: number;
-    bundleItemsSynced?: number;
-    warnings?: string[];
-  }> {
-    const res = await apiFetch(`${API_BASE}/sync/sheets`, { method: 'POST' });
-    return handleResponse<{
-      message: string;
-      itemsSynced?: number;
-      modifiersSynced?: number;
-      bundlesSynced?: number;
-      bundleItemsSynced?: number;
-      warnings?: string[];
-    }>(res);
-  },
   async getGlobalBundles(): Promise<any[]> {
     const res = await apiFetch(`${API_BASE}/global/bundles`);
     return handleResponse<any[]>(res);

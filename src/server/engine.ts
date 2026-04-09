@@ -1,5 +1,11 @@
 
-import { Project, ProjectSettings, ProjectLine, CalculatedLine, EstimateResult, GroupSummary, CatalogItem } from '../types';
+import { Project, ProjectSettings, ProjectLine, CalculatedLine, EstimateResult, GroupSummary, CatalogItem, Scope } from '../types';
+
+function normalizeLegacyScopePricingMode(scope: Scope | undefined): string {
+  const raw = String(scope?.pricingMode || 'labor_and_material').toLowerCase();
+  if (raw === 'material_and_labor') return 'labor_and_material';
+  return raw;
+}
 
 export function calculateEstimate(project: Project, catalog: CatalogItem[]): EstimateResult {
   const { settings, lines, scopes, rooms, alternates } = project;
@@ -10,15 +16,15 @@ export function calculateEstimate(project: Project, catalog: CatalogItem[]): Est
 
   const calculatedLines: CalculatedLine[] = lines.map(line => {
     const item = line.catalogItemId ? catalogMap.get(line.catalogItemId) : null;
-    const scope = scopeMap.get(line.scopeId);
+    const scope: Scope | undefined = scopeMap.get(line.scopeId);
     const description = line.manualDescription || item?.description || 'Unknown Item';
     
     // Base costs
     let unitMat = line.materialUnitCostOverride ?? item?.baseMaterialCost ?? 0;
     let unitLabMins = line.laborMinutesOverride ?? item?.baseLaborMinutes ?? 0;
 
-    // Pricing mode compatibility: support material-only, labor-only, and combined modes.
-    const pricingMode = String((scope as any)?.pricingMode || 'material_and_labor').toLowerCase();
+    // Pricing mode compatibility: support material-only, labor-only, and combined modes (incl. legacy `material_and_labor` alias).
+    const pricingMode = normalizeLegacyScopePricingMode(scope);
     if (pricingMode === 'material_only') {
       unitLabMins = 0;
     } else if (pricingMode === 'labor_only') {

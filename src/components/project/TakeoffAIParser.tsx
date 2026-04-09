@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback } from 'react';
-import { useDropzone } from 'react-dropzone';
+import { useDropzone, type Accept, type DropzoneOptions } from 'react-dropzone';
 import { Upload, FileText, Loader2, Check, AlertCircle, X, Trash2 } from 'lucide-react';
 import { api } from '../../services/api';
 import { Project, ProjectLine, CatalogItem } from '../../types';
@@ -32,13 +32,12 @@ export function TakeoffAIParser({ project, catalog, onImport, onClose }: Props) 
     }
   }, []);
 
+  const accept: Accept = { 'application/pdf': ['.pdf'] };
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: {
-      'application/pdf': ['.pdf']
-    },
-    multiple: false
-  } as any);
+    accept,
+    multiple: false,
+  } as DropzoneOptions);
 
   const handleParse = async () => {
     if (!file) return;

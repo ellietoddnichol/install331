@@ -25,6 +25,7 @@ import { INTAKE_GEMINI_MODEL } from './structuredExtractionSchemas.ts';
 import { classifyIntakeSourceType, deriveDocumentSourceKind } from './fileClassifierService.ts';
 import { extractDocumentWithGemini, extractSpreadsheetWithGemini } from './geminiExtractionService.ts';
 import { buildIntakeAiSuggestionsFromGemini } from './intakeAiSuggestions.ts';
+import { getErrorMessage } from '../../shared/utils/errorMessage.ts';
 import {
   coerceSafeProjectName,
   isPlausibleProjectTitle,
@@ -1088,8 +1089,8 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
         aiSuggestions,
         ...attachEstimateDraft(matchCatalog, catalog, modifiers, reviewLines, aiSuggestions),
       };
-    } catch (error: any) {
-      warnings.push(error.message || 'Gemini enrichment failed for spreadsheet parsing.');
+    } catch (error: unknown) {
+      warnings.push(getErrorMessage(error, 'Gemini enrichment failed for spreadsheet parsing.'));
       const metadata = mergeResolvedMetadataFromService(structuredMetadata, extractMetadataFromTextFromService(`${preludeText}\n${flattenedText}`), ['spreadsheet-structure', 'text-heuristics']);
       const reviewLines = toReviewLinesFromService(normalizedLines, catalog, matchCatalog, bundles);
       const proposalAssist = buildProposalAssist({
@@ -1205,8 +1206,8 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
       proposalAssist,
       aiSuggestions: buildIntakeAiSuggestionsFromGemini(gemini),
     };
-  } catch (error: any) {
-    warnings.push(error.message || 'Gemini extraction failed; fallback text parsing used.');
+  } catch (error: unknown) {
+    warnings.push(getErrorMessage(error, 'Gemini extraction failed; fallback text parsing used.'));
     const metadata = mergeResolvedMetadataFromService({ ...heuristicMetadata, sourceFiles: [fileName] }, {}, ['text-heuristics']);
     const reviewLines = toReviewLinesFromService(fallbackLines as unknown as NormalizedIntakeLineFromService[], catalog, matchCatalog, bundles);
     const proposalAssist = buildProposalAssist({

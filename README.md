@@ -106,7 +106,9 @@ Notes:
 
 ## Google Sheets catalog sync
 
-The app pulls **ITEMS**, **MODIFIERS**, and **BUNDLES** tabs from a spreadsheet into SQLite (`POST /api/sync/sheets` and the UI Sync button).
+The app pulls **ITEMS**, **MODIFIERS**, and **BUNDLES** tabs from a spreadsheet into SQLite. The Settings UI and authenticated clients should use **`POST /api/v1/settings/sync-catalog`** (see `api.syncV1Catalog()`). A legacy route **`POST /api/sync/sheets`** still exists for older integrations and calls the same sync implementation.
+
+For debugging service-account resolution only, set **`GOOGLE_SHEETS_AUTH_DEBUG=1`** (logs metadata, not the private key).
 
 **Credentials (pick one):**
 

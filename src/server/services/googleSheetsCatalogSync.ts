@@ -17,6 +17,14 @@ interface SyncCounts {
   bundleItemsSynced: number;
 }
 
+/** Partial row read before updating sync status (counts may be reused on failure paths). */
+type CatalogSyncStatusDbRow = {
+  items_synced?: number | null;
+  modifiers_synced?: number | null;
+  bundles_synced?: number | null;
+  bundle_items_synced?: number | null;
+};
+
 export interface CatalogSyncResult extends SyncCounts {
   message: string;
   spreadsheetId: string;
@@ -134,7 +142,7 @@ function updateSyncStatus(params: {
   warnings?: string[];
 }) {
   const now = new Date().toISOString();
-  const current = getEstimatorDb().prepare('SELECT * FROM catalog_sync_status_v1 WHERE id = ?').get('catalog') as any;
+  const current = getEstimatorDb().prepare('SELECT * FROM catalog_sync_status_v1 WHERE id = ?').get('catalog') as CatalogSyncStatusDbRow | undefined;
   const counts = params.counts || {
     itemsSynced: current?.items_synced || 0,
     modifiersSynced: current?.modifiers_synced || 0,
@@ -706,6 +714,7 @@ export async function backfillTakeoffRegistryToGoogleSheets(): Promise<TakeoffRe
 export async function upsertModifierInGoogleSheet(input: {
   modifierKey: string;
   name: string;
+  description?: string | null;
   appliesToCategories: string[];
   addLaborMinutes: number;
   addMaterialCost: number;
@@ -721,6 +730,10 @@ export async function upsertModifierInGoogleSheet(input: {
     keyValue: input.modifierKey,
     setters: [
       { aliases: ['Name', 'Modifier Name', 'Modifier'], value: input.name || input.modifierKey },
+      {
+        aliases: ['Description', 'Notes', 'Help', 'Detail', 'Explanation', 'Modifier Description'],
+        value: input.description || '',
+      },
       { aliases: ['AppliesToCategories', 'Applies To Categories', 'Categories'], value: (input.appliesToCategories || []).join(', ') },
       { aliases: ['AddLaborMinutes', 'Add Labor Minutes', 'Labor Minutes'], value: String(input.addLaborMinutes || 0) },
       { aliases: ['AddMaterialCost', 'Add Material Cost', 'Material Cost'], value: String(input.addMaterialCost || 0) },
@@ -992,7 +1005,16 @@ function upsertItems(rows: string[][], warnings: string[], replaceMode: boolean)
 function upsertModifiers(rows: string[][], warnings: string[], replaceMode: boolean): number {
   const headers = rows[0].map(normalizeHeader);
   const keyCol = columnIndex(headers, ['modifier key', 'modifierkey', 'key', 'modifier']);
-  const nameCol = columnIndex(headers, ['name', 'modifier name', 'modifiername', 'modifier', 'title', 'label', 'description']);
+  const nameCol = columnIndex(headers, ['name', 'modifier name', 'modifiername', 'title', 'label']);
+  const descCol = columnIndex(headers, [
+    'description',
+    'notes',
+    'help',
+    'detail',
+    'explanation',
+    'what it means',
+    'modifier description',
+  ]);
   const appliesCol = columnIndex(headers, ['applies to categories', 'appliestocategories', 'categories', 'scope category']);
   const addLaborCol = columnIndex(headers, ['add labor minutes', 'addlaborminutes', 'labor minutes', 'laborminutes', 'labor adjustment']);
   const addMaterialCol = columnIndex(headers, ['add material cost', 'addmaterialcost', 'material cost', 'materialcost', 'material adjustment']);
@@ -1026,14 +1048,17 @@ function upsertModifiers(rows: string[][], warnings: string[], replaceMode: bool
     const applies = splitList(getCell(row, appliesCol));
     if (!applies.length) warnings.push(`MODIFIERS: ${name} has no applies-to categories.`);
 
+    const description = descCol !== null ? getCell(row, descCol) || '' : '';
+
     if (existing) {
       getEstimatorDb().prepare(`
         UPDATE modifiers_v1
-        SET name = ?, applies_to_categories = ?, add_labor_minutes = ?, add_material_cost = ?,
+        SET name = ?, description = ?, applies_to_categories = ?, add_labor_minutes = ?, add_material_cost = ?,
             percent_labor = ?, percent_material = ?, active = ?, updated_at = ?
         WHERE id = ?
       `).run(
         name,
+        description,
         JSON.stringify(applies),
         parseNumber(getCell(row, addLaborCol), 0),
         parseNumber(getCell(row, addMaterialCol), 0),
@@ -1046,13 +1071,14 @@ function upsertModifiers(rows: string[][], warnings: string[], replaceMode: bool
     } else {
       getEstimatorDb().prepare(`
         INSERT INTO modifiers_v1 (
-          id, name, modifier_key, applies_to_categories, add_labor_minutes, add_material_cost,
+          id, name, modifier_key, description, applies_to_categories, add_labor_minutes, add_material_cost,
           percent_labor, percent_material, active, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         name,
         modifierKey,
+        description,
         JSON.stringify(applies),
         parseNumber(getCell(row, addLaborCol), 0),
         parseNumber(getCell(row, addMaterialCol), 0),

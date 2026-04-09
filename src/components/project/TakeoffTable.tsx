@@ -323,7 +323,9 @@ export function TakeoffTable({ project, estimate, onUpdate }: Props) {
                       <select
                         className="w-full px-2 py-1.5 bg-gray-50 border-transparent rounded-lg text-xs font-bold focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all"
                         value={line.baseType}
-                        onChange={(e) => handleUpdateLine(line.lineId, { baseType: e.target.value as any })}
+                        onChange={(e) =>
+                          handleUpdateLine(line.lineId, { baseType: e.target.value as ProjectLine['baseType'] })
+                        }
                       >
                         <option value="Wood">Wood</option>
                         <option value="Metal">Metal</option>

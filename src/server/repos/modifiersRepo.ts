@@ -8,6 +8,7 @@ function mapModifier(row: any): ModifierRecord {
     id: row.id,
     name: row.name,
     modifierKey: row.modifier_key,
+    description: row.description != null ? String(row.description) : '',
     appliesToCategories: JSON.parse(row.applies_to_categories || '[]'),
     addLaborMinutes: row.add_labor_minutes,
     addMaterialCost: row.add_material_cost,

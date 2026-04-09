@@ -129,8 +129,9 @@ export async function syncCatalogFromSheets() {
     }
 
     return { message: `Successfully synced ${count} items, ${bundleRows?.length || 0} bundles, and ${addinRows?.length || 0} add-ins from Google Sheets.` };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Google Sheets Sync Error:', error);
-    throw new Error(`Google Sheets Sync failed: ${error.message}`);
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Google Sheets Sync failed: ${message}`);
   }
 }

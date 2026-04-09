@@ -28,7 +28,7 @@ export function ProposalView({ project, estimate }: Props) {
       <div className="flex justify-end space-x-3 print:hidden">
         <button className="px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-xl font-semibold flex items-center space-x-2 hover:bg-gray-50 transition-all">
           <Download className="w-4 h-4" />
-          <span>Export PDF</span>
+          <span>Export HTML</span>
         </button>
         <button 
           onClick={handlePrint}

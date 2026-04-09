@@ -7,6 +7,7 @@ import { getCatalogSyncStatus, getSettings, listCatalogSyncRuns, updateSettings 
 import { recalculateAllLinePricing } from '../../repos/modifiersRepo.ts';
 import { backfillTakeoffRegistryToGoogleSheets, syncCatalogFromGoogleSheets } from '../../services/googleSheetsCatalogSync.ts';
 import { generateProposalDraftFromGemini } from '../../services/geminiProposalDraft.ts';
+import { getErrorMessage } from '../../../shared/utils/errorMessage.ts';
 
 export const settingsRouter = Router();
 
@@ -27,8 +28,8 @@ settingsRouter.post('/proposal-draft', async (req, res) => {
   try {
     const result = await generateProposalDraftFromGemini(req.body ?? {});
     return res.json({ data: result });
-  } catch (error: any) {
-    const message = error.message || 'Proposal draft generation failed.';
+  } catch (error: unknown) {
+    const message = getErrorMessage(error, 'Proposal draft generation failed.');
     const status = /missing|not configured/i.test(message) ? 503 : 500;
     return res.status(status).json({ error: message });
   }
@@ -66,8 +67,8 @@ settingsRouter.post('/backfill-takeoff-registry', async (_req, res) => {
   try {
     const result = await backfillTakeoffRegistryToGoogleSheets();
     return res.json({ data: result });
-  } catch (error: any) {
-    const message = error.message || 'Takeoff registry backfill failed.';
+  } catch (error: unknown) {
+    const message = getErrorMessage(error, 'Takeoff registry backfill failed.');
     const status = /missing|not configured/i.test(message) ? 503 : 500;
     return res.status(status).json({ error: message });
   }

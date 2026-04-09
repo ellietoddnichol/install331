@@ -115,7 +115,10 @@ export function Catalog() {
           item.sku.toLowerCase().includes(query) ||
           item.category.toLowerCase().includes(query) ||
           (item.family || '').toLowerCase().includes(query) ||
-          (item.subcategory || '').toLowerCase().includes(query);
+          (item.subcategory || '').toLowerCase().includes(query) ||
+          (item.manufacturer || '').toLowerCase().includes(query) ||
+          (item.brand || '').toLowerCase().includes(query) ||
+          (item.model || '').toLowerCase().includes(query);
 
         const categoryMatch = categoryFilter === 'all' || item.category === categoryFilter;
         const activeMatch =
@@ -235,6 +238,11 @@ export function Catalog() {
     const addMaterial = window.prompt('Add material cost', String(modifier.addMaterialCost));
     const pctLabor = window.prompt('Percent labor', String(modifier.percentLabor));
     const pctMaterial = window.prompt('Percent material', String(modifier.percentMaterial));
+    const description = window.prompt(
+      'Description — what this modifier means (e.g. ADA scope, recessed mount, finish upgrade)',
+      modifier.description || ''
+    );
+    if (description === null) return;
     const active = window.confirm('Keep this modifier active?');
 
     try {
@@ -242,6 +250,7 @@ export function Catalog() {
         id: modifier.id,
         name: name.trim(),
         modifierKey: key.trim(),
+        description: description.trim(),
         appliesToCategories: (categories || '').split(',').map((part) => part.trim()).filter(Boolean),
         addLaborMinutes: Number(addLabor || 0),
         addMaterialCost: Number(addMaterial || 0),
@@ -495,6 +504,7 @@ export function Catalog() {
                     <th className="text-left font-semibold py-2 px-3">SKU / ID</th>
                     <th className="text-left font-semibold py-2 px-2">Description</th>
                     <th className="text-left font-semibold py-2 px-2">Category</th>
+                    <th className="text-left font-semibold py-2 px-2">Brand</th>
                     <th className="text-left font-semibold py-2 px-2">Unit</th>
                     <th className="text-right font-semibold py-2 px-2">Labor</th>
                     <th className="text-right font-semibold py-2 px-2">Material</th>
@@ -530,6 +540,12 @@ export function Catalog() {
                         </div>
                       </td>
                       <td className="py-2 px-2 text-slate-700">{item.category}</td>
+                      <td className="py-2 px-2 align-top text-slate-700">
+                        <div className="font-medium text-slate-800">{item.brand?.trim() || '—'}</div>
+                        {item.manufacturer?.trim() ? (
+                          <div className="text-[10px] text-slate-500">{item.manufacturer}</div>
+                        ) : null}
+                      </td>
                       <td className="py-2 px-2 text-slate-700">{item.uom}</td>
                       <td className="py-2 px-2 text-right text-slate-700">{formatNumberSafe(item.baseLaborMinutes, 1)} min</td>
                       <td className="py-2 px-2 text-right text-slate-700">{formatCurrencySafe(item.baseMaterialCost)}</td>
@@ -569,6 +585,7 @@ export function Catalog() {
                   <tr>
                     <th className="text-left font-semibold py-2 px-3">Modifier</th>
                     <th className="text-left font-semibold py-2 px-2">Key</th>
+                    <th className="text-left font-semibold py-2 px-2 min-w-[200px]">Description</th>
                     <th className="text-left font-semibold py-2 px-2">Applies To</th>
                     <th className="text-right font-semibold py-2 px-2">+ Labor Min</th>
                     <th className="text-right font-semibold py-2 px-2">+ Material</th>
@@ -596,6 +613,12 @@ export function Catalog() {
                     >
                       <td className="py-2 px-3 font-medium text-slate-900">{modifier.name}</td>
                       <td className="py-2 px-2 text-slate-700">{modifier.modifierKey}</td>
+                      <td
+                        className="py-2 px-2 align-top text-slate-600 max-w-[min(28rem,40vw)]"
+                        title={modifier.description || undefined}
+                      >
+                        <p className="line-clamp-2 text-[11px] leading-snug">{modifier.description?.trim() || '—'}</p>
+                      </td>
                       <td className="py-2 px-2 text-slate-700">{modifier.appliesToCategories.join(', ') || '-'}</td>
                       <td className="py-2 px-2 text-right text-slate-700">{formatNumberSafe(modifier.addLaborMinutes, 2)}</td>
                       <td className="py-2 px-2 text-right text-slate-700">{formatCurrencySafe(modifier.addMaterialCost)}</td>
@@ -734,6 +757,35 @@ export function Catalog() {
                     className="w-full h-9 px-2 border border-slate-300 rounded text-sm"
                     value={editingItem.category}
                     onChange={(e) => setEditingItem({ ...editingItem, category: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Manufacturer</label>
+                  <input
+                    type="text"
+                    className="w-full h-9 px-2 border border-slate-300 rounded text-sm"
+                    value={editingItem.manufacturer ?? ''}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        manufacturer: e.target.value.trim() ? e.target.value.trim() : undefined,
+                      })
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Brand</label>
+                  <input
+                    type="text"
+                    placeholder="Brand line from sheet"
+                    className="w-full h-9 px-2 border border-slate-300 rounded text-sm"
+                    value={editingItem.brand ?? ''}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        brand: e.target.value.trim() ? e.target.value.trim() : undefined,
+                      })
+                    }
                   />
                 </div>
                 <div>
