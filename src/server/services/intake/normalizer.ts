@@ -8,9 +8,7 @@
  */
 import type { ExtractedSpreadsheetRow, IntakeProjectMetadata, NormalizedIntakeItem } from '../../../shared/types/intake.ts';
 import { analyzeIntakeLineSemantics, applyIntakeSemanticsToItem, type ParsedLineKind } from './intakeSemantics.ts';
-import {
-  looksLikeIntakePricingSummaryOrDisclaimerLine,
-} from '../../../shared/utils/intakeTextGuards.ts';
+import { looksLikeIntakePricingSummaryOrDisclaimerLine } from '../../../shared/utils/intakeTextGuards.ts';
 import { extractDocumentWithGemini } from '../geminiExtractionService.ts';
 import { intakeAsText, normalizeComparableText } from '../metadataExtractorService.ts';
 import { inferCategoryFromText, normalizeExtractedCategory } from '../rowClassifierService.ts';

@@ -254,9 +254,6 @@ export function isPlausibleCustomerFacingProposalText(text: string): boolean {
   const t = intakeTrim(stripIntakeControlCharacters(raw)).replace(/\s+/g, ' ').trim();
   if (!t) return false;
 
-  const head = t.slice(0, Math.min(400, t.length));
-  const tail = t.slice(-Math.min(200, t.length));
-
   const nonSpace = t.replace(/\s/g, '');
   if (nonSpace.length < 10) return false;
 
