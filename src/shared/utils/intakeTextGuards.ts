@@ -71,8 +71,6 @@ export function isPlausibleProjectTitle(value: string): boolean {
   return true;
 }
 
-
-
 const HEADER_RIBBON_TOKENS = new Set([
   'item',
   'name',
