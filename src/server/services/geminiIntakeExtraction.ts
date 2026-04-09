@@ -280,9 +280,11 @@ export async function extractIntakeFromGemini(input: ExtractInput): Promise<Gemi
 
   const ai = new GoogleGenAI({ apiKey });
 
+  const isPdfWithData = input.sourceType === 'pdf' && Boolean(input.dataBase64) && input.mimeType?.toLowerCase().includes('pdf');
+
   const prompt = [
     'You are an estimator intake extraction engine.',
-    'You are provided with the raw PDF file natively. Prioritize your visual understanding of the tables, matrices, and schedules in the PDF file over any provided text representations.',
+    isPdfWithData ? 'You are provided with the raw PDF file natively. Prioritize your visual understanding of the tables, matrices, and schedules in the PDF file over any provided text representations.' : '',
     'Extract project metadata and takeoff lines into strict JSON.',
     'Before emitting parsedLines, classify each source row or chunk as one of: project_metadata, header_row, section_header, actual_scope_line, or ignore.',
     'Only actual_scope_line content may appear in parsedLines.',

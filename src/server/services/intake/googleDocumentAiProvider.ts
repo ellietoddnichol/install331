@@ -39,7 +39,7 @@ export class GoogleDocumentAiProvider implements PdfExtractionProvider {
     const [result] = await client.processDocument({
       name: processorName,
       rawDocument: {
-        content: file.toString('base64'),
+        content: file,
         mimeType: 'application/pdf',
       },
     });

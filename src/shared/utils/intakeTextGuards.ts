@@ -264,7 +264,8 @@ export function isPlausibleCustomerFacingProposalText(text: string): boolean {
   }
   if (suspicious / nonSpace.length > 0.24) return false;
 
-  // Reject texts where mojibake vulgar fractions/superscripts coexist with a low ASCII letter ratio.
+  // Reject texts containing mojibake Latin symbols (U+00B9 ¹, U+00BC ¼, etc.) mixed with a low ASCII
+  // letter ratio — characteristic of Latin-1 buffer dumps misread as text.
   if (MOJIBAKE_LATIN_SYMBOLS.test(nonSpace) && [...nonSpace].filter((ch) => /[A-Za-z]/.test(ch)).length / nonSpace.length < 0.5) return false;
 
   const asciiLetters = [...nonSpace].filter((ch) => /[A-Za-z]/.test(ch)).length;
