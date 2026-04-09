@@ -10,8 +10,6 @@ import type { ExtractedSpreadsheetRow, IntakeProjectMetadata, NormalizedIntakeIt
 import { analyzeIntakeLineSemantics, applyIntakeSemanticsToItem, type ParsedLineKind } from './intakeSemantics.ts';
 import {
   looksLikeIntakePricingSummaryOrDisclaimerLine,
-  looksLikePdfExtractionNoiseLine,
-  looksLikePdfProposalBoilerplateLine,
 } from '../../../shared/utils/intakeTextGuards.ts';
 import { extractDocumentWithGemini } from '../geminiExtractionService.ts';
 import { intakeAsText, normalizeComparableText } from '../metadataExtractorService.ts';
@@ -154,8 +152,6 @@ export function normalizePdfLinesDeterministically(
     chunk.text.split(/\r?\n/).forEach((rawLine) => {
       const line = intakeAsText(rawLine);
       if (!line) return;
-      if (looksLikePdfExtractionNoiseLine(line)) return;
-      if (looksLikePdfProposalBoilerplateLine(line)) return;
       if (looksLikeIntakePricingSummaryOrDisclaimerLine(line)) return;
       if (/^(project|client|owner|gc|general contractor|address|site|bid date|proposal date|estimator|prepared by)\b/i.test(line)) return;
 
@@ -244,7 +240,7 @@ export async function normalizePdfChunks(input: {
       result.parsedLines.forEach((line) => {
         const rawText = intakeAsText(line.description || line.itemName);
         const text = compactDescription(rawText);
-        if (!text || looksLikePdfExtractionNoiseLine(text) || looksLikePdfProposalBoilerplateLine(text)) return;
+        if (!text) return;
         const labeled = extractManufacturerModelFinish(`${line.itemName} ${line.description} ${line.notes}`);
         const category = normalizeExtractedCategory(line.category || '', `${line.itemName} ${line.description}`) || inferCategoryFromText(text) || null;
         let qty = Number.isFinite(line.quantity) ? Number(line.quantity) : null;

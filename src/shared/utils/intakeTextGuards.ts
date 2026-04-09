@@ -71,117 +71,7 @@ export function isPlausibleProjectTitle(value: string): boolean {
   return true;
 }
 
-/**
- * PDF text extraction often yields operator tokens, mojibake, or dictionary crumbs as separate "lines".
- * Skip those so they are not imported as hundreds of fake scope rows.
- */
-export function looksLikePdfExtractionNoiseLine(text: string): boolean {
-  const t = intakeTrim(stripIntakeControlCharacters(String(text || ''))).replace(/\s+/g, ' ').trim();
-  if (!t) return true;
 
-  const lower = t.toLowerCase();
-  const toks = t.split(/\s+/).filter(Boolean);
-
-  const trimmedPipe = t.trim();
-  if (trimmedPipe.startsWith('|') && trimmedPipe.endsWith('|') && trimmedPipe.length <= 300) {
-    return true;
-  }
-
-  const compact = t.replace(/\s+/g, '');
-  if (compact.length <= 72 && /^\|[a-z0-9]{1,28}\|$/i.test(compact)) return true;
-  if (compact.length <= 96 && /^\/[a-z][a-z0-9]{0,23}$/i.test(compact)) return true;
-
-  // PDF structure / graphics operators leaked into visible text (common with Word → PDF).
-  if (t.length <= 200 && /\b(endobj|startxref|endstream|extgstate|textstate|colorspace|pattern|shading)\b/i.test(t)) {
-    return true;
-  }
-  if (t.length <= 120 && /^\s*xref\s*[\d\s]+$/i.test(t.trim())) return true;
-  if (t.length < 110 && /\bgs\d+\b/i.test(t)) return true;
-
-  if (/\|/.test(t)) {
-    if (/\badobe\b/.test(lower)) return true;
-    if (t.length < 160 && /\b(creator|producer|creationdate|moddate|keywords)\b/.test(lower)) return true;
-    const pipeCount = (t.match(/\|/g) || []).length;
-    if (pipeCount >= 3 && t.length < 220) return true;
-  }
-
-  // Producer metadata with spaced-out letters: "m i c r o s o f t w o r d"
-  if (toks.length >= 12) {
-    const singles = toks.filter((x) => x.length === 1).length;
-    if (singles / toks.length >= 0.45) return true;
-  }
-  // Operator soup: q f 6, 6 lt qa f — short tokens, no real English/product word (5+ letters).
-  if (
-    toks.length >= 4 &&
-    toks.length <= 36 &&
-    t.length < 140 &&
-    !/\b[a-z]{5,}\b/i.test(t)
-  ) {
-    const shortToks = toks.filter((x) => x.length <= 2).length;
-    if (shortToks / toks.length >= 0.65) return true;
-  }
-
-  if (/^(endobj|startxref|xref|trailer|stream)$/i.test(lower)) return true;
-  if (/\badobe\b/i.test(lower) && compact.length < 80 && /\|/.test(t)) return true;
-
-  const nonSpace = t.replace(/\s/g, '');
-  if (nonSpace.length < 4) return true;
-
-  let suspicious = 0;
-  for (const ch of nonSpace) {
-    if (/[A-Za-z0-9]/.test(ch)) continue;
-    if ('.,;:\'’"&/@#+\\=()%-–—_*×°•·'.includes(ch)) continue;
-    if (/[\u00C0-\u024F]/.test(ch)) continue;
-    suspicious += 1;
-  }
-  const asciiRatio = [...nonSpace].filter((ch) => /[A-Za-z0-9]/.test(ch)).length / nonSpace.length;
-  if (suspicious / nonSpace.length > 0.32) return true;
-  if (asciiRatio < 0.22 && nonSpace.length > 10) return true;
-  if (MOJIBAKE_LATIN_SYMBOLS.test(nonSpace) && asciiRatio < 0.5) return true;
-  if (!/[A-Za-z]{2,}/.test(t) && nonSpace.length < 56) return true;
-  return false;
-}
-
-/**
- * Letterhead / cover-block lines from subcontractor proposals (Word → PDF).
- * Keeps qty-led scope rows like "2 963 baby change station" while dropping company blocks.
- */
-export function looksLikePdfProposalBoilerplateLine(text: string): boolean {
-  const t = intakeTrim(stripIntakeControlCharacters(String(text || ''))).replace(/\s+/g, ' ').trim();
-  if (!t) return true;
-  const lower = t.toLowerCase();
-
-  if (/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(t)) return true;
-  if (/\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/.test(t)) return true;
-
-  if (/^(project|proposal date|plans dated|addendums)\s*:/i.test(t)) return true;
-  if (/^to secure pricing\b/i.test(t)) return true;
-  if (/^within\s+\d+\s+days\b/i.test(t) && t.length < 100) return true;
-  if (/proposal date|approved submittals/i.test(t) && t.length < 90) return true;
-
-  if (t.length <= 90 && /^(\d{4,6})\s+(\d{2,4})\s*$/i.test(t.replace(/\s+/g, ' ').trim())) return true;
-
-  const collapsed = t.replace(/\s+/g, ' ').trim();
-  if (/^quantity'?s?\b/i.test(collapsed) && collapsed.length < 72 && !/\d/.test(collapsed)) return true;
-  if (/^material\b/i.test(collapsed) && collapsed.length < 72 && !/\d/.test(collapsed)) return true;
-
-  if (t.length <= 100 && /^[A-Z0-9][A-Za-z0-9\s,&'.-]+\s+(Inc\.?|LLC|L\.L\.C\.|Corp\.?|Ltd\.?)\s*$/i.test(t)) {
-    return true;
-  }
-
-  if (/\b[A-Za-z\s]+,\s*[A-Z]{2}\b.*\b\d{5}(-\d{4})?\s*$/i.test(t) && t.length < 130) return true;
-  if (t.length <= 120 && /[A-Za-z][A-Za-z\s]+,\s*\d{5}\s*$/i.test(t)) return true;
-
-  if (/^(street|st|ave|avenue|road|rd|blvd|boulevard|drive|dr|ln|lane)\b\.?$/i.test(t)) return true;
-  if (/^(nd|th|rd)\b$/i.test(lower) && t.length <= 4) return true;
-
-  if (/^prepared by\b/i.test(t) && t.length < 80) return true;
-  if (/^submitted by\b/i.test(t) && t.length < 80) return true;
-
-  if (!/^\d/.test(t) && t.length <= 72 && /\bacc\.?\s*$/i.test(t)) return true;
-
-  return false;
-}
 
 const HEADER_RIBBON_TOKENS = new Set([
   'item',
@@ -329,8 +219,6 @@ const PROPOSAL_OK_SYMBOLS = '.,;:\'’"&/@#+\\=()%-–—_*×°•·°¹²³¼½
 export function isPlausibleProposalScopeSnippet(text: string): boolean {
   const raw = String(text || '');
   if (!raw.trim() || raw.includes('\uFFFD')) return false;
-  if (looksLikePdfExtractionNoiseLine(raw)) return false;
-  if (looksLikePdfProposalBoilerplateLine(raw)) return false;
   if (looksLikeIntakePricingSummaryOrDisclaimerLine(raw)) return false;
   if (looksLikeIntakeSectionHeaderOrTitleLine(raw)) return false;
 
@@ -368,7 +256,6 @@ export function isPlausibleCustomerFacingProposalText(text: string): boolean {
 
   const head = t.slice(0, Math.min(400, t.length));
   const tail = t.slice(-Math.min(200, t.length));
-  if (looksLikePdfExtractionNoiseLine(head) || looksLikePdfExtractionNoiseLine(tail)) return false;
 
   const nonSpace = t.replace(/\s/g, '');
   if (nonSpace.length < 10) return false;

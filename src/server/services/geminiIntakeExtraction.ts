@@ -282,6 +282,7 @@ export async function extractIntakeFromGemini(input: ExtractInput): Promise<Gemi
 
   const prompt = [
     'You are an estimator intake extraction engine.',
+    'You are provided with the raw PDF file natively. Prioritize your visual understanding of the tables, matrices, and schedules in the PDF file over any provided text representations.',
     'Extract project metadata and takeoff lines into strict JSON.',
     'Before emitting parsedLines, classify each source row or chunk as one of: project_metadata, header_row, section_header, actual_scope_line, or ignore.',
     'Only actual_scope_line content may appear in parsedLines.',
@@ -308,7 +309,7 @@ export async function extractIntakeFromGemini(input: ExtractInput): Promise<Gemi
     `Source Type: ${input.sourceType}`,
     `File Name: ${input.fileName}`,
     'Return bidPackage when the document identifies a bid package or package number separately from the project number.',
-    input.extractedText ? `Extracted Text Preview:\n${input.extractedText.slice(0, 14000)}` : '',
+    input.extractedText ? `Fallback Extracted Text (may contain OCR errors, rely on the raw file first):\n${input.extractedText.slice(0, 14000)}` : '',
     input.normalizedRows?.length
       ? `Normalized Rows JSON (deterministic parse):\n${JSON.stringify(input.normalizedRows.slice(0, 500))}`
       : '',
