@@ -12,6 +12,7 @@ import {
   Sparkles,
   Wallet,
   CalendarClock,
+  X,
 } from 'lucide-react';
 import { api } from '../services/api';
 import {
@@ -46,6 +47,7 @@ import {
 } from '../shared/utils/projectWorkspaceSession';
 import { getErrorMessage } from '../shared/utils/errorMessage';
 import { scopeExceptionCount } from '../shared/utils/scopeReviewExceptions';
+import { computeFieldScheduleHint } from '../shared/utils/fieldScheduleHint';
 import { PRICING_ALL_CATEGORIES, TAKEOFF_ALL_ROOMS } from '../shared/constants/workspaceUi';
 import { ProjectHeader } from '../components/workflow/ProjectHeader';
 import { WorkflowTabs } from '../components/workflow/WorkflowTabs';
@@ -216,6 +218,24 @@ export function ProjectWorkspace() {
       pricingCategoryFilter,
     });
   }, [id, loading, activeRoomId, takeoffRoomFilter, selectedLineId, pricingOrganizeMode, pricingCategoryFilter]);
+
+  /** Empty scope review is a dead-end — send estimators straight to the estimate with a clear status flag. */
+  useEffect(() => {
+    if (loading) return;
+    if (searchParams.get('tab') !== 'scope-review') return;
+    if (exceptionCount > 0) return;
+    setActiveTab('estimate');
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('tab');
+        next.delete('view');
+        next.set('scopeChecked', '1');
+        return next;
+      },
+      { replace: true }
+    );
+  }, [loading, exceptionCount, searchParams, setSearchParams]);
 
   useEffect(() => {
     const next = new URLSearchParams(searchParams);
@@ -528,6 +548,17 @@ export function ProjectWorkspace() {
   const jobConditions = useMemo(
     () => normalizeProjectJobConditions(project?.jobConditions || createDefaultProjectJobConditions()),
     [project?.jobConditions]
+  );
+
+  const fieldScheduleHint = useMemo(
+    () =>
+      computeFieldScheduleHint({
+        installerCount: jobConditions.installerCount,
+        totalLaborHours: summary?.totalLaborHours ?? 0,
+        engineDurationDays: summary?.durationDays ?? 0,
+        roomCount: rooms.length,
+      }),
+    [jobConditions.installerCount, summary?.totalLaborHours, summary?.durationDays, rooms.length]
   );
 
   const roomNamesById = useMemo(() => {
@@ -1398,6 +1429,30 @@ export function ProjectWorkspace() {
               onDeleteRoom={(room) => void deleteRoom(room)}
             />
             <div className="flex min-w-0 flex-col gap-1">
+              {searchParams.get('scopeChecked') === '1' ? (
+                <div className="mb-1 flex items-start gap-2 rounded-lg border border-emerald-200/90 bg-emerald-50/70 px-3 py-2 text-sm text-emerald-950">
+                  <p className="min-w-0 flex-1 leading-snug">
+                    <span className="font-semibold">Import checked:</span> no scope exceptions found. You are clear to build pricing and proposal output.
+                  </p>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-md p-1 text-emerald-800 hover:bg-emerald-100/80"
+                    aria-label="Dismiss"
+                    onClick={() =>
+                      setSearchParams(
+                        (prev) => {
+                          const next = new URLSearchParams(prev);
+                          next.delete('scopeChecked');
+                          return next;
+                        },
+                        { replace: true }
+                      )
+                    }
+                  >
+                    <X className="h-4 w-4" aria-hidden />
+                  </button>
+                </div>
+              ) : null}
               <EstimateToolbar
                 view={estimateView}
                 onViewChange={setEstimateView}
@@ -1737,7 +1792,12 @@ export function ProjectWorkspace() {
                         <CalendarClock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                       </div>
                       <p className="mt-1 text-sm font-semibold tabular-nums text-slate-950">{formatNumberSafe(summary?.durationDays || 0, 0)}</p>
-                      <p className="mt-0.5 text-[10px] text-slate-500">Field</p>
+                      <p className="mt-0.5 text-[10px] text-slate-500">Setup crew · calendar math</p>
+                      {fieldScheduleHint ? (
+                        <p className="mt-1 text-[9px] font-medium leading-snug text-blue-950/90">
+                          Field-style: {fieldScheduleHint.fieldCrew} crew · ~{formatNumberSafe(fieldScheduleHint.fieldDays, 1)} d
+                        </p>
+                      ) : null}
                     </div>
                     <div className="min-w-[9.5rem] shrink-0 rounded-lg border-2 border-blue-200/80 bg-[var(--brand-soft)] p-2 shadow-sm ring-1 ring-blue-200/60">
                       <div className="flex items-center justify-between gap-1">
@@ -1859,6 +1919,7 @@ export function ProjectWorkspace() {
                   generating={installReviewGenerating}
                   onGenerate={() => void generateInstallReviewEmail()}
                   onCopy={() => void copyInstallReviewEmailBody()}
+                  fieldScheduleHint={fieldScheduleHint}
                 />
               </div>
             </details>

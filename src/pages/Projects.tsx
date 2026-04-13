@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowUpDown, Archive, Filter, Plus, Search } from 'lucide-react';
 import { format } from 'date-fns';
 import { api } from '../services/api';
-import { ProjectRecord } from '../shared/types/estimator';
+import { useProjectsQuery } from '../hooks/api/useProjectsQuery.ts';
+import { queryKeys } from '../lib/queryKeys.ts';
 import { getCanonicalProjectDateTimestamp } from '../shared/utils/projectDates';
 
 type SortValue = 'newest' | 'oldest' | 'name';
@@ -20,25 +22,21 @@ function resolveFilterLabel(filter: ProjectFilterValue): string {
 
 export function Projects() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { data: projects = [], isLoading, isError, error, refetch } = useProjectsQuery();
+  const deleteMutation = useMutation({
+    mutationFn: (projectId: string) => api.deleteV1Project(projectId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.projects.list });
+    },
+  });
   const [searchParams, setSearchParams] = useSearchParams();
-  const [projects, setProjects] = useState<ProjectRecord[]>([]);
-  const [loading, setLoading] = useState(true);
   const initialSearch = searchParams.get('search') || '';
   const initialFilter = (searchParams.get('filter') as ProjectFilterValue | null) || 'all';
   const initialSort = (searchParams.get('sort') as SortValue | null) || 'newest';
   const [search, setSearch] = useState(initialSearch);
   const [status, setStatus] = useState<ProjectFilterValue>(initialFilter);
   const [sort, setSort] = useState<SortValue>(initialSort);
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        setProjects(await api.getV1Projects());
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
 
   useEffect(() => {
     const next = new URLSearchParams();
@@ -85,10 +83,9 @@ export function Projects() {
     if (!confirmed) return;
 
     try {
-      await api.deleteV1Project(projectId);
-      setProjects((prev) => prev.filter((project) => project.id !== projectId));
-    } catch (error) {
-      console.error('Unable to delete project', error);
+      await deleteMutation.mutateAsync(projectId);
+    } catch (err) {
+      console.error('Unable to delete project', err);
       window.alert('Unable to delete this project right now.');
     }
   }
@@ -171,7 +168,14 @@ export function Projects() {
       </div>
 
       <div className="ui-surface overflow-hidden">
-        {loading ? (
+        {isError ? (
+          <div className="p-10 text-center text-sm text-red-700">
+            Could not load projects.{error instanceof Error ? ` ${error.message}` : ''}{' '}
+            <button type="button" className="ml-2 underline" onClick={() => void refetch()}>
+                Retry
+              </button>
+          </div>
+        ) : isLoading ? (
           <div className="p-10 text-center text-sm text-slate-500">Loading projects...</div>
         ) : filtered.length === 0 ? (
           <div className="p-10 text-center">

@@ -1,12 +1,5 @@
-import React from 'react';
-import { CatalogAutoSync } from './CatalogAutoSync';
-import { AppShell } from './shell/AppShell';
-
-export function Layout({ children }: { children: React.ReactNode }) {
-  return (
-    <AppShell>
-      <CatalogAutoSync />
-      {children}
-    </AppShell>
-  );
-}
+/**
+ * @deprecated Import `ProtectedShell` from `./routing/ProtectedShell` or use `src/router.tsx`.
+ * Kept temporarily so deep imports do not break during refactors.
+ */
+export { ProtectedShell as Layout } from './routing/ProtectedShell.tsx';

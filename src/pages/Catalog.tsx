@@ -1,6 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { ArrowUpDown, Database, Package, Plus, RefreshCw, Search, ShieldCheck, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
+import { useCatalogWorkspaceQuery } from '../hooks/api/useCatalogWorkspaceQuery.ts';
+import { queryKeys } from '../lib/queryKeys.ts';
 import { CatalogSyncStatusRecord, BundleRecord, ModifierRecord } from '../shared/types/estimator';
 import { CatalogItem } from '../types';
 import { formatCurrencySafe, formatNumberSafe, formatPercentSafe } from '../utils/numberFormat';
@@ -40,15 +43,20 @@ function statusClass(status: CatalogSyncStatusRecord['status']): string {
 }
 
 export function Catalog() {
-  const [activeTab, setActiveTab] = useState<CatalogTab>('items');
-  const [items, setItems] = useState<CatalogItem[]>([]);
-  const [modifiers, setModifiers] = useState<ModifierRecord[]>([]);
-  const [bundles, setBundles] = useState<BundleRecord[]>([]);
-  const [syncStatus, setSyncStatus] = useState<CatalogSyncStatusRecord | null>(null);
-  const [inventory, setInventory] = useState<{ total: number; active: number; inactive: number } | null>(null);
-  const [activatingAll, setActivatingAll] = useState(false);
+  const queryClient = useQueryClient();
+  const { data, isLoading, isError, error, refetch } = useCatalogWorkspaceQuery();
+  const items = data?.items ?? [];
+  const modifiers = data?.modifiers ?? [];
+  const bundles = data?.bundles ?? [];
+  const syncStatus = data?.syncStatus ?? null;
+  const inventory = data?.inventory ?? null;
 
-  const [loading, setLoading] = useState(true);
+  const invalidateWorkspace = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: queryKeys.catalog.workspace });
+  }, [queryClient]);
+
+  const [activeTab, setActiveTab] = useState<CatalogTab>('items');
+  const [activatingAll, setActivatingAll] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
   const [search, setSearch] = useState('');
@@ -59,37 +67,12 @@ export function Catalog() {
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
 
   useEffect(() => {
-    void loadCatalogWorkspace();
-  }, []);
-
-  useEffect(() => {
     const onSynced = () => {
-      void loadCatalogWorkspace();
+      invalidateWorkspace();
     };
     window.addEventListener('catalog-synced', onSynced);
     return () => window.removeEventListener('catalog-synced', onSynced);
-  }, []);
-
-  async function loadCatalogWorkspace() {
-    try {
-      const [itemData, modifierData, bundleData, syncData, inv] = await Promise.all([
-        api.getCatalog({ includeInactive: true }),
-        api.getCatalogModifiers(),
-        api.getCatalogBundles(),
-        api.getCatalogSyncStatus(),
-        api.getV1CatalogInventory(),
-      ]);
-      setItems(itemData);
-      setModifiers(modifierData);
-      setBundles(bundleData);
-      setSyncStatus(syncData);
-      setInventory(inv);
-    } catch (err) {
-      console.error('Failed to load catalog workspace', err);
-    } finally {
-      setLoading(false);
-    }
-  }
+  }, [invalidateWorkspace]);
 
   async function handleActivateAllCatalogItems() {
     if (!inventory || inventory.inactive === 0) return;
@@ -100,7 +83,7 @@ export function Catalog() {
     setActivatingAll(true);
     try {
       await api.activateAllV1CatalogItems();
-      await loadCatalogWorkspace();
+      invalidateWorkspace();
     } catch (error) {
       console.error('Activate all failed', error);
       alert(error instanceof Error ? error.message : 'Could not activate catalog items.');
@@ -113,10 +96,10 @@ export function Catalog() {
     setSyncing(true);
     try {
       await api.syncV1Catalog();
-      await loadCatalogWorkspace();
+      invalidateWorkspace();
     } catch (error) {
       console.error('Catalog sync failed', error);
-      await loadCatalogWorkspace();
+      invalidateWorkspace();
       alert(error instanceof Error ? error.message : 'Catalog sync failed.');
     } finally {
       setSyncing(false);
@@ -235,7 +218,7 @@ export function Catalog() {
         await api.updateCatalogItem(editingItem);
       }
       setEditingItem(null);
-      await loadCatalogWorkspace();
+      await invalidateWorkspace();
     } catch (err) {
       console.error('Failed to save item', err);
       window.alert(err instanceof Error ? err.message : 'Failed to save catalog item.');
@@ -246,7 +229,7 @@ export function Catalog() {
     if (!confirm('Are you sure you want to deactivate this item?')) return;
     try {
       await api.deleteCatalogItem(id);
-      await loadCatalogWorkspace();
+      await invalidateWorkspace();
     } catch (err) {
       console.error('Failed to delete item', err);
     }
@@ -282,7 +265,7 @@ export function Catalog() {
         percentMaterial: Number(pctMaterial || 0),
         active,
       });
-      await loadCatalogWorkspace();
+      await invalidateWorkspace();
     } catch (error) {
       console.error('Failed to update modifier', error);
       alert(error instanceof Error ? error.message : 'Failed to update modifier');
@@ -293,7 +276,7 @@ export function Catalog() {
     if (!window.confirm('Deactivate this modifier?')) return;
     try {
       await api.deleteCatalogModifier(id);
-      await loadCatalogWorkspace();
+      await invalidateWorkspace();
     } catch (error) {
       console.error('Failed to deactivate modifier', error);
       alert(error instanceof Error ? error.message : 'Failed to deactivate modifier');
@@ -313,7 +296,7 @@ export function Catalog() {
         category: category || null,
         active,
       });
-      await loadCatalogWorkspace();
+      await invalidateWorkspace();
     } catch (error) {
       console.error('Failed to update bundle', error);
       alert(error instanceof Error ? error.message : 'Failed to update bundle');
@@ -324,7 +307,7 @@ export function Catalog() {
     if (!window.confirm('Deactivate this bundle?')) return;
     try {
       await api.deleteCatalogBundle(id);
-      await loadCatalogWorkspace();
+      await invalidateWorkspace();
     } catch (error) {
       console.error('Failed to deactivate bundle', error);
       alert(error instanceof Error ? error.message : 'Failed to deactivate bundle');
@@ -512,7 +495,15 @@ export function Catalog() {
 
       <section className="ui-surface overflow-hidden">
         <div className="max-h-[68vh] overflow-auto">
-          {loading ? (
+          {isError ? (
+            <div className="flex min-h-[30vh] flex-col items-center justify-center gap-2 p-8 text-center text-sm text-red-700">
+              <p>Could not load catalog workspace.</p>
+              {error instanceof Error ? <p className="text-xs text-slate-600">{error.message}</p> : null}
+              <button type="button" className="ui-btn-secondary h-9 px-3 text-xs" onClick={() => void refetch()}>
+                Retry
+              </button>
+            </div>
+          ) : isLoading ? (
             <div className="flex min-h-[30vh] items-center justify-center p-8 text-sm text-slate-500">Loading catalog…</div>
           ) : activeTab === 'items' ? (
             filteredItems.length === 0 ? (

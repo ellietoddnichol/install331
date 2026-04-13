@@ -40,6 +40,17 @@ export function buildInitialEstimateReviewState(draft: IntakeEstimateDraft | nul
       selectedCatalogItemId: row.suggestedCatalogItemId,
     };
   }
+  /** Default UX: trust strong catalog matches so review starts closer to “exceptions only”. Server Tier-A / explicit accepts are unchanged. */
+  for (const row of draft.lineSuggestions) {
+    if (row.scopeBucket !== 'priced_base_scope') continue;
+    const fp = row.reviewLineFingerprint;
+    const st = lineByFingerprint[fp];
+    if (st.applicationStatus !== 'suggested') continue;
+    const m = getActiveCatalogMatchForRow(row, st);
+    if (m?.confidence === 'strong') {
+      lineByFingerprint[fp] = { ...st, applicationStatus: 'accepted' };
+    }
+  }
   const jobConditionById: Record<string, IntakeApplicationStatus> = {};
   for (const jc of draft.projectSuggestion.suggestedJobConditionsPatch ?? []) {
     jobConditionById[jc.id] = jc.applicationStatus;
@@ -270,6 +281,12 @@ export function inferJobConditionPatchesFromText(
 export type DraftBasisSummary = {
   acceptedPricedLines: number;
   needsReviewPricedLines: number;
+  /** Priced base scope, still suggested, catalog match is strong — one bulk action can clear most. */
+  suggestedStrongLines: number;
+  /** Has a catalog pick but not strong confidence — quick scan. */
+  suggestedWeakMatchLines: number;
+  /** No usable catalog candidate — needs replace or ignore. */
+  suggestedUnmatchedLines: number;
   ignoredLines: number;
   otherScopeLines: number;
   suggestedPricingModeLabel: string;
@@ -286,6 +303,9 @@ export function computeDraftBasisSummary(
   const warnings: string[] = [];
   let acceptedPricedLines = 0;
   let needsReviewPricedLines = 0;
+  let suggestedStrongLines = 0;
+  let suggestedWeakMatchLines = 0;
+  let suggestedUnmatchedLines = 0;
   let ignoredLines = 0;
   let otherScopeLines = 0;
   let materialSubtotalPreview = 0;
@@ -331,6 +351,9 @@ export function computeDraftBasisSummary(
   return {
     acceptedPricedLines,
     needsReviewPricedLines,
+    suggestedStrongLines,
+    suggestedWeakMatchLines,
+    suggestedUnmatchedLines,
     ignoredLines,
     otherScopeLines,
     suggestedPricingModeLabel,

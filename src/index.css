@@ -9,8 +9,9 @@
 
 @layer base {
   :root {
-    --bg-canvas: #eef1f5;
-    --bg-app: #f6f8fb;
+    /* Canvas behind the main shell — slightly darker so white panels read as elevated. */
+    --bg-canvas: #e2e8f0;
+    --bg-app: #ffffff;
     --surface: #ffffff;
     --surface-soft: #f8fafc;
     --surface-tint: #f2f6fb;
@@ -44,7 +45,7 @@
 
   body {
     @apply antialiased;
-    background: var(--bg-app);
+    background: var(--bg-canvas);
     color: var(--text);
   }
 
@@ -77,8 +78,8 @@
 
   .ui-surface {
     background: var(--surface);
-    border: 1px solid rgba(231, 236, 243, 0.7);
-    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.05);
+    border: 1px solid rgba(203, 213, 225, 0.95);
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
     @apply rounded-xl;
   }
 

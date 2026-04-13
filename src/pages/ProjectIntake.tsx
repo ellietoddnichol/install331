@@ -2960,7 +2960,13 @@ export function ProjectIntake() {
                   </div>
                 </div>
               ) : null}
-              <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.9fr)]">
+              <div
+                className={
+                  step === 4
+                    ? 'grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(240px,280px)]'
+                    : 'grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.9fr)]'
+                }
+              >
                 <div className="space-y-4">
                   {step === 3 ? (
                 <div className="rounded-2xl border border-slate-200/70 bg-slate-50/50 p-4">
@@ -3005,7 +3011,7 @@ export function ProjectIntake() {
                         <div>
                           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Section 1</p>
                           <h3 className="mt-1 text-lg font-semibold text-slate-900">Project inputs</h3>
-                          <p className="mt-2 text-sm text-slate-600">Price mode, scope, site context, and delivery — same priorities as Project Setup.</p>
+                          <p className="mt-2 text-sm text-slate-600">Price mode, scope, floors, substrate, and delivery — optional site and sizing fields stay collapsed unless you need them.</p>
                           <IntakeFieldLegend />
                         </div>
 
@@ -3025,27 +3031,6 @@ export function ProjectIntake() {
                               <option value="labor_and_material">Material + install</option>
                             </select>
                             <span className="mt-1 block text-[10px] text-slate-500">Controls material vs labor in the bid.</span>
-                          </label>
-
-                          <label className="text-[11px] font-medium text-slate-800">
-                            <span className="inline-flex items-center">
-                              Project size
-                              <IntakeFieldBadge kind="optional" />
-                            </span>
-                            <select
-                              className="ui-input mt-1.5 h-10"
-                              value={normalizeProjectSizeSelectValue(projectDraft.projectSize)}
-                              onChange={(e) => patchProjectDraft({ projectSize: e.target.value })}
-                            >
-                              {PROJECT_JOB_SIZE_OPTIONS.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
-                                  {opt.label}
-                                </option>
-                              ))}
-                            </select>
-                            <span className="mt-1 block text-[11px] text-slate-500">
-                              Tiers align with typical crew-duration and bid size; pick what matches the job.
-                            </span>
                           </label>
 
                           <label className="text-[11px] font-medium text-slate-800">
@@ -3081,56 +3066,83 @@ export function ProjectIntake() {
                             </select>
                           </label>
 
-                          <label className="text-[11px] font-medium text-slate-800 sm:col-span-2 lg:col-span-2">
-                            <span className="inline-flex items-center">
-                              Location / region note
-                              <IntakeFieldBadge kind="optional" />
-                            </span>
-                            <input
-                              className="ui-input mt-1.5 h-10"
-                              value={draftJob.locationLabel || ''}
-                              onChange={(e) => patchDraftJobConditions({ locationLabel: e.target.value })}
-                              placeholder="e.g. Austin metro"
-                            />
-                          </label>
                         </div>
 
-                        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-                          <p className="text-[11px] font-semibold text-slate-800">
-                            <span className="inline-flex items-center">
-                              Optional site context
-                              <IntakeFieldBadge kind="optional" />
-                            </span>
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">Helps metadata and assumptions; not required for every job.</p>
-                          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                            <label className="text-[11px] font-medium text-slate-700">
-                              Access difficulty
-                              <select className="ui-input mt-1 h-9" value={projectDraft.accessDifficulty || 'Easy'} onChange={(e) => patchProjectDraft({ accessDifficulty: e.target.value })}>
-                                <option value="Easy">Easy</option>
-                                <option value="Moderate">Moderate</option>
-                                <option value="Difficult">Difficult</option>
+                        <details className="group rounded-xl border border-slate-200/90 bg-slate-50/50 shadow-sm">
+                          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-[11px] font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
+                            <span>Optional job size &amp; region</span>
+                            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-500 transition group-open:rotate-180" aria-hidden />
+                          </summary>
+                          <div className="space-y-3 border-t border-slate-200/80 px-3 pb-3 pt-2">
+                            <label className="block text-[11px] font-medium text-slate-800">
+                              <span className="inline-flex items-center">
+                                Project size
+                                <IntakeFieldBadge kind="optional" />
+                              </span>
+                              <select
+                                className="ui-input mt-1.5 h-10"
+                                value={normalizeProjectSizeSelectValue(projectDraft.projectSize)}
+                                onChange={(e) => patchProjectDraft({ projectSize: e.target.value })}
+                              >
+                                {PROJECT_JOB_SIZE_OPTIONS.map((opt) => (
+                                  <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </option>
+                                ))}
                               </select>
+                              <span className="mt-1 block text-[10px] text-slate-500">Typical crew-duration / bid size tier.</span>
                             </label>
-                            <label className="text-[11px] font-medium text-slate-700">
-                              Install height
-                              <select className="ui-input mt-1 h-9" value={projectDraft.installHeight || 'Standard'} onChange={(e) => patchProjectDraft({ installHeight: e.target.value })}>
-                                <option value="Standard">Standard</option>
-                                <option value="Ladder">Ladder</option>
-                                <option value="Lift">Lift</option>
-                                <option value="Scaffold">Scaffold</option>
-                              </select>
-                            </label>
-                            <label className="text-[11px] font-medium text-slate-700">
-                              Material handling
-                              <select className="ui-input mt-1 h-9" value={projectDraft.materialHandling || 'Standard'} onChange={(e) => patchProjectDraft({ materialHandling: e.target.value })}>
-                                <option value="Standard">Standard</option>
-                                <option value="Manual">Manual</option>
-                                <option value="Multiple Moves">Multiple moves</option>
-                              </select>
+                            <label className="block text-[11px] font-medium text-slate-800">
+                              <span className="inline-flex items-center">
+                                Location / region note
+                                <IntakeFieldBadge kind="optional" />
+                              </span>
+                              <input
+                                className="ui-input mt-1.5 h-10"
+                                value={draftJob.locationLabel || ''}
+                                onChange={(e) => patchDraftJobConditions({ locationLabel: e.target.value })}
+                                placeholder="e.g. Austin metro"
+                              />
                             </label>
                           </div>
-                        </div>
+                        </details>
+
+                        <details className="group rounded-xl border border-slate-200/90 bg-slate-50/50 shadow-sm">
+                          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-[11px] font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
+                            <span>Optional site context (access, lifts, handling)</span>
+                            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-500 transition group-open:rotate-180" aria-hidden />
+                          </summary>
+                          <div className="border-t border-slate-200/80 px-3 pb-3 pt-2">
+                            <p className="text-xs text-slate-500">Helps metadata and assumptions; leave closed if this job matches a normal site.</p>
+                            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                              <label className="text-[11px] font-medium text-slate-700">
+                                Access difficulty
+                                <select className="ui-input mt-1 h-9" value={projectDraft.accessDifficulty || 'Easy'} onChange={(e) => patchProjectDraft({ accessDifficulty: e.target.value })}>
+                                  <option value="Easy">Easy</option>
+                                  <option value="Moderate">Moderate</option>
+                                  <option value="Difficult">Difficult</option>
+                                </select>
+                              </label>
+                              <label className="text-[11px] font-medium text-slate-700">
+                                Install height
+                                <select className="ui-input mt-1 h-9" value={projectDraft.installHeight || 'Standard'} onChange={(e) => patchProjectDraft({ installHeight: e.target.value })}>
+                                  <option value="Standard">Standard</option>
+                                  <option value="Ladder">Ladder</option>
+                                  <option value="Lift">Lift</option>
+                                  <option value="Scaffold">Scaffold</option>
+                                </select>
+                              </label>
+                              <label className="text-[11px] font-medium text-slate-700">
+                                Material handling
+                                <select className="ui-input mt-1 h-9" value={projectDraft.materialHandling || 'Standard'} onChange={(e) => patchProjectDraft({ materialHandling: e.target.value })}>
+                                  <option value="Standard">Standard</option>
+                                  <option value="Manual">Manual</option>
+                                  <option value="Multiple Moves">Multiple moves</option>
+                                </select>
+                              </label>
+                            </div>
+                          </div>
+                        </details>
 
                         <div>
                           <p className="text-[11px] font-semibold text-slate-800">
@@ -3263,7 +3275,7 @@ export function ProjectIntake() {
                         </div>
                         <p className="mt-4 flex items-start gap-2 text-[11px] text-slate-500">
                           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-                          Markups, crew, and field allowances live under <strong className="font-medium text-slate-700">Advanced pricing defaults</strong> on the right.
+                          Markups, crew, and field allowances live under <strong className="font-medium text-slate-700">Advanced pricing &amp; field conditions</strong> on the right.
                         </p>
                         {draftJob.phasedWork ? (
                           <div className="mt-4 grid grid-cols-1 gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2">
@@ -3374,8 +3386,8 @@ export function ProjectIntake() {
                         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 [&::-webkit-details-marker]:hidden">
                           <div>
                             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Section 3</p>
-                            <p className="text-sm font-semibold text-slate-900">Advanced pricing defaults</p>
-                            <p className="mt-0.5 text-xs text-slate-500">Burden, O&amp;P, crew, adders — usually matches Settings.</p>
+                            <p className="text-sm font-semibold text-slate-900">Advanced pricing &amp; field conditions</p>
+                            <p className="mt-0.5 text-xs text-slate-500">Only open if this bid differs from normal company assumptions.</p>
                           </div>
                           <ChevronDown className="h-4 w-4 shrink-0 text-slate-500 transition group-open:rotate-180" aria-hidden />
                         </summary>
@@ -3560,23 +3572,22 @@ export function ProjectIntake() {
                               </label>
                             </div>
                           </div>
+                          <div className="rounded-xl border border-slate-200 bg-white p-3">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Notes</p>
+                            <h3 className="mt-1 text-sm font-semibold text-slate-900">Proposal &amp; internal</h3>
+                            <div className="mt-3 space-y-3">
+                              <label className="text-[11px] font-medium text-slate-700">
+                                Proposal notes
+                                <textarea rows={4} className="ui-input mt-1 min-h-[100px] py-2" value={projectDraft.specialNotes || ''} onChange={(e) => patchProjectDraft({ specialNotes: e.target.value })} />
+                              </label>
+                              <label className="text-[11px] font-medium text-slate-700">
+                                Internal notes
+                                <textarea rows={4} className="ui-input mt-1 min-h-[100px] py-2" value={projectDraft.notes || ''} onChange={(e) => patchProjectDraft({ notes: e.target.value })} />
+                              </label>
+                            </div>
+                          </div>
                         </div>
                       </details>
-
-                      <div className="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Notes</p>
-                        <h3 className="mt-1 text-sm font-semibold text-slate-900">Proposal &amp; internal</h3>
-                        <div className="mt-3 space-y-3">
-                          <label className="text-[11px] font-medium text-slate-700">
-                            Proposal notes
-                            <textarea rows={4} className="ui-input mt-1 min-h-[100px] py-2" value={projectDraft.specialNotes || ''} onChange={(e) => patchProjectDraft({ specialNotes: e.target.value })} />
-                          </label>
-                          <label className="text-[11px] font-medium text-slate-700">
-                            Internal notes
-                            <textarea rows={4} className="ui-input mt-1 min-h-[100px] py-2" value={projectDraft.notes || ''} onChange={(e) => patchProjectDraft({ notes: e.target.value })} />
-                          </label>
-                        </div>
-                      </div>
                     </>
                   ) : null}
                 </div>

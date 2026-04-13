@@ -1,5 +1,6 @@
 import React from 'react';
 import type { InstallReviewEmailDraft } from '../../shared/types/estimator';
+import type { FieldScheduleHint } from '../../shared/utils/fieldScheduleHint';
 import { formatCurrencySafe, formatNumberSafe } from '../../utils/numberFormat';
 
 interface HandoffSummaryProps {
@@ -7,9 +8,11 @@ interface HandoffSummaryProps {
   generating: boolean;
   onGenerate: () => void;
   onCopy: () => void;
+  /** Advisory parallel-crew hint vs Setup crew (does not change estimate math). */
+  fieldScheduleHint?: FieldScheduleHint | null;
 }
 
-export function HandoffSummary({ draft, generating, onGenerate, onCopy }: HandoffSummaryProps) {
+export function HandoffSummary({ draft, generating, onGenerate, onCopy, fieldScheduleHint }: HandoffSummaryProps) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-end gap-2">
@@ -51,6 +54,7 @@ export function HandoffSummary({ draft, generating, onGenerate, onCopy }: Handof
             <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
               <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Crew</p>
               <p className="mt-1 text-[22px] font-semibold tracking-[-0.04em] text-slate-950">{draft.summary.crewSize ?? 'TBD'}</p>
+              <p className="mt-1 text-[10px] leading-snug text-slate-500">From project setup (schedule math)</p>
             </div>
             <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
               <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Hours</p>
@@ -59,8 +63,20 @@ export function HandoffSummary({ draft, generating, onGenerate, onCopy }: Handof
             <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
               <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Days</p>
               <p className="mt-1 text-[22px] font-semibold tracking-[-0.04em] text-slate-950">{formatNumberSafe(draft.summary.estimatedDays || 0, 1)}</p>
+              <p className="mt-1 text-[10px] leading-snug text-slate-500">Calendar from setup crew</p>
             </div>
           </div>
+          {fieldScheduleHint ? (
+            <div className="rounded-[14px] border border-blue-200/70 bg-blue-50/50 px-3 py-2.5 text-[11px] leading-snug text-slate-800">
+              <p className="font-semibold text-blue-950">Field-style staffing (hint)</p>
+              <p className="mt-1 text-slate-700">
+                Schedule math: {fieldScheduleHint.mathCrew} installer{fieldScheduleHint.mathCrew === 1 ? '' : 's'} ·{' '}
+                {formatNumberSafe(fieldScheduleHint.mathDays, 1)} d · parallel suggestion: {fieldScheduleHint.fieldCrew} · ~{formatNumberSafe(fieldScheduleHint.fieldDays, 1)} d.
+              </p>
+              {fieldScheduleHint.reason ? <p className="mt-1 text-slate-600">{fieldScheduleHint.reason}</p> : null}
+              <p className="mt-1 text-[10px] text-slate-500">Does not change bid totals — adjust crew on Setup if you want the estimate engine to match.</p>
+            </div>
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-[22px] bg-slate-50/80 p-3 ring-1 ring-slate-200/80">
               <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Material</p>

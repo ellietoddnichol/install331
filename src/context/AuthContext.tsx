@@ -1,6 +1,8 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useContext, useLayoutEffect, useMemo, useState } from 'react';
 
 interface AuthContextValue {
+  /** True until client storage has been read (avoids auth flash on hard refresh). */
+  isLoading: boolean;
   isAuthenticated: boolean;
   userEmail: string | null;
   signIn: (email: string, password: string, remember: boolean) => Promise<boolean>;
@@ -45,7 +47,13 @@ function safeClearAuthEmail(): void {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [userEmail, setUserEmail] = useState<string | null>(() => safeGetAuthEmail());
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+
+  useLayoutEffect(() => {
+    setUserEmail(safeGetAuthEmail());
+    setAuthReady(true);
+  }, []);
 
   async function signIn(email: string, password: string, remember: boolean): Promise<boolean> {
     if (!email.trim() || !password.trim()) return false;
@@ -79,12 +87,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo(
     () => ({
+      isLoading: !authReady,
       isAuthenticated: !!userEmail,
       userEmail,
       signIn,
       signOut,
     }),
-    [userEmail]
+    [userEmail, authReady]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

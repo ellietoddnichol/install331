@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, MoreHorizontal } from 'lucide-react';
 import type { ModifierRecord } from '../../shared/types/estimator';
 import type {
   IntakeAiSuggestions,
@@ -164,6 +164,8 @@ export function IntakeEstimateReviewPanel({
   onApplySuggestedPricingMode,
 }: IntakeEstimateReviewPanelProps) {
   const [openTechnicalFp, setOpenTechnicalFp] = useState<string | null>(null);
+  /** Single open row actions menu (backdrop closes sibling rows). */
+  const [openRowActionsFp, setOpenRowActionsFp] = useState<string | null>(null);
 
   const basisSummary: DraftBasisSummary = useMemo(
     () => computeDraftBasisSummary(draft, lineByFingerprint, aiSuggestions ?? null),
@@ -341,43 +343,83 @@ export function IntakeEstimateReviewPanel({
             ) : null}
           </div>
 
-          {/* Right: actions */}
-          <div className="flex shrink-0 flex-col gap-1.5 border-t border-slate-100 pt-2 lg:w-[140px] lg:border-l lg:border-t-0 lg:pl-3 lg:pt-0">
-            <button
-              type="button"
-              className="h-8 rounded-md bg-slate-900 px-3 text-center text-[12px] font-semibold text-white shadow-sm hover:bg-slate-800"
-              onClick={() => onAcceptLine(fp)}
-            >
-              Accept
-            </button>
-            <details className="group/replace rounded-md border border-slate-200 bg-slate-50/80">
-              <summary className="flex h-8 cursor-pointer list-none items-center justify-center gap-1 rounded-md px-2 text-[12px] font-medium text-slate-800 hover:bg-slate-100 [&::-webkit-details-marker]:hidden">
-                Replace
-                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-500 transition group-open/replace:rotate-180" />
-              </summary>
-              <div className="space-y-1.5 border-t border-slate-200 bg-white px-2 py-2">
-                <p className="text-[9px] font-semibold uppercase text-slate-500">Pick from shortlist</p>
-                <div className="max-h-40 space-y-1 overflow-y-auto">
-                  {row.topCatalogCandidates.map((c) => renderAlternativeOption(c, fp, c.catalogItemId === selectedId))}
-                </div>
-                <button
-                  type="button"
-                  className="w-full rounded border border-slate-200 bg-white py-1.5 text-[12px] font-medium text-slate-700 hover:bg-slate-50"
-                  onClick={() => {
-                    onOpenCatalogPicker(fp);
-                  }}
-                >
-                  Find different item…
-                </button>
+          {/* Right: primary Accept + overflow for catalog / ignore (shortlist stays in the match column). */}
+          <div className="relative flex shrink-0 flex-row items-start gap-1.5 border-t border-slate-100 pt-2 lg:w-[152px] lg:flex-col lg:border-l lg:border-t-0 lg:pl-3 lg:pt-0">
+            {st.applicationStatus === 'suggested' ? (
+              <button
+                type="button"
+                className="h-8 min-w-0 flex-1 rounded-md bg-slate-900 px-2 text-center text-[12px] font-semibold text-white shadow-sm hover:bg-slate-800 lg:flex-none"
+                onClick={() => onAcceptLine(fp)}
+              >
+                Accept
+              </button>
+            ) : (
+              <div className="flex min-h-8 flex-1 items-center rounded-md border border-slate-200/80 bg-slate-50/90 px-2 text-[11px] font-medium text-slate-700 lg:flex-none">
+                {applicationStatusLabel(st.applicationStatus)}
               </div>
-            </details>
-            <button
-              type="button"
-              className="py-1.5 text-center text-[12px] font-medium text-red-700/90 hover:text-red-800 hover:underline"
-              onClick={() => onIgnoreLine(fp)}
-            >
-              Ignore
-            </button>
+            )}
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 hover:text-slate-900"
+                aria-haspopup="menu"
+                aria-expanded={openRowActionsFp === fp}
+                aria-label="Line actions"
+                onClick={() => setOpenRowActionsFp((cur) => (cur === fp ? null : fp))}
+              >
+                <MoreHorizontal className="h-4 w-4" aria-hidden />
+              </button>
+              {openRowActionsFp === fp ? (
+                <>
+                  <button
+                    type="button"
+                    className="fixed inset-0 z-30 cursor-default bg-transparent"
+                    aria-label="Close menu"
+                    onClick={() => setOpenRowActionsFp(null)}
+                  />
+                  <div
+                    role="menu"
+                    className="absolute right-0 top-full z-40 mt-1 min-w-[11.5rem] rounded-lg border border-slate-200 bg-white py-1 shadow-lg ring-1 ring-slate-900/5"
+                  >
+                    {st.applicationStatus === 'suggested' ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="block w-full px-3 py-2 text-left text-[12px] text-slate-800 hover:bg-slate-50 lg:hidden"
+                        onClick={() => {
+                          onAcceptLine(fp);
+                          setOpenRowActionsFp(null);
+                        }}
+                      >
+                        Accept line
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="block w-full px-3 py-2 text-left text-[12px] text-slate-800 hover:bg-slate-50"
+                      onClick={() => {
+                        onOpenCatalogPicker(fp);
+                        setOpenRowActionsFp(null);
+                      }}
+                    >
+                      Find catalog item…
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="block w-full px-3 py-2 text-left text-[12px] text-red-700 hover:bg-red-50/80"
+                      onClick={() => {
+                        onIgnoreLine(fp);
+                        setOpenRowActionsFp(null);
+                      }}
+                    >
+                      Ignore line
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
@@ -387,17 +429,31 @@ export function IntakeEstimateReviewPanel({
   return (
     <div className="mt-4 space-y-3">
       {/* Prominent draft summary — always visible */}
-      <div className="rounded-lg border border-amber-200/90 bg-gradient-to-r from-amber-50/90 to-white px-3 py-2.5 shadow-sm">
-        <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-amber-950/90">Draft estimate basis</p>
-        <p className="text-[12px] text-amber-900/80">Preliminary only — not final bid pricing.</p>
-        <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-slate-800">
+      <div className="rounded-lg border border-slate-200/90 bg-gradient-to-r from-slate-50/95 to-white px-3 py-2.5 shadow-sm">
+        <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-slate-700">Pre-pricing review</p>
+        <p className="text-[12px] text-slate-600">Confirm catalog links here; material and labor rollups fill in from accepted priced lines.</p>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-[12px] text-slate-800">
+          <span className="rounded-md bg-emerald-50/90 px-2 py-0.5 ring-1 ring-emerald-200/70">
+            <span className="text-slate-600">Ready (strong match)</span>{' '}
+            <span className="font-bold tabular-nums text-emerald-950">{basisSummary.suggestedStrongLines}</span>
+          </span>
+          <span className="rounded-md bg-amber-50/90 px-2 py-0.5 ring-1 ring-amber-200/70">
+            <span className="text-slate-600">Quick review</span>{' '}
+            <span className="font-bold tabular-nums text-amber-950">{basisSummary.suggestedWeakMatchLines}</span>
+          </span>
+          <span className="rounded-md bg-slate-100/90 px-2 py-0.5 ring-1 ring-slate-200/80">
+            <span className="text-slate-600">Unmatched</span>{' '}
+            <span className="font-bold tabular-nums text-slate-900">{basisSummary.suggestedUnmatchedLines}</span>
+          </span>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 border-t border-slate-100 pt-2 text-[12px] text-slate-800">
           <span>
-            <span className="text-slate-500">Accepted lines</span>{' '}
+            <span className="text-slate-500">Accepted</span>{' '}
             <span className="font-bold tabular-nums text-slate-900">{basisSummary.acceptedPricedLines}</span>
           </span>
           <span>
-            <span className="text-slate-500">Review needed</span>{' '}
-            <span className="font-bold tabular-nums text-amber-900">{basisSummary.needsReviewPricedLines}</span>
+            <span className="text-slate-500">Still open</span>{' '}
+            <span className="font-semibold tabular-nums text-slate-800">{basisSummary.needsReviewPricedLines}</span>
           </span>
           <span>
             <span className="text-slate-500">Ignored</span>{' '}
@@ -411,14 +467,20 @@ export function IntakeEstimateReviewPanel({
             <span className="text-slate-500">Suggested mode</span>{' '}
             <span className="font-semibold capitalize">{basisSummary.suggestedPricingModeLabel}</span>
           </span>
-          <span>
-            <span className="text-slate-500">Draft material</span>{' '}
-            <span className="font-semibold tabular-nums">{formatCurrencySafe(basisSummary.materialSubtotalPreview)}</span>
-          </span>
-          <span>
-            <span className="text-slate-500">Draft labor (min)</span>{' '}
-            <span className="font-semibold tabular-nums">{formatNumberSafe(basisSummary.laborMinutesSubtotalPreview, 1)}</span>
-          </span>
+          {basisSummary.acceptedPricedLines > 0 ? (
+            <>
+              <span>
+                <span className="text-slate-500">Draft material</span>{' '}
+                <span className="font-semibold tabular-nums">{formatCurrencySafe(basisSummary.materialSubtotalPreview)}</span>
+              </span>
+              <span>
+                <span className="text-slate-500">Draft labor (min)</span>{' '}
+                <span className="font-semibold tabular-nums">{formatNumberSafe(basisSummary.laborMinutesSubtotalPreview, 1)}</span>
+              </span>
+            </>
+          ) : (
+            <span className="w-full text-[12px] text-slate-500">No draft pricing yet — totals appear after you accept priced lines.</span>
+          )}
         </div>
         {aiSuggestions?.pricingModeSuggested ? (
           <button type="button" className="mt-2 h-7 rounded-md border border-amber-300/80 bg-white px-2 text-[12px] font-semibold text-amber-950 hover:bg-amber-50" onClick={onApplySuggestedPricingMode}>
