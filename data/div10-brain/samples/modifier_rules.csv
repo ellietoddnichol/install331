@@ -1,0 +1,3 @@
+modifier_key,label,applies_to_categories,applies_to_conditions,pricing_effect_type,notes,active
+after_hours_labor,After-hours labor,Partitions|Signage,,labor_multiplier,Apply when work outside normal hours,true
+demo_existing,Demolition of existing,Partitions,,labor_addon,Coordinate with GC demo scope,true

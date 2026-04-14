@@ -6,6 +6,8 @@ import { settingsRouter } from './settingsRoutes.ts';
 import { modifiersRouter } from './modifiersRoutes.ts';
 import { bundlesRouter } from './bundlesRoutes.ts';
 import { intakeRouter } from './intakeRoutes.ts';
+import { requireDiv10BrainAdmin } from '../../div10Brain/auth/requireDiv10BrainAdmin.ts';
+import { div10BrainRouter } from './div10BrainRoutes.ts';
 
 export const v1Router = Router();
 
@@ -20,3 +22,4 @@ v1Router.use('/settings', settingsRouter);
 v1Router.use('/modifiers', modifiersRouter);
 v1Router.use('/bundles', bundlesRouter);
 v1Router.use('/intake', intakeRouter);
+v1Router.use('/div10-brain', requireDiv10BrainAdmin, div10BrainRouter);

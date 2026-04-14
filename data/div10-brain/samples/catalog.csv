@@ -1,0 +1,3 @@
+sku,brand,category,normalized_name,description,subcategory,unit,active
+HW-TP-001,ExampleCo,Partitions,Phenolic toilet partition,"Floor mounted phenolic partitions, includes hardware",Toilet partitions,LS,true
+HW-SG-002,ExampleCo,Signage,Room ID sign,"ADA tactile/braille room sign",Interior signage,EA,true

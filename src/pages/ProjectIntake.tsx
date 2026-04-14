@@ -1184,6 +1184,14 @@ export function ProjectIntake() {
   }, [userEmail]);
 
   useEffect(() => {
+    const onCatalogSynced = () => {
+      void api.getCatalog().then(setCatalog);
+    };
+    window.addEventListener('catalog-synced', onCatalogSynced);
+    return () => window.removeEventListener('catalog-synced', onCatalogSynced);
+  }, []);
+
+  useEffect(() => {
     void (async () => {
       const [projectData, catalogData, settingsData, modifiersData] = await Promise.all([
         api.getV1Projects(),
@@ -2117,6 +2125,28 @@ export function ProjectIntake() {
     });
   }
 
+  function maybeCaptureDiv10Training(
+    fingerprint: string,
+    action: 'accepted' | 'replaced' | 'ignored',
+    finalCatalogItemId: string | null
+  ) {
+    const draft = lastIntakeParse?.estimateDraft;
+    const row = draft?.lineSuggestions.find((r) => r.reviewLineFingerprint === fingerprint);
+    const reviewLine = lastIntakeParse?.reviewLines.find((r) => r.reviewLineFingerprint === fingerprint);
+    if (!row?.div10Brain?.catalogAssist && !row?.div10Brain?.classify) return;
+    const lineText = [reviewLine?.description, reviewLine?.itemName].filter(Boolean).join(' ').trim();
+    void api
+      .postV1IntakeDiv10TrainingCapture({
+        reviewLineFingerprint: fingerprint,
+        action,
+        finalCatalogItemId,
+        lineText,
+        deterministicSuggestedId: row.suggestedCatalogItemId,
+        div10BrainSnapshot: row.div10Brain,
+      })
+      .catch(() => {});
+  }
+
   function handleAcceptEstimateLine(fingerprint: string) {
     const draft = lastIntakeParse?.estimateDraft;
     const row = draft?.lineSuggestions.find((r) => r.reviewLineFingerprint === fingerprint);
@@ -2128,6 +2158,7 @@ export function ProjectIntake() {
     const catId = st.selectedCatalogItemId ?? row.suggestedCatalogItemId;
     const item = catId ? catalog.find((c) => c.id === catId) : undefined;
     patchEstimateReviewLine(fingerprint, { applicationStatus: 'accepted', selectedCatalogItemId: catId, acceptSource: 'manual' });
+    maybeCaptureDiv10Training(fingerprint, 'accepted', catId ?? null);
     const lineId = lineSuggestions.find((l) => l.reviewLineFingerprint === fingerprint)?.id;
     if (item && lineId) {
       applyCatalogToLineId(lineId, item, 'Accepted estimate suggestion');
@@ -2137,6 +2168,7 @@ export function ProjectIntake() {
   function handleReplaceEstimateLineWithCatalogId(fingerprint: string, catalogItemId: string) {
     const item = catalog.find((c) => c.id === catalogItemId);
     patchEstimateReviewLine(fingerprint, { applicationStatus: 'replaced', selectedCatalogItemId: catalogItemId });
+    maybeCaptureDiv10Training(fingerprint, 'replaced', catalogItemId);
     const lineId = lineSuggestions.find((l) => l.reviewLineFingerprint === fingerprint)?.id;
     if (item && lineId) {
       applyCatalogToLineId(lineId, item, 'Replaced catalog candidate (estimate review)');
@@ -2145,6 +2177,7 @@ export function ProjectIntake() {
 
   function handleIgnoreEstimateLine(fingerprint: string) {
     patchEstimateReviewLine(fingerprint, { applicationStatus: 'ignored', selectedCatalogItemId: null });
+    maybeCaptureDiv10Training(fingerprint, 'ignored', null);
     const lineId = lineSuggestions.find((l) => l.reviewLineFingerprint === fingerprint)?.id;
     if (lineId) ignoreLine(lineId);
   }
@@ -3883,6 +3916,7 @@ export function ProjectIntake() {
                 }
                 pricingModeDraft={String(projectDraft.pricingMode || '')}
                 onApplySuggestedPricingMode={applySuggestedPricingModeFromAi}
+                div10ProposalClauseHints={lastIntakeParse.div10ProposalClauseHints ?? null}
               />
             </div>
           ) : null}

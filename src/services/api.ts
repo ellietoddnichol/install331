@@ -475,6 +475,22 @@ export const api = {
     const payload = await handleResponse<{ data: IntakeParseResult }>(res);
     return payload.data;
   },
+  async postV1IntakeDiv10TrainingCapture(body: {
+    reviewLineFingerprint: string;
+    action: 'accepted' | 'replaced' | 'ignored';
+    finalCatalogItemId: string | null;
+    lineText: string;
+    deterministicSuggestedId?: string | null;
+    div10BrainSnapshot?: unknown;
+  }): Promise<{ ok: boolean; deduped?: boolean }> {
+    const res = await apiFetch(`${API_BASE}/v1/intake/div10-training-capture`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const payload = await handleResponse<{ data: { ok: boolean; deduped?: boolean } }>(res);
+    return payload.data;
+  },
   async getProjects(): Promise<Project[]> {
     const res = await apiFetch(`${API_BASE}/projects`);
     return handleResponse<Project[]>(res);

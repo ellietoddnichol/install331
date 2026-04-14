@@ -7,6 +7,7 @@ import type {
   IntakeCatalogMatch,
   IntakeEstimateDraft,
   IntakeLineEstimateSuggestion,
+  IntakeProposalClauseHint,
   IntakeReviewLine,
   IntakeScopeBucket,
   IntakeSuggestedJobConditionPatch,
@@ -140,6 +141,8 @@ export interface IntakeEstimateReviewPanelProps {
   onSetProjectModifierStatus: (modifierId: string, status: IntakeApplicationStatus) => void;
   pricingModeDraft: string;
   onApplySuggestedPricingMode: () => void;
+  /** Div 10 Brain — retrieved proposal clause snippets (advisory). */
+  div10ProposalClauseHints?: IntakeProposalClauseHint[] | null;
 }
 
 export function IntakeEstimateReviewPanel({
@@ -164,8 +167,10 @@ export function IntakeEstimateReviewPanel({
   onSetProjectModifierStatus,
   pricingModeDraft,
   onApplySuggestedPricingMode,
+  div10ProposalClauseHints,
 }: IntakeEstimateReviewPanelProps) {
   const [openTechnicalFp, setOpenTechnicalFp] = useState<string | null>(null);
+  const [openDiv10Fp, setOpenDiv10Fp] = useState<string | null>(null);
   /** Single open row actions menu (backdrop closes sibling rows). */
   const [openRowActionsFp, setOpenRowActionsFp] = useState<string | null>(null);
 
@@ -359,6 +364,67 @@ export function IntakeEstimateReviewPanel({
                 </div>
               </div>
             ) : null}
+
+            {row.div10Brain ? (
+              <div className="mt-2 border-t border-violet-100 bg-violet-50/40 pt-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[12px] font-semibold uppercase tracking-wide text-violet-900">Div 10 Brain (advisory)</p>
+                  <span className="text-[10px] font-medium text-violet-800">Does not change pricing or auto-accept</span>
+                </div>
+                {row.div10Brain.div10Error ? (
+                  <p className="mt-1 text-[12px] text-red-800">{row.div10Brain.div10Error}</p>
+                ) : null}
+                {row.div10Brain.classify ? (
+                  <p className="mt-1 text-[12px] leading-snug text-slate-800">
+                    <span className="font-semibold text-violet-950">Classify:</span> {row.div10Brain.classify.line_kind} ·{' '}
+                    {row.div10Brain.classify.scope_bucket} · {row.div10Brain.classify.category}
+                    {row.div10Brain.classify.needs_human_review ? (
+                      <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] font-bold text-amber-950">Review</span>
+                    ) : null}
+                    <span className="mt-0.5 block text-[11px] text-slate-600">{row.div10Brain.classify.reasoning_summary}</span>
+                  </p>
+                ) : null}
+                {row.div10Brain.catalogAssist ? (
+                  <p className="mt-1 text-[12px] text-slate-800">
+                    <span className="font-semibold text-violet-950">Catalog assist:</span> {row.div10Brain.catalogAssist.confidence} confidence —{' '}
+                    {row.div10Brain.catalogAssist.rationale}
+                    {row.div10Brain.catalogAssist.needs_human_review ? (
+                      <span className="ml-1 text-[11px] font-medium text-amber-900">Estimator review suggested.</span>
+                    ) : null}
+                  </p>
+                ) : null}
+                {row.div10Brain.modifierAssist ? (
+                  <p className="mt-1 text-[12px] text-slate-800">
+                    <span className="font-semibold text-violet-950">Modifier ideas (keys):</span>{' '}
+                    {[...row.div10Brain.modifierAssist.suggested_line_modifier_keys, ...row.div10Brain.modifierAssist.suggested_project_modifier_keys].join(', ') ||
+                      '—'}
+                    <span className="mt-0.5 block text-[11px] text-slate-600">{row.div10Brain.modifierAssist.confidence_notes}</span>
+                  </p>
+                ) : null}
+                {row.div10Brain.retrieval && row.div10Brain.retrieval.length > 0 ? (
+                  <div className="mt-1">
+                    <button
+                      type="button"
+                      className="text-[12px] font-medium text-violet-800 hover:underline"
+                      onClick={() => setOpenDiv10Fp((cur) => (cur === fp ? null : fp))}
+                    >
+                      {openDiv10Fp === fp ? 'Hide sources' : 'Show retrieved sources'}
+                    </button>
+                    {openDiv10Fp === fp ? (
+                      <ul className="mt-1 space-y-1 rounded border border-violet-100 bg-white/90 p-2 text-[11px] text-slate-700">
+                        {row.div10Brain.retrieval.map((s) => (
+                          <li key={s.id}>
+                            <span className="font-mono text-[10px] text-violet-900">{s.source_label}</span>{' '}
+                            <span className="text-slate-500">({s.score.toFixed(3)})</span>
+                            <div className="line-clamp-3 text-slate-600">{s.text}</div>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           {/* Right: primary Accept + overflow for catalog / ignore (shortlist stays in the match column). */}
@@ -513,6 +579,21 @@ export function IntakeEstimateReviewPanel({
           </ul>
         ) : null}
       </div>
+
+      {div10ProposalClauseHints && div10ProposalClauseHints.length > 0 ? (
+        <details className="rounded-lg border border-violet-200/80 bg-violet-50/50 px-3 py-2">
+          <summary className="cursor-pointer text-[12px] font-semibold text-violet-950">Proposal clause ideas (Div 10 Brain)</summary>
+          <ul className="mt-2 space-y-2 text-[12px] text-slate-800">
+            {div10ProposalClauseHints.map((h) => (
+              <li key={h.id} className="rounded border border-violet-100 bg-white/90 p-2">
+                <span className="font-semibold">{h.clause_type}</span>
+                {h.title ? <span className="text-slate-600"> — {h.title}</span> : null}
+                <p className="mt-0.5 text-[11px] leading-snug text-slate-600">{h.body_preview}</p>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
 
       <details className="group rounded-lg border border-slate-200 bg-white open:shadow-sm" open>
         <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 [&::-webkit-details-marker]:hidden">

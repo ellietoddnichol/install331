@@ -209,6 +209,14 @@ export function ProjectWorkspace() {
   }, [id]);
 
   useEffect(() => {
+    const onCatalogSynced = () => {
+      void api.getCatalog().then(setCatalog);
+    };
+    window.addEventListener('catalog-synced', onCatalogSynced);
+    return () => window.removeEventListener('catalog-synced', onCatalogSynced);
+  }, []);
+
+  useEffect(() => {
     if (!id || loading) return;
     writeWorkspaceUi(id, {
       activeRoomId,
@@ -932,7 +940,9 @@ export function ProjectWorkspace() {
     setSyncState('syncing');
     try {
       await api.syncV1Catalog();
-      window.dispatchEvent(new CustomEvent('catalog-synced'));
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('catalog-synced'));
+      }, 0);
       setCatalog(await api.getCatalog());
       setSyncState('ok');
     } catch (error) {

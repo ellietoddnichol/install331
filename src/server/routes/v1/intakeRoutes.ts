@@ -1,6 +1,9 @@
+import { createHash } from 'crypto';
 import { Router } from 'express';
 import { extractIntakeFromGemini } from '../../services/geminiIntakeExtraction.ts';
 import { parseUploadedIntake } from '../../services/parseRouterService.ts';
+import { readDiv10BrainEnv } from '../../div10Brain/env.ts';
+import { getSupabaseAdmin } from '../../div10Brain/supabaseAdmin.ts';
 import { getErrorMessage } from '../../../shared/utils/errorMessage.ts';
 
 export const intakeRouter = Router();
@@ -30,6 +33,59 @@ intakeRouter.post('/parse', async (req, res) => {
     return res.json({ data: result });
   } catch (error: unknown) {
     return res.status(500).json({ error: getErrorMessage(error, 'Intake parsing failed.') });
+  }
+});
+
+/**
+ * Records estimator decisions against Div 10 Brain suggestions for future training (optional Supabase).
+ * Idempotent per (fingerprint, action, finalCatalogId) within a short window via content hash in source_ref.
+ */
+intakeRouter.post('/div10-training-capture', async (req, res) => {
+  try {
+    const env = readDiv10BrainEnv();
+    if (!env) {
+      return res.status(503).json({ error: 'Div 10 Brain is not configured.' });
+    }
+    const body = req.body || {};
+    const fingerprint = String(body.reviewLineFingerprint || '').trim();
+    const action = String(body.action || '').trim() as 'accepted' | 'replaced' | 'ignored';
+    if (!fingerprint || !['accepted', 'replaced', 'ignored'].includes(action)) {
+      return res.status(400).json({ error: 'reviewLineFingerprint and action (accepted|replaced|ignored) are required.' });
+    }
+    const finalCatalogItemId = body.finalCatalogItemId != null ? String(body.finalCatalogItemId) : null;
+    const div10Payload = body.div10BrainSnapshot ?? null;
+    const lineText = String(body.lineText || '').trim();
+    const input_json = {
+      reviewLineFingerprint: fingerprint,
+      line_text: lineText,
+      div10BrainSnapshot: div10Payload,
+      deterministicSuggestedId: body.deterministicSuggestedId != null ? String(body.deterministicSuggestedId) : null,
+    };
+    const output_json = {
+      action,
+      finalCatalogItemId,
+    };
+    const hash = createHash('sha256')
+      .update(`${fingerprint}|${action}|${finalCatalogItemId || ''}|${lineText.slice(0, 120)}`)
+      .digest('hex')
+      .slice(0, 24);
+    const source_ref = `intake_correction:${hash}`;
+    const supabase = getSupabaseAdmin(env);
+    const { data: existing } = await supabase.from('training_examples').select('id').eq('source_ref', source_ref).maybeSingle();
+    if (existing?.id) {
+      return res.json({ data: { ok: true, deduped: true } });
+    }
+    const { error } = await supabase.from('training_examples').insert({
+      task_type: 'intake_catalog_decision',
+      input_json,
+      output_json,
+      approved: false,
+      source_ref,
+    });
+    if (error) throw error;
+    return res.json({ data: { ok: true, deduped: false } });
+  } catch (error: unknown) {
+    return res.status(500).json({ error: getErrorMessage(error, 'Training capture failed.') });
   }
 });
 

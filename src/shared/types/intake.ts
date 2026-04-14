@@ -1,3 +1,5 @@
+import type { ClassifyIntakeLineOutput } from '../schemas/div10Brain/aiOutputs.ts';
+
 export type IntakeSourceType = 'spreadsheet' | 'pdf' | 'document';
 
 export type UploadFileType = 'excel' | 'pdf' | 'csv' | 'unknown';
@@ -456,6 +458,36 @@ export interface IntakeAiSuggestions {
 }
 
 /** Read-only pricing draft from Pass 2–3 (catalog + modifier suggestions). */
+/** Div 10 Brain (Supabase + retrieval) — advisory only; does not replace deterministic matcher or pricing. */
+export interface Div10LineBrainEvidence {
+  classify?: ClassifyIntakeLineOutput | null;
+  retrieval?: Array<{ id: string; source_label: string; text: string; score: number }>;
+  catalogAssist?: {
+    rationale: string;
+    confidence: string;
+    selected_catalog_item_id: string | null;
+    alternate_catalog_item_ids: string[];
+    needs_human_review: boolean;
+  } | null;
+  modifierAssist?: {
+    suggested_line_modifier_keys: string[];
+    suggested_project_modifier_keys: string[];
+    line_modifier_ids_resolved: string[];
+    project_modifier_ids_resolved: string[];
+    confidence_notes: string;
+    needs_human_review: boolean;
+  } | null;
+  /** Populated when Div 10 enrichment failed for this line (partial failure). */
+  div10Error?: string;
+}
+
+export interface IntakeProposalClauseHint {
+  id: string;
+  clause_type: string;
+  title: string | null;
+  body_preview: string;
+}
+
 export interface IntakeLineEstimateSuggestion {
   reviewLineFingerprint: string;
   lineId: string;
@@ -476,6 +508,8 @@ export interface IntakeLineEstimateSuggestion {
     laborMinutesEach: number;
     qty: number;
   } | null;
+  /** Optional Div 10 Brain layer (classify / retrieval / catalog assist / modifier assist). */
+  div10Brain?: Div10LineBrainEvidence;
 }
 
 /** Project-level job-condition suggestions (toggles), distinct from catalog modifier IDs. */
@@ -527,6 +561,8 @@ export interface IntakeParseResult {
   proposalAssist: IntakeProposalAssist;
   /** Optional AI decision layer (ontology + rationale); present when Gemini returned extended fields. */
   aiSuggestions?: IntakeAiSuggestions;
+  /** Retrieved proposal clause snippets (Div 10 Brain); advisory for proposal tab. */
+  div10ProposalClauseHints?: IntakeProposalClauseHint[];
   /** Matcher + read-only pricing preview; omitted when catalog matching is disabled. */
   estimateDraft?: IntakeEstimateDraft;
   /** Non-scope lines dropped before review (parser classification for debugging). */

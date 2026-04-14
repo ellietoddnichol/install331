@@ -18,3 +18,6 @@ estimator.db-shm
 estimator.db-wal
 google-service-account.json
 gen-lang-client-*.json
+div10_starter_pack.zip
+div10_starter_pack_extracted
+eval-results

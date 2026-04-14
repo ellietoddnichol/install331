@@ -12,6 +12,9 @@ const ProjectIntake = lazy(() => import('./pages/ProjectIntake.tsx').then((m) =>
 const Catalog = lazy(() => import('./pages/Catalog.tsx').then((m) => ({ default: m.Catalog })));
 const Help = lazy(() => import('./pages/Help.tsx').then((m) => ({ default: m.Help })));
 const Settings = lazy(() => import('./pages/Settings.tsx').then((m) => ({ default: m.Settings })));
+const Div10BrainAdmin = lazy(() =>
+  import('./pages/admin/Div10BrainAdmin.tsx').then((m) => ({ default: m.Div10BrainAdmin }))
+);
 
 /**
  * Nested routes + `<Outlet />` enable loaders/actions (Phase 1+).
@@ -36,6 +39,7 @@ export const appRouter = createBrowserRouter([
           { path: 'catalog', element: <Catalog /> },
           { path: 'help', element: <Help /> },
           { path: 'settings', element: <Settings /> },
+          { path: 'admin/div10-brain', element: <Div10BrainAdmin /> },
           { path: '*', element: <NotFound /> },
         ],
       },
