@@ -20,7 +20,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function startServer() {
   const app = express();
-  const PORT = Number(process.env.PORT || 3000);
+  const rawPort = process.env.PORT?.trim();
+  const PORT = rawPort
+    ? Number(rawPort)
+    : process.env.NODE_ENV === 'production'
+      ? 8080
+      : 3000;
+  if (!Number.isFinite(PORT) || PORT <= 0) {
+    throw new Error(`Invalid PORT: ${process.env.PORT}`);
+  }
 
   app.use(express.json({ limit: '12mb' }));
 
@@ -61,4 +69,7 @@ async function startServer() {
   });
 }
 
-startServer();
+startServer().catch((err: unknown) => {
+  console.error('Server failed to start:', err);
+  process.exit(1);
+});

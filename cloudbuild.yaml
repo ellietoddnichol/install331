@@ -62,6 +62,7 @@ steps:
           --platform=managed \
           --image="$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_IMAGE_NAME:$COMMIT_SHA" \
           --service-account="$_RUN_SERVICE_ACCOUNT" \
+          --port=8080 \
           --quiet
     waitFor:
       - push

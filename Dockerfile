@@ -21,9 +21,9 @@ COPY . .
 RUN test -f index.html && test -f src/main.tsx && test -f vite.config.ts
 
 ENV NODE_ENV=production
-ENV PORT=3000
-
-EXPOSE 3000
+# Cloud Run sets PORT (default 8080). Do not bake PORT=3000 here — it can prevent the
+# process from binding the port the platform health-checks.
+EXPOSE 8080
 
 # Type-check then bundle (matches local `npm run lint` + `npm run build`).
 RUN npm run lint && npm run build
