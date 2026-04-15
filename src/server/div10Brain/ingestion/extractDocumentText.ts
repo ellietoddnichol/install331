@@ -1,4 +1,6 @@
-import pdfParse from 'pdf-parse';
+// Import implementation directly — package root `index.js` runs a debug harness when
+// `module.parent` is unset under ESM/tsx, which tries to read a non-existent test PDF and crashes.
+import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 import * as XLSX from 'xlsx';
 
 export type ExtractedDocument = {

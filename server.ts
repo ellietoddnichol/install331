@@ -1,7 +1,6 @@
 import fs from 'fs';
 import dotenv from 'dotenv';
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { syncCatalogFromGoogleSheets } from './src/server/services/googleSheetsCatalogSync.ts';
@@ -42,6 +41,7 @@ async function startServer() {
   app.use(expressErrorHandler);
 
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
