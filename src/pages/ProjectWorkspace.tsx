@@ -1455,7 +1455,7 @@ export function ProjectWorkspace() {
       />
 
       <div className="ui-page-wide">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:gap-6">
           <ProjectStepNav
             projectId={project.id}
             items={stepNavItems}
@@ -1545,10 +1545,10 @@ export function ProjectWorkspace() {
            */
           const laneActive = !!selectedLine && !modifierLaneDismissed;
           const estimateGridClass = laneActive
-            ? 'grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[minmax(260px,300px)_minmax(0,1fr)_340px]'
-            : 'grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[minmax(260px,300px)_1fr]';
+            ? 'isolate grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-5 xl:gap-6 xl:grid-cols-[minmax(200px,260px)_minmax(0,1fr)_minmax(320px,400px)]'
+            : 'isolate grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-5 xl:gap-6 xl:grid-cols-[minmax(200px,260px)_minmax(0,1fr)]';
           return (
-          <div className="flex min-w-0 flex-col gap-1">
+          <div className="flex min-w-0 flex-col gap-2">
           <div className={estimateGridClass}>
             <RoomList
               rooms={rooms}
@@ -1901,8 +1901,8 @@ export function ProjectWorkspace() {
               )}
             </div>
             {laneActive && selectedLine ? (
-              <aside className="hidden min-w-0 xl:block">
-                <div className="sticky top-3 space-y-2 rounded-2xl border border-slate-200/80 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-3 shadow-sm">
+              <aside className="relative z-10 hidden min-w-0 xl:block xl:min-w-[min(100%,400px)]">
+                <div className="sticky top-3 space-y-2 rounded-2xl border border-slate-200/80 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-3 shadow-md">
                   <div className="flex items-start justify-between gap-2 border-b border-slate-200/80 pb-2">
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">

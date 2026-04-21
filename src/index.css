@@ -72,8 +72,9 @@
     @apply mx-auto w-full max-w-[1600px] px-3 py-1.5 md:px-4 md:py-2.5;
   }
 
+  /* Project workspace: use full viewport width; rely on padding for margins (no hard cap). */
   .ui-page-wide {
-    @apply mx-auto w-full max-w-[2000px] px-3 py-1.5 md:px-4 md:py-2.5;
+    @apply w-full max-w-none px-4 py-2 md:px-6 md:py-3;
   }
 
   .ui-page-narrow {
