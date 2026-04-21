@@ -1,5 +1,5 @@
 import React from 'react';
-import { Copy, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, Pencil, Plus, Trash2 } from 'lucide-react';
 import { RoomRecord } from '../../shared/types/estimator';
 
 interface Props {
@@ -10,6 +10,10 @@ interface Props {
   onRenameRoom: (room: RoomRecord) => void;
   onDuplicateRoom: (room: RoomRecord) => void;
   onDeleteRoom: (room: RoomRecord) => void;
+  /** When true renders a slim 48px rail with only the expand affordance and a
+   *  room count. Defaults to false (the full list). */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
 export function RoomManager({
@@ -20,12 +24,60 @@ export function RoomManager({
   onRenameRoom,
   onDuplicateRoom,
   onDeleteRoom,
+  collapsed = false,
+  onToggleCollapsed,
 }: Props) {
+  if (collapsed) {
+    const activeRoom = rooms.find((room) => room.id === activeRoomId);
+    return (
+      <aside className="flex min-h-[220px] w-12 shrink-0 flex-col items-center gap-2 rounded-lg border border-slate-200 bg-white px-1.5 py-2 shadow-sm">
+        <button
+          type="button"
+          onClick={onToggleCollapsed}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
+          title="Expand rooms panel"
+          aria-label="Expand rooms panel"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+        <div
+          className="mt-1 flex flex-col items-center gap-0.5"
+          title={activeRoom ? `Active room: ${activeRoom.roomName}` : undefined}
+        >
+          <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.06em] text-slate-400">Rooms</span>
+          <span className="font-mono text-[14px] font-semibold tabular-nums text-slate-900">{rooms.length}</span>
+        </div>
+        <button
+          type="button"
+          onClick={onOpenCreateRoom}
+          className="mt-auto flex h-8 w-8 items-center justify-center rounded-md bg-blue-700 text-white shadow-sm hover:bg-blue-800"
+          title="Add a room"
+          aria-label="Add a room"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <section className="flex max-h-[min(70vh,720px)] min-h-[280px] flex-col rounded-lg border border-slate-200 bg-white p-2 shadow-sm xl:max-h-[calc(100vh-170px)]">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Rooms / Areas</h3>
-        <span className="text-[10px] text-slate-400">{rooms.length}</span>
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] text-slate-400">{rooms.length}</span>
+          {onToggleCollapsed ? (
+            <button
+              type="button"
+              onClick={onToggleCollapsed}
+              className="rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+              title="Collapse rooms panel"
+              aria-label="Collapse rooms panel"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="space-y-1 mb-2 overflow-y-auto pr-0.5 flex-1 min-h-0">

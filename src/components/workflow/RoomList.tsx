@@ -10,6 +10,8 @@ export interface RoomListProps {
   onRenameRoom: (room: RoomRecord) => void;
   onDuplicateRoom: (room: RoomRecord) => void;
   onDeleteRoom: (room: RoomRecord) => void;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
 export function RoomList(props: RoomListProps) {

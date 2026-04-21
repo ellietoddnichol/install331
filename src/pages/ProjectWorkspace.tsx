@@ -188,10 +188,19 @@ export function ProjectWorkspace() {
    * lane and still fall back to the modal path. Dismissal resets on next selection
    * change so the lane doesn't stay hidden forever.
    */
-  const [modifierLaneDismissed, setModifierLaneDismissed] = useState(false);
+  /**
+   * Rooms sidebar can be collapsed to a 48px rail so the estimate grid gets the
+   * full width of the workspace. Persisted in localStorage so it stays folded
+   * across reloads once the user has chosen the wider layout.
+   */
+  const [roomsCollapsed, setRoomsCollapsed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('estimator.roomsCollapsed') === '1';
+  });
   useEffect(() => {
-    setModifierLaneDismissed(false);
-  }, [selectedLineId]);
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('estimator.roomsCollapsed', roomsCollapsed ? '1' : '0');
+  }, [roomsCollapsed]);
   const [pricingOrganizeMode, setPricingOrganizeMode] = useState<'rooms' | 'categories'>('rooms');
   const [pricingCategoryFilter, setPricingCategoryFilter] = useState<string>(PRICING_ALL_CATEGORIES);
 
@@ -1239,10 +1248,6 @@ export function ProjectWorkspace() {
     await refreshTakeoff(project.id);
   }
 
-  function selectEstimateLine(lineId: string) {
-    setSelectedLineId(lineId);
-  }
-
   function openLineEditor(lineId: string) {
     setSelectedLineId(lineId);
     setModifiersModalOpen(true);
@@ -1578,14 +1583,13 @@ export function ProjectWorkspace() {
 
         {activeTab === 'estimate' && (() => {
           /**
-           * Phase 1.3 — modifier lane is the persistent replacement for the modifiers modal
-           * on wide screens. The heavier modal (full line detail + pricing + notes) still
-           * opens via the toolbar button and row clicks; the lane is the "quick-apply"
-           * surface so estimators can add/remove add-ins without losing sight of the grid.
+           * Line detail (Properties Context + Modifier add-ins) now lives in the
+           * modifiersModalOpen popup only. The previous persistent right-rail was
+           * removed per estimator feedback — it crowded the grid; clicking a row
+           * opens the same editor as a modal on demand.
            */
-          const laneActive = !!selectedLine && !modifierLaneDismissed;
-          const estimateGridClass = laneActive
-            ? 'grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[minmax(260px,300px)_minmax(0,1fr)_340px]'
+          const estimateGridClass = roomsCollapsed
+            ? 'flex min-h-0 min-w-0 flex-1 flex-col gap-4 xl:flex-row xl:items-start'
             : 'grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[minmax(260px,300px)_1fr]';
           return (
           <div className="flex min-w-0 flex-col gap-1">
@@ -1598,6 +1602,8 @@ export function ProjectWorkspace() {
               onRenameRoom={(room) => void renameRoom(room)}
               onDuplicateRoom={(room) => void duplicateRoom(room)}
               onDeleteRoom={(room) => void deleteRoom(room)}
+              collapsed={roomsCollapsed}
+              onToggleCollapsed={() => setRoomsCollapsed((v) => !v)}
             />
             <div className="flex min-w-0 flex-col gap-1">
               {searchParams.get('scopeChecked') === '1' ? (
@@ -1929,7 +1935,7 @@ export function ProjectWorkspace() {
                 organizeBy="room"
                 laborMultiplier={summary?.conditionLaborMultiplier || 1}
                 selectedLineId={selectedLineId}
-                onSelectLine={selectEstimateLine}
+                onSelectLine={openLineEditor}
                 onOpenLineDetail={openLineEditor}
                 onPersistLine={(lineId, updates) => void persistLine(lineId, updates)}
                 onDeleteLine={(lineId) => void deleteLine(lineId)}
@@ -1940,91 +1946,6 @@ export function ProjectWorkspace() {
               </div>
               )}
             </div>
-            {laneActive && selectedLine ? (
-              <aside className="hidden min-w-0 xl:block">
-                <div className="sticky top-3 space-y-3 rounded-xl border border-[#1d2a3d] bg-[#101a2b] p-3 text-slate-200 shadow-[0_12px_28px_rgba(15,23,42,0.22)]">
-                  <div className="flex items-start justify-between gap-2 border-b border-[#23334b] pb-2.5">
-                    <div className="min-w-0">
-                      <p className="ui-mono-kicker text-slate-400">Properties Context</p>
-                      <p className="mt-0.5 ui-mono-kicker text-slate-500">Selected Record</p>
-                      <p className="mt-0.5 truncate text-[13px] font-semibold text-white" title={selectedLine.description}>
-                        {selectedLine.description || 'Untitled line'}
-                      </p>
-                      {selectedLine.sku ? (
-                        <p className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-slate-400">
-                          IDREF · <span className="text-slate-200">{selectedLine.sku}</span>
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      <button
-                        type="button"
-                        onClick={() => openLineEditor(selectedLine.id)}
-                        className="rounded-md border border-[#304261] bg-[#17263f] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-200 transition hover:bg-[#1f3558] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/45"
-                        title="Open full line detail (pricing, notes, unit overrides)"
-                      >
-                        Full Detail →
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setModifierLaneDismissed(true)}
-                        className="rounded-md p-1 text-slate-400 hover:bg-[#17263f] hover:text-slate-100"
-                        aria-label="Hide add-ins lane"
-                        title="Hide add-ins lane (use the Modifiers button to reopen)"
-                      >
-                        <X className="h-3.5 w-3.5" aria-hidden />
-                      </button>
-                    </div>
-                  </div>
-                  {(() => {
-                    /**
-                     * Effective labor minutes = base minutes + sum(modifier add-minutes)
-                     *                         + base × (sum(modifier percentLabor) / 100).
-                     * Surfacing this in the inspector lets estimators actually SEE that an
-                     * applied modifier landed, since the stored laborMinutes value on the
-                     * line itself never mutates on modifier apply (modifiers only touch
-                     * materialCost / laborCost via recalculateLineFromModifiers).
-                     */
-                    const baseMin = Number(selectedLine.laborMinutes || 0);
-                    const addMinTotal = lineModifiers.reduce((sum, m) => sum + Number(m.addLaborMinutes || 0), 0);
-                    const percentLaborTotal = lineModifiers.reduce((sum, m) => sum + Number(m.percentLabor || 0), 0);
-                    const effectiveLaborMinutes = baseMin + addMinTotal + (baseMin * percentLaborTotal) / 100;
-                    const modifiersChangeLaborMin = Math.abs(effectiveLaborMinutes - baseMin) > 0.01;
-                    return (
-                      <div className="grid grid-cols-3 gap-2">
-                        <div className="ui-stat-tile">
-                          <p className="ui-stat-tile-kicker">Base Value</p>
-                          <p className="ui-stat-tile-value">{formatCurrencySafe(selectedLine.materialCost)}</p>
-                        </div>
-                        <div className="ui-stat-tile">
-                          <p className="ui-stat-tile-kicker">Labor Min</p>
-                          <p className="ui-stat-tile-value">{formatNumberSafe(effectiveLaborMinutes, 1)}</p>
-                          {modifiersChangeLaborMin ? (
-                            <p className="mt-0.5 text-[9px] font-medium uppercase tracking-[0.06em] text-emerald-300/90">
-                              base {formatNumberSafe(baseMin, 1)} · +{formatNumberSafe(effectiveLaborMinutes - baseMin, 1)} mod
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="ui-stat-tile">
-                          <p className="ui-stat-tile-kicker">Unit Sell</p>
-                          <p className="ui-stat-tile-value">{formatCurrencySafe(selectedLine.unitSell)}</p>
-                        </div>
-                      </div>
-                    );
-                  })()}
-                  <div className="rounded-md bg-[#f8fafc] p-3 text-slate-900 shadow-inner">
-                  <ModifierPanel
-                    modifiers={modifiers}
-                    activeModifiers={lineModifiers}
-                    selectedLinePresent={!!selectedLine}
-                    onApplyModifier={(modifierId) => void applyModifier(modifierId)}
-                    onRemoveModifier={(lineModifierId) => void removeModifier(lineModifierId)}
-                    hideKicker
-                  />
-                  </div>
-                </div>
-              </aside>
-            ) : null}
           </div>
           <EstimateWorkspaceFooter
             estimateView={estimateView}
