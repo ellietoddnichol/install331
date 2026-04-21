@@ -11,6 +11,21 @@ import { getCanonicalProjectDateTimestamp } from '../shared/utils/projectDates';
 type SortValue = 'newest' | 'oldest' | 'name';
 type ProjectFilterValue = 'all' | 'active' | 'Draft' | 'Submitted' | 'Awarded' | 'Lost' | 'completed' | 'Archived' | 'due-soon' | 'draft-proposals';
 
+/**
+ * Map the project's textual `status` into a left-accent tone + status-chip tone
+ * so the Projects table reads like the rest of the workstation app. Fallback
+ * is slate for unknown/custom statuses.
+ */
+function statusTone(status: string | null | undefined): { accent: string; chip: string } {
+  const s = String(status || '').toLowerCase();
+  if (s === 'draft') return { accent: 'border-l-amber-500', chip: 'ui-mono-chip ui-mono-chip--warn' };
+  if (s === 'submitted') return { accent: 'border-l-blue-500', chip: 'ui-mono-chip ui-mono-chip--info' };
+  if (s === 'awarded') return { accent: 'border-l-emerald-500', chip: 'ui-mono-chip ui-mono-chip--ok' };
+  if (s === 'lost') return { accent: 'border-l-rose-500', chip: 'ui-mono-chip ui-mono-chip--danger' };
+  if (s === 'archived') return { accent: 'border-l-slate-400', chip: 'ui-mono-chip ui-mono-chip--mute' };
+  return { accent: 'border-l-slate-300', chip: 'ui-mono-chip ui-mono-chip--mute' };
+}
+
 function resolveFilterLabel(filter: ProjectFilterValue): string {
   if (filter === 'active') return 'Active projects';
   if (filter === 'due-soon') return 'Bids due soon';
@@ -92,17 +107,21 @@ export function Projects() {
 
   return (
     <div className="ui-page space-y-4">
-      <div className="ui-surface px-5 py-4 md:px-6 md:py-5 flex items-end justify-between gap-4">
+      <div className="flex items-end justify-between gap-4 border-b border-slate-200/80 pb-4">
         <div>
-          <p className="ui-label">Project Library</p>
-          <h1 className="ui-title mt-1">Projects</h1>
-          <p className="ui-subtitle mt-1">Search, filter, sort, and manage every estimate from one operational index.</p>
+          <div className="flex items-center gap-2.5">
+            <span className="ui-status-live">Live</span>
+            <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+              Brighten Builders <span className="mx-1 text-slate-300">/</span> Project Library
+            </span>
+          </div>
+          <h1 className="mt-1.5 text-[24px] font-semibold leading-tight tracking-tight text-slate-950 md:text-[28px]">Projects</h1>
+          <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.14em] text-slate-500">
+            Search · Filter · Sort · Manage Every Estimate
+          </p>
         </div>
-        <button
-          onClick={() => navigate('/project/new')}
-          className="ui-btn-primary h-10 px-4 inline-flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" /> New Project
+        <button onClick={() => navigate('/project/new')} className="ui-btn-cta">
+          <Plus className="mr-1.5 h-3.5 w-3.5" /> New Project
         </button>
       </div>
 
@@ -186,56 +205,66 @@ export function Projects() {
           <table className="w-full text-left">
             <thead>
               <tr className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 backdrop-blur-sm">
-                <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Project</th>
-                <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Client</th>
-                <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
-                <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Created</th>
-                <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide text-right">Action</th>
+                <th className="ui-table-th px-5 py-3">Project</th>
+                <th className="ui-table-th px-5 py-3">Client</th>
+                <th className="ui-table-th px-5 py-3">Status</th>
+                <th className="ui-table-th px-5 py-3">Created</th>
+                <th className="ui-table-th-end px-5 py-3">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filtered.map((project) => (
-                <tr
-                  key={project.id}
-                  role="button"
-                  tabIndex={0}
-                  title="Click row to open"
-                  className="hover:bg-slate-50/80 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400/50"
-                  onClick={() => navigate(`/project/${project.id}`)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      navigate(`/project/${project.id}`);
-                    }
-                  }}
-                >
-                  <td className="px-5 py-4">
-                    <p className="text-sm font-semibold text-slate-900">{project.projectName}</p>
-                    <p className="text-xs text-slate-500">{project.projectNumber ? `#${project.projectNumber}` : 'No project number'} · {project.address || 'No address'}</p>
-                  </td>
-                  <td className="px-5 py-4 text-sm text-slate-700">{project.clientName || 'No client'}</td>
-                  <td className="px-5 py-4">
-                    <span className="ui-chip border-slate-200 bg-slate-100 text-slate-700">{project.status}</span>
-                  </td>
-                  <td className="px-5 py-4 text-sm text-slate-600">
-                    {project.createdAt && !Number.isNaN(new Date(project.createdAt).getTime())
-                      ? format(new Date(project.createdAt), 'MMM d, yyyy')
-                      : 'N/A'}
-                  </td>
-                  <td className="px-5 py-4 text-right" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void deleteProject(project.id, project.projectName);
-                      }}
-                      className="h-8 px-3 rounded-md border border-red-200 text-red-700 text-xs font-medium hover:bg-red-50 outline-none focus-visible:ring-2 focus-visible:ring-red-400/40"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {filtered.map((project, idx) => {
+                const tone = statusTone(project.status);
+                const rowNumber = String(idx + 1).padStart(3, '0');
+                return (
+                  <tr
+                    key={project.id}
+                    role="button"
+                    tabIndex={0}
+                    title="Click row to open"
+                    className={`cursor-pointer border-l-[3px] ${tone.accent} outline-none hover:bg-slate-50/80 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400/50`}
+                    onClick={() => navigate(`/project/${project.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        navigate(`/project/${project.id}`);
+                      }
+                    }}
+                  >
+                    <td className="px-5 py-3.5">
+                      <div className="mb-0.5 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-slate-400">
+                        <span className="font-semibold tabular-nums">{rowNumber}</span>
+                        {project.projectNumber ? (
+                          <span>· IDREF <span className="text-slate-600">{project.projectNumber}</span></span>
+                        ) : null}
+                      </div>
+                      <p className="text-sm font-semibold text-slate-900">{project.projectName}</p>
+                      <p className="text-xs text-slate-500">{project.address || 'No address'}</p>
+                    </td>
+                    <td className="px-5 py-3.5 text-sm text-slate-700">{project.clientName || 'No client'}</td>
+                    <td className="px-5 py-3.5">
+                      <span className={tone.chip}>{project.status || 'Unknown'}</span>
+                    </td>
+                    <td className="px-5 py-3.5 font-mono text-[11px] uppercase tracking-[0.1em] text-slate-600">
+                      {project.createdAt && !Number.isNaN(new Date(project.createdAt).getTime())
+                        ? format(new Date(project.createdAt), 'MMM d, yyyy')
+                        : 'N/A'}
+                    </td>
+                    <td className="px-5 py-3.5 text-right" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void deleteProject(project.id, project.projectName);
+                        }}
+                        className="h-8 rounded-md border border-red-200 px-3 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-red-700 outline-none hover:bg-red-50 focus-visible:ring-2 focus-visible:ring-red-400/40"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

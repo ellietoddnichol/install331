@@ -12,7 +12,11 @@ export interface WorkspaceStore {
 }
 
 export const useWorkspaceStore = create<WorkspaceStore>((set) => ({
-  isSidebarOpen: true,
+  /**
+   * Workstation shell — default to the compact icon-only rail and let the user
+   * expand it to the labelled sidebar via the expand affordance.
+   */
+  isSidebarOpen: false,
   activeRoomId: null,
   isEstimatorGridFocused: false,
   setSidebarOpen: (open) => set({ isSidebarOpen: open }),

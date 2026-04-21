@@ -318,13 +318,27 @@ export function Catalog() {
   const lastSynced = syncStatus?.lastSuccessAt || syncStatus?.lastAttemptAt;
 
   return (
-    <div className="ui-page space-y-3">
+    <div className="ui-page space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200/80 pb-4">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <span className="ui-status-live">Live</span>
+            <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+              Brighten Builders <span className="mx-1 text-slate-300">/</span> Catalog Station
+            </span>
+          </div>
+          <h1 className="mt-1.5 text-[24px] font-semibold leading-tight tracking-tight text-slate-950 md:text-[28px]">Catalog</h1>
+          <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.14em] text-slate-500">
+            Items · Modifiers · Bundles · Synced from Google Sheets
+          </p>
+        </div>
+      </div>
       <section className="ui-surface p-3 space-y-3">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h1 className="ui-title">Catalog</h1>
-            <p className="ui-subtitle mt-1">
-              Items, modifiers, and bundles — stored in SQLite and synced from Google Sheets. Rows missing from the sheet are deactivated; use Activate all after a bulk import if counts look wrong.
+            <p className="ui-mono-kicker">Module 01 / Sync Status</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Rows missing from the sheet are deactivated; use Activate all after a bulk import if counts look wrong.
             </p>
           </div>
           <div className="flex items-center gap-2 text-xs">
@@ -514,28 +528,37 @@ export function Catalog() {
               </div>
             ) : (
               <table className="w-full text-xs">
-                <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 text-slate-600 backdrop-blur-sm uppercase tracking-wide">
+                <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 backdrop-blur-sm">
                   <tr>
-                    <th className="text-center font-semibold py-2 px-2 w-[3.25rem]">Image</th>
-                    <th className="text-left font-semibold py-2 px-3">SKU / ID</th>
-                    <th className="text-left font-semibold py-2 px-2">Description</th>
-                    <th className="text-left font-semibold py-2 px-2">Category</th>
-                    <th className="text-left font-semibold py-2 px-2">Brand</th>
-                    <th className="text-left font-semibold py-2 px-2">Unit</th>
-                    <th className="text-right font-semibold py-2 px-2">Labor</th>
-                    <th className="text-right font-semibold py-2 px-2">Material</th>
-                    <th className="text-center font-semibold py-2 px-2">Active</th>
-                    <th className="text-right font-semibold py-2 px-3">Actions</th>
+                    <th className="ui-table-th w-[3.25rem] text-center">Image</th>
+                    <th className="ui-table-th">SKU / ID</th>
+                    <th className="ui-table-th">Description</th>
+                    <th className="ui-table-th">Category</th>
+                    <th className="ui-table-th">Brand</th>
+                    <th className="ui-table-th">Unit</th>
+                    <th className="ui-table-th-end">Labor</th>
+                    <th className="ui-table-th-end">Material</th>
+                    <th className="ui-table-th text-center">Active</th>
+                    <th className="ui-table-th-end">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredItems.map((item) => (
+                  {filteredItems.map((item) => {
+                    const cat = String(item.category || '').toLowerCase();
+                    const accent = cat.includes('partition')
+                      ? 'border-l-emerald-500'
+                      : cat.includes('screen') || cat.includes('mirror')
+                        ? 'border-l-blue-500'
+                        : cat.includes('accessor') || cat.includes('grab') || cat.includes('dispenser') || cat.includes('disposal')
+                          ? 'border-l-amber-500'
+                          : 'border-l-slate-300';
+                    return (
                     <tr
                       key={item.id}
                       role="button"
                       tabIndex={0}
                       title="Click row to edit"
-                      className="border-b border-slate-100 hover:bg-slate-50/70 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400/50"
+                      className={`cursor-pointer border-b border-slate-100 border-l-[3px] ${accent} outline-none hover:bg-slate-50/70 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400/50`}
                       onClick={() => setEditingItem(item)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
@@ -591,7 +614,8 @@ export function Catalog() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             )
@@ -600,18 +624,18 @@ export function Catalog() {
               <div className="p-8 text-center text-sm text-slate-600">No modifiers match the current filters.</div>
             ) : (
               <table className="w-full text-xs">
-                <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 text-slate-600 backdrop-blur-sm uppercase tracking-wide">
+                <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 backdrop-blur-sm">
                   <tr>
-                    <th className="text-left font-semibold py-2 px-3">Modifier</th>
-                    <th className="text-left font-semibold py-2 px-2">Key</th>
-                    <th className="text-left font-semibold py-2 px-2 min-w-[200px]">Description</th>
-                    <th className="text-left font-semibold py-2 px-2">Applies To</th>
-                    <th className="text-right font-semibold py-2 px-2">+ Labor Min</th>
-                    <th className="text-right font-semibold py-2 px-2">+ Material</th>
-                    <th className="text-right font-semibold py-2 px-2">% Labor</th>
-                    <th className="text-right font-semibold py-2 px-2">% Material</th>
-                    <th className="text-center font-semibold py-2 px-2">Active</th>
-                    <th className="text-right font-semibold py-2 px-3">Actions</th>
+                    <th className="ui-table-th">Modifier</th>
+                    <th className="ui-table-th">Key</th>
+                    <th className="ui-table-th min-w-[200px]">Description</th>
+                    <th className="ui-table-th">Applies To</th>
+                    <th className="ui-table-th-end">+ Labor Min</th>
+                    <th className="ui-table-th-end">+ Material</th>
+                    <th className="ui-table-th-end">% Labor</th>
+                    <th className="ui-table-th-end">% Material</th>
+                    <th className="ui-table-th text-center">Active</th>
+                    <th className="ui-table-th-end">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -674,14 +698,14 @@ export function Catalog() {
             <div className="p-8 text-center text-sm text-slate-600">No bundles match the current filters.</div>
           ) : (
             <table className="w-full text-xs">
-              <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 text-slate-600 backdrop-blur-sm uppercase tracking-wide">
+              <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 backdrop-blur-sm">
                 <tr>
-                  <th className="text-left font-semibold py-2 px-3">Bundle ID</th>
-                  <th className="text-left font-semibold py-2 px-2">Bundle Name</th>
-                  <th className="text-left font-semibold py-2 px-2">Category</th>
-                  <th className="text-left font-semibold py-2 px-2">Updated</th>
-                  <th className="text-center font-semibold py-2 px-2">Active</th>
-                  <th className="text-right font-semibold py-2 px-3">Actions</th>
+                  <th className="ui-table-th">Bundle ID</th>
+                  <th className="ui-table-th">Bundle Name</th>
+                  <th className="ui-table-th">Category</th>
+                  <th className="ui-table-th">Updated</th>
+                  <th className="ui-table-th text-center">Active</th>
+                  <th className="ui-table-th-end">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -738,7 +762,10 @@ export function Catalog() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/45">
           <form onSubmit={handleSaveItem} className="bg-white w-full max-w-2xl rounded-lg shadow-xl overflow-hidden flex flex-col border border-slate-200">
             <div className="p-4 border-b border-slate-200 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-slate-900">Edit Catalog Item</h2>
+              <div>
+                <p className="ui-mono-kicker">Module 01 / Catalog Record</p>
+                <h2 className="mt-1 text-base font-semibold text-slate-900">Edit Catalog Item</h2>
+              </div>
               <button
                 type="button"
                 onClick={() => setEditingItem(null)}

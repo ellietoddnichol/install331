@@ -144,20 +144,27 @@ export function ScopeReviewPage({
       <header className="rounded-2xl border border-slate-200/80 bg-white px-5 py-5 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <p className="ui-label">Scope review</p>
-            <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-900">Exceptions first</h2>
-            <p className="mt-2 max-w-2xl text-sm text-slate-600">
+            <div className="flex items-center gap-2.5">
+              <span className={`ui-mono-chip ${hasExceptions ? 'ui-mono-chip--warn' : 'ui-mono-chip--ok'}`}>
+                {hasExceptions ? 'Action Required' : 'Ready'}
+              </span>
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                Module 02 <span className="mx-1 text-slate-300">/</span> Scope Review
+              </span>
+            </div>
+            <h2 className="mt-1.5 text-[22px] font-semibold leading-tight tracking-tight text-slate-950">Exceptions first</h2>
+            <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.14em] text-slate-500">
               {hasExceptions
-                ? 'Focus on lines that failed import checks. Strong matches stay summarized below so you are not forced to scan the entire takeoff.'
-                : 'Nothing failed the import checks for this pass. Expand the full grid only if you still want to scan every line.'}
+                ? `${exceptions.length} line${exceptions.length === 1 ? '' : 's'} need review · ${trusted.length} trusted`
+                : `${trusted.length} trusted · nothing flagged`}
             </p>
           </div>
           <button
             type="button"
             onClick={() => setActiveTab('estimate')}
-            className="ui-btn-primary h-10 shrink-0 rounded-full px-5 text-[11px] font-semibold"
+            className="ui-btn-cta shrink-0"
           >
-            Open estimate
+            Open Estimate
           </button>
         </div>
         <div className="mt-5">

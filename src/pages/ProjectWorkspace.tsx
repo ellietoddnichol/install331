@@ -1445,6 +1445,9 @@ export function ProjectWorkspace() {
       <ProjectHeader
         project={project}
         baseBidTotal={summary?.baseBidTotal || 0}
+        totalLaborHours={summary?.totalLaborHours || 0}
+        scopeLineCount={lines.length}
+        roomCount={rooms.length}
         syncState={syncState}
         lastSavedAt={lastSavedAt}
         onSave={saveProject}
@@ -1454,21 +1457,21 @@ export function ProjectWorkspace() {
         statusActionLabel={statusActionLabel}
       />
 
-      <div className="ui-page-wide">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:gap-6">
-          <ProjectStepNav
-            projectId={project.id}
-            items={stepNavItems}
-            trailing={
-              <button
-                type="button"
-                onClick={() => void syncCatalogFromSheets()}
-                className="ui-btn-secondary h-9 w-full px-2.5 text-[11px] font-semibold"
-              >
-                Sync catalog
-              </button>
-            }
-          />
+      <div className="ui-page">
+        <ProjectStepNav
+          projectId={project.id}
+          items={stepNavItems}
+          trailing={
+            <button
+              type="button"
+              onClick={() => void syncCatalogFromSheets()}
+              className="ui-btn-secondary h-8 px-2.5 text-[10px] font-semibold uppercase tracking-[0.14em]"
+            >
+              Sync catalog
+            </button>
+          }
+        />
+        <div className="flex flex-col gap-3">
           <div className="min-w-0 flex-1 space-y-3">
         {activeTab === 'overview' && (
           <OverviewPage
@@ -1545,10 +1548,10 @@ export function ProjectWorkspace() {
            */
           const laneActive = !!selectedLine && !modifierLaneDismissed;
           const estimateGridClass = laneActive
-            ? 'isolate grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-5 xl:gap-6 xl:grid-cols-[minmax(200px,260px)_minmax(0,1fr)_minmax(320px,400px)]'
-            : 'isolate grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-5 xl:gap-6 xl:grid-cols-[minmax(200px,260px)_minmax(0,1fr)]';
+            ? 'grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[minmax(260px,300px)_minmax(0,1fr)_340px]'
+            : 'grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[minmax(260px,300px)_1fr]';
           return (
-          <div className="flex min-w-0 flex-col gap-2">
+          <div className="flex min-w-0 flex-col gap-1">
           <div className={estimateGridClass}>
             <RoomList
               rooms={rooms}
@@ -1901,36 +1904,34 @@ export function ProjectWorkspace() {
               )}
             </div>
             {laneActive && selectedLine ? (
-              <aside className="relative z-10 hidden min-w-0 xl:block xl:min-w-[min(100%,400px)]">
-                <div className="sticky top-3 space-y-2 rounded-2xl border border-slate-200/80 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-3 shadow-md">
-                  <div className="flex items-start justify-between gap-2 border-b border-slate-200/80 pb-2">
+              <aside className="hidden min-w-0 xl:block">
+                <div className="sticky top-3 space-y-3 rounded-xl border border-[#1d2a3d] bg-[#101a2b] p-3 text-slate-200 shadow-[0_12px_28px_rgba(15,23,42,0.22)]">
+                  <div className="flex items-start justify-between gap-2 border-b border-[#23334b] pb-2.5">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Line add-ins</p>
-                        <span className="rounded-full bg-violet-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-800 ring-1 ring-violet-100/90">Live</span>
-                      </div>
-                      <p className="mt-0.5 truncate text-[12px] font-semibold text-slate-900" title={selectedLine.description}>
+                      <p className="ui-mono-kicker text-slate-400">Properties Context</p>
+                      <p className="mt-0.5 ui-mono-kicker text-slate-500">Selected Record</p>
+                      <p className="mt-0.5 truncate text-[13px] font-semibold text-white" title={selectedLine.description}>
                         {selectedLine.description || 'Untitled line'}
                       </p>
-                      <p className="text-[10px] text-slate-500">
-                        {lineModifiers.length === 0
-                          ? 'No add-ins yet.'
-                          : `${lineModifiers.length} add-in${lineModifiers.length === 1 ? '' : 's'} applied`}
-                      </p>
+                      {selectedLine.sku ? (
+                        <p className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-slate-400">
+                          IDREF · <span className="text-slate-200">{selectedLine.sku}</span>
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1">
                       <button
                         type="button"
                         onClick={() => openLineEditor(selectedLine.id)}
-                        className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+                        className="rounded-md border border-[#304261] bg-[#17263f] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-200 transition hover:bg-[#1f3558] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/45"
                         title="Open full line detail (pricing, notes, unit overrides)"
                       >
-                        Full detail →
+                        Full Detail →
                       </button>
                       <button
                         type="button"
                         onClick={() => setModifierLaneDismissed(true)}
-                        className="rounded-full p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                        className="rounded-md p-1 text-slate-400 hover:bg-[#17263f] hover:text-slate-100"
                         aria-label="Hide add-ins lane"
                         title="Hide add-ins lane (use the Modifiers button to reopen)"
                       >
@@ -1938,31 +1939,30 @@ export function ProjectWorkspace() {
                       </button>
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-1.5 text-[10px]">
-                    <div className="rounded-lg bg-white px-2 py-1.5 text-center shadow-sm ring-1 ring-slate-200/80">
-                      <p className="text-[9px] font-semibold uppercase tracking-[0.06em] text-slate-500">+Material</p>
-                      <p className="mt-0.5 text-[11px] font-semibold tabular-nums text-slate-900">
-                        {formatCurrencySafe(lineModifiers.reduce((sum, m) => sum + (m.addMaterialCost || 0), 0))}
-                      </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="ui-stat-tile">
+                      <p className="ui-stat-tile-kicker">Base Value</p>
+                      <p className="ui-stat-tile-value">{formatCurrencySafe(selectedLine.materialCost)}</p>
                     </div>
-                    <div className="rounded-lg bg-white px-2 py-1.5 text-center shadow-sm ring-1 ring-slate-200/80">
-                      <p className="text-[9px] font-semibold uppercase tracking-[0.06em] text-slate-500">+Minutes</p>
-                      <p className="mt-0.5 text-[11px] font-semibold tabular-nums text-slate-900">
-                        {formatNumberSafe(lineModifiers.reduce((sum, m) => sum + (m.addLaborMinutes || 0), 0), 1)}
-                      </p>
+                    <div className="ui-stat-tile">
+                      <p className="ui-stat-tile-kicker">Labor Min</p>
+                      <p className="ui-stat-tile-value">{formatNumberSafe(selectedLine.laborMinutes, 1)}</p>
                     </div>
-                    <div className="rounded-lg bg-white px-2 py-1.5 text-center shadow-sm ring-1 ring-slate-200/80">
-                      <p className="text-[9px] font-semibold uppercase tracking-[0.06em] text-slate-500">Unit sell</p>
-                      <p className="mt-0.5 text-[11px] font-semibold tabular-nums text-slate-900">{formatCurrencySafe(selectedLine.unitSell)}</p>
+                    <div className="ui-stat-tile">
+                      <p className="ui-stat-tile-kicker">Unit Sell</p>
+                      <p className="ui-stat-tile-value">{formatCurrencySafe(selectedLine.unitSell)}</p>
                     </div>
                   </div>
+                  <div className="rounded-md bg-[#f8fafc] p-3 text-slate-900 shadow-inner">
                   <ModifierPanel
                     modifiers={modifiers}
                     activeModifiers={lineModifiers}
                     selectedLinePresent={!!selectedLine}
                     onApplyModifier={(modifierId) => void applyModifier(modifierId)}
                     onRemoveModifier={(lineModifierId) => void removeModifier(lineModifierId)}
+                    hideKicker
                   />
+                  </div>
                 </div>
               </aside>
             ) : null}
@@ -1984,10 +1984,15 @@ export function ProjectWorkspace() {
             <section className="ui-surface overflow-hidden p-4 sm:p-5">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
-                  <p className="ui-label">Client proposal</p>
-                  <h3 className="ui-title mt-1 text-[22px] sm:text-[26px]">Review, edit, export</h3>
-                  <p className="ui-subtitle mt-2 max-w-xl">
-                    What you see is what prints. Export saves standalone HTML (open it and use Print → Save as PDF for a PDF).
+                  <div className="flex items-center gap-2.5">
+                    <span className="ui-mono-chip ui-mono-chip--info">Proposal</span>
+                    <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      Module 03 <span className="mx-1 text-slate-300">/</span> Client Document
+                    </span>
+                  </div>
+                  <h3 className="mt-1.5 text-[22px] font-semibold leading-tight tracking-tight text-slate-950 sm:text-[26px]">Review, edit, export</h3>
+                  <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.14em] text-slate-500">
+                    What you see is what prints · Export HTML → Print → Save as PDF
                   </p>
                 </div>
                 <div className="flex flex-shrink-0 flex-wrap items-center gap-2 lg:justify-end">
@@ -2009,7 +2014,7 @@ export function ProjectWorkspace() {
                     type="button"
                     onClick={exportProposal}
                     title="Downloads HTML. Open the file in a browser, then Print → Save as PDF if you need a PDF."
-                    className="ui-btn-primary inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-[11px] font-semibold"
+                    className="ui-btn-cta inline-flex items-center gap-1.5"
                   >
                     <Download className="h-3.5 w-3.5" />
                     Export HTML

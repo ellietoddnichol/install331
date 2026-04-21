@@ -2764,35 +2764,38 @@ export function ProjectIntake() {
           <button type="button" onClick={() => navigate('/')} className="ui-btn-secondary h-9 w-9 shrink-0 grid place-items-center px-0" aria-label="Back to dashboard">
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <header className="min-w-0 flex-1 rounded-2xl border border-slate-200/70 bg-white px-5 py-4 shadow-sm">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">New project</p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">Create New Project</h1>
-            <p className="mt-2 max-w-3xl text-sm text-slate-600">Guided steps: pick how you start, add source files if needed, then confirm basics and estimate setup before review.</p>
+          <header className="min-w-0 flex-1 border-b border-slate-200/80 pb-4">
+            <div className="flex items-center gap-2.5">
+              <span className="ui-status-live">Live</span>
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                Brighten Builders <span className="mx-1 text-slate-300">/</span> Intake Station
+              </span>
+            </div>
+            <h1 className="mt-1.5 text-[24px] font-semibold leading-tight tracking-tight text-slate-950 md:text-[28px]">Create New Project</h1>
+            <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.14em] text-slate-500">
+              Start Type · Source · Basics · Estimate Setup · Review
+            </p>
           </header>
         </div>
 
-        <nav className="mt-6 flex flex-wrap gap-2" aria-label="Creation steps">
+        <nav className="mt-5 flex flex-wrap gap-1" aria-label="Creation steps">
           {[
-            '1. Start type',
-            '2. Source',
-            '3. Project basics',
-            '4. Estimate setup',
-            '5. Review items',
+            'Start Type',
+            'Source',
+            'Project Basics',
+            'Estimate Setup',
+            'Review Items',
           ].map((label, index) => {
             const current = step === index + 1;
             const done = step > index + 1;
+            const num = String(index + 1).padStart(2, '0');
             return (
               <span
                 key={label}
-                className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold transition ${
-                  current
-                    ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
-                    : done
-                      ? 'border-slate-200 bg-slate-50 text-slate-700'
-                      : 'border-slate-200 bg-white text-slate-500'
-                }`}
+                className={`ui-tab-numbered ${current ? 'ui-tab-numbered-active' : done ? '' : 'ui-tab-numbered-disabled'}`}
               >
-                {label}
+                <span className="ui-tab-numbered-num">{num}</span>
+                <span>{label}</span>
               </span>
             );
           })}

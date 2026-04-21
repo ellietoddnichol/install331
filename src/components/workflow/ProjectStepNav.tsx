@@ -7,55 +7,60 @@ export interface ProjectStepNavItem {
   id: WorkspaceTab;
   label: string;
   badge?: number;
-  /** Secondary steps appear smaller under a "Project" group. */
+  /** Secondary steps appear as lower-contrast mono tabs at the tail end. */
   tier?: 'primary' | 'secondary';
 }
 
 interface ProjectStepNavProps {
   projectId: string;
   items: ProjectStepNavItem[];
+  /** Optional trailing action (e.g., Sync catalog button). Rendered to the right of the SESSION UUID chip. */
   trailing?: React.ReactNode;
 }
 
-function stepClassName({ isActive }: { isActive: boolean }): string {
-  return [
-    'flex w-full items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-white',
-    isActive
-      ? 'border-blue-200 bg-blue-50/90 text-blue-950 shadow-sm'
-      : 'border-transparent text-slate-700 hover:border-slate-200 hover:bg-white/80 hover:text-slate-900',
-  ].join(' ');
-}
-
+/**
+ * Horizontal numbered mono tabs. Matches the workstation aesthetic:
+ *   01 OVERVIEW   02 INTAKE   03 SCOPE REVIEW   04 SCOPE TABLE   05 PROPOSAL
+ *
+ * On the right, a mono SESSION UUID chip shows a short form of the project id
+ * so the estimator always knows which record they are editing.
+ */
 export function ProjectStepNav({ projectId, items, trailing }: ProjectStepNavProps) {
-  const secondary = items.filter((i) => i.tier === 'secondary');
+  // Keep secondary steps (Overview / Project meta) tucked to the left as lower
+  // numbers, then main estimator workflow. Simpler — just respect order.
   const primary = items.filter((i) => i.tier !== 'secondary');
+  const secondary = items.filter((i) => i.tier === 'secondary');
+  const ordered = [...secondary, ...primary];
 
-  const renderLink = (t: ProjectStepNavItem) => (
-    <NavLink
-      key={t.id}
-      to={projectWorkspacePath(projectId, t.id)}
-      className={({ isActive }) => stepClassName({ isActive })}
-    >
-      <span className="min-w-0">{t.label}</span>
-      {t.badge != null && t.badge > 0 ? (
-        <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-amber-950">
-          {t.badge}
-        </span>
-      ) : null}
-    </NavLink>
-  );
+  const uuidShort = projectId.length > 10 ? `${projectId.slice(0, 8).toUpperCase()}` : projectId.toUpperCase();
 
   return (
-    <aside className="flex w-full shrink-0 flex-col gap-3 md:w-[220px]">
-      <div className="rounded-xl border border-slate-200/90 bg-white/90 p-2 shadow-sm">
-        <p className="px-1.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Project</p>
-        <nav className="flex flex-col gap-0.5">{secondary.map(renderLink)}</nav>
+    <div className="sticky top-[calc(var(--workspace-header-h,88px)-1px)] z-20 -mx-4 mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-slate-200/80 bg-white/95 px-4 pb-1 pt-2 backdrop-blur-md supports-[backdrop-filter]:bg-white/85 md:-mx-6 md:px-6">
+      <nav className="flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-1 overflow-x-auto">
+        {ordered.map((item, idx) => (
+          <NavLink
+            key={item.id}
+            to={projectWorkspacePath(projectId, item.id)}
+            className={({ isActive }) =>
+              `ui-tab-numbered ${isActive ? 'ui-tab-numbered-active' : ''}`
+            }
+          >
+            <span className="ui-tab-numbered-num">{String(idx + 1).padStart(2, '0')}</span>
+            <span>{item.label}</span>
+            {item.badge != null && item.badge > 0 ? (
+              <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-amber-100 px-1 text-[9px] font-bold tabular-nums text-amber-900">
+                {item.badge}
+              </span>
+            ) : null}
+          </NavLink>
+        ))}
+      </nav>
+      <div className="flex shrink-0 items-center gap-2">
+        <span className="ui-mono-id whitespace-nowrap text-slate-500">
+          SESSION UUID: {uuidShort}
+        </span>
+        {trailing ? <div className="flex items-center">{trailing}</div> : null}
       </div>
-      <div className="rounded-xl border border-slate-200/90 bg-white/90 p-2 shadow-sm">
-        <p className="px-1.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Estimate workflow</p>
-        <nav className="flex flex-col gap-0.5">{primary.map(renderLink)}</nav>
-      </div>
-      {trailing ? <div className="flex flex-col gap-1.5 px-0.5">{trailing}</div> : null}
-    </aside>
+    </div>
   );
 }

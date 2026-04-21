@@ -112,12 +112,19 @@ export function Settings() {
   if (!settings) return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading settings…</div>;
 
   return (
-    <div className="ui-page-narrow space-y-4">
-      <div className="ui-surface p-4 md:p-5 flex flex-wrap items-center justify-between gap-3">
+    <div className="ui-page-narrow space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200/80 pb-4">
         <div>
-          <p className="ui-label">System Configuration</p>
-          <h1 className="text-2xl font-semibold mt-1">Settings</h1>
-          <p className="ui-subtitle mt-1">Company profile, proposal defaults, and catalog sync administration.</p>
+          <div className="flex items-center gap-2.5">
+            <span className="ui-status-live">Live</span>
+            <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+              Brighten Builders <span className="mx-1 text-slate-300">/</span> System Configuration
+            </span>
+          </div>
+          <h1 className="mt-1.5 text-[24px] font-semibold leading-tight tracking-tight text-slate-950 md:text-[28px]">Settings</h1>
+          <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.14em] text-slate-500">
+            Company Profile · Proposal Defaults · Catalog Sync Administration
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => void backfillTakeoffRegistry()} disabled={backfillingRegistry || syncing} className="ui-btn-secondary disabled:opacity-50">
@@ -126,35 +133,38 @@ export function Settings() {
           <button type="button" onClick={() => void syncGoogleSheetsCatalog()} disabled={syncing} className="ui-btn-secondary disabled:opacity-50">
             {syncing ? 'Syncing...' : 'Sync Google Sheets'}
           </button>
-          <button type="button" onClick={() => void saveSettings()} disabled={saving} className="ui-btn-primary disabled:opacity-60">
+          <button type="button" onClick={() => void saveSettings()} disabled={saving} className="ui-btn-cta disabled:opacity-60">
             {saving ? 'Saving...' : 'Save Settings'}
           </button>
         </div>
       </div>
 
-      <section className="ui-surface p-4 space-y-3">
+      <section className="ui-accent-card p-4 space-y-3">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="ui-label">Catalog Sync Status</h2>
-          <span className="ui-chip border-slate-200 bg-slate-50 text-slate-600">
-            Status: {syncStatus?.status || 'never'}
+          <div>
+            <p className="ui-mono-kicker">Module 01 / Catalog Sync Status</p>
+            <h2 className="mt-1 text-sm font-semibold text-slate-900">Sync health</h2>
+          </div>
+          <span className={`ui-mono-chip ${syncStatus?.status === 'success' ? 'ui-mono-chip--ok' : syncStatus?.status === 'failed' ? 'ui-mono-chip--danger' : 'ui-mono-chip--mute'}`}>
+            {syncStatus?.status || 'never'}
           </span>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2 text-xs text-slate-600">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
           <div className="ui-surface-soft p-2">
-            <p className="text-slate-500">Last Attempt</p>
-            <p className="font-medium text-slate-800">{formatDate(syncStatus?.lastAttemptAt || null)}</p>
+            <p className="ui-mono-kicker">Last Attempt</p>
+            <p className="mt-1 font-mono text-[12px] font-semibold tabular-nums text-slate-900">{formatDate(syncStatus?.lastAttemptAt || null)}</p>
           </div>
           <div className="ui-surface-soft p-2">
-            <p className="text-slate-500">Last Success</p>
-            <p className="font-medium text-slate-800">{formatDate(syncStatus?.lastSuccessAt || null)}</p>
+            <p className="ui-mono-kicker">Last Success</p>
+            <p className="mt-1 font-mono text-[12px] font-semibold tabular-nums text-slate-900">{formatDate(syncStatus?.lastSuccessAt || null)}</p>
           </div>
           <div className="ui-surface-soft p-2">
-            <p className="text-slate-500">Synced Counts</p>
-            <p className="font-medium text-slate-800">{syncStatus?.itemsSynced || 0} items · {syncStatus?.modifiersSynced || 0} modifiers · {syncStatus?.bundlesSynced || 0} bundles</p>
+            <p className="ui-mono-kicker">Synced Counts</p>
+            <p className="mt-1 font-mono text-[12px] font-semibold tabular-nums text-slate-900">{syncStatus?.itemsSynced || 0}I · {syncStatus?.modifiersSynced || 0}M · {syncStatus?.bundlesSynced || 0}B</p>
           </div>
           <div className="ui-surface-soft p-2">
-            <p className="text-slate-500">Bundle Items</p>
-            <p className="font-medium text-slate-800">{syncStatus?.bundleItemsSynced || 0} linked items</p>
+            <p className="ui-mono-kicker">Bundle Items</p>
+            <p className="mt-1 font-mono text-[12px] font-semibold tabular-nums text-slate-900">{syncStatus?.bundleItemsSynced || 0}</p>
           </div>
         </div>
         {!!syncStatus?.message && (
@@ -175,27 +185,30 @@ export function Settings() {
         )}
       </section>
 
-      <section className="ui-surface p-4 space-y-3">
-        <h2 className="ui-label">Recent Sync Runs</h2>
+      <section className="ui-accent-card p-4 space-y-3">
+        <div>
+          <p className="ui-mono-kicker">Module 02 / Recent Sync Runs</p>
+          <h2 className="mt-1 text-sm font-semibold text-slate-900">Audit trail</h2>
+        </div>
         {syncRuns.length === 0 ? (
           <p className="text-xs text-slate-500">No sync runs yet.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
-              <thead className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 text-slate-500 backdrop-blur-sm">
+              <thead className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur-sm">
                 <tr>
-                  <th className="text-left py-2 pr-2">Attempted</th>
-                  <th className="text-left py-2 pr-2">Status</th>
-                  <th className="text-left py-2 pr-2">Counts</th>
-                  <th className="text-left py-2">Message</th>
+                  <th className="ui-table-th">Attempted</th>
+                  <th className="ui-table-th">Status</th>
+                  <th className="ui-table-th">Counts</th>
+                  <th className="ui-table-th">Message</th>
                 </tr>
               </thead>
               <tbody>
                 {syncRuns.map((run) => (
-                  <tr key={run.id} className="border-b border-slate-100 align-top">
-                    <td className="py-2 pr-2 text-slate-700">{formatDate(run.attemptedAt)}</td>
+                  <tr key={run.id} className={`border-b border-slate-100 border-l-[3px] align-top ${run.status === 'success' ? 'border-l-emerald-500' : 'border-l-rose-500'}`}>
+                    <td className="py-2 pr-2 font-mono text-[11px] tabular-nums text-slate-700">{formatDate(run.attemptedAt)}</td>
                     <td className="py-2 pr-2">
-                      <span className={`rounded px-2 py-0.5 text-xs font-medium ${run.status === 'success' ? 'ui-status-ok' : 'ui-status-error'}`}>
+                      <span className={`ui-mono-chip ${run.status === 'success' ? 'ui-mono-chip--ok' : 'ui-mono-chip--danger'}`}>
                         {run.status}
                       </span>
                     </td>
@@ -217,8 +230,11 @@ export function Settings() {
       </section>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <section className="ui-surface p-4 space-y-3">
-          <h2 className="ui-label">Company Profile</h2>
+        <section className="ui-accent-card p-4 space-y-3">
+          <div>
+            <p className="ui-mono-kicker">Module 03 / Company Profile</p>
+            <h2 className="mt-1 text-sm font-semibold text-slate-900">Brand identity</h2>
+          </div>
           <label className="text-xs text-slate-600 block">Company Name
             <input className="ui-input mt-1" value={settings.companyName} onChange={(e) => setSettings({ ...settings, companyName: e.target.value })} />
           </label>
@@ -246,9 +262,10 @@ export function Settings() {
           </label>
         </section>
 
-        <section className="ui-surface p-4 space-y-4">
+        <section className="ui-accent-card p-4 space-y-4">
           <div>
-            <h2 className="ui-label">Estimate Defaults</h2>
+            <p className="ui-mono-kicker">Module 04 / Estimate Defaults</p>
+            <h2 className="mt-1 text-sm font-semibold text-slate-900">Pricing defaults</h2>
             <p className="mt-1 text-xs text-slate-500">
               Defaults for new projects. The subcontractor billing rate ($/hr) is used when lines have install minutes but no labor dollars (typical for material-only takeoffs). Default is $100/hr; job conditions and line modifiers change labor minutes or labor cost only — not material.
             </p>
@@ -278,7 +295,8 @@ export function Settings() {
 
           <div className="border-t border-slate-200 pt-4 space-y-3">
             <div>
-              <h2 className="ui-label">Proposal Defaults</h2>
+              <p className="ui-mono-kicker">Module 05 / Proposal Defaults</p>
+              <h2 className="mt-1 text-sm font-semibold text-slate-900">Document copy</h2>
               <p className="mt-1 text-xs text-slate-500">These fields control the default proposal copy used in the proposal workspace and exported proposal documents.</p>
             </div>
             <label className="text-xs text-slate-600 block">Proposal Intro
@@ -300,8 +318,11 @@ export function Settings() {
         </section>
       </div>
 
-      <section className="ui-surface mx-auto max-w-[1600px] space-y-3 p-4">
-        <h2 className="ui-label">Intake &amp; catalog automation</h2>
+      <section className="ui-accent-card--amber mx-auto max-w-[1600px] space-y-3 p-4">
+        <div>
+          <p className="ui-mono-kicker">Module 06 / Intake Automation</p>
+          <h2 className="mt-1 text-sm font-semibold text-slate-900">Catalog auto-link policy</h2>
+        </div>
         <p className="text-xs text-slate-500">
           Company-wide policy for catalog matching during file intake. Tier A lines are strong matches with compatible units; thresholds apply on the server when building review rows and estimate drafts.
         </p>

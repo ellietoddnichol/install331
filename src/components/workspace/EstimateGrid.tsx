@@ -465,13 +465,21 @@ export function EstimateGrid({
     );
   }
 
+  /**
+   * Workstation aesthetic — drive the 3px left accent bar off the scope category
+   * (partitions = green, screens/mirrors = blue, accessories = amber, exceptions
+   * = red, unclassified = slate) instead of off the `sourceType`. This matches the
+   * rest of the app (ScopeReviewPage, proposal) and gives the estimator an
+   * at-a-glance color legend down the grid.
+   */
   const rowAccentClass = (line: TakeoffLineRecord) => {
-    if (line.bundleId) return 'border-l-slate-500';
-    const key = String(line.sourceType || '').toLowerCase();
-    if (key.includes('catalog')) return 'border-l-slate-400';
-    if (key.includes('manual')) return 'border-l-slate-300';
-    if (key.includes('takeoff') || key.includes('parser')) return 'border-l-slate-300';
-    return 'border-l-slate-200';
+    const bucket = String(line.category || '').toLowerCase();
+    if (bucket.includes('partition')) return 'border-l-emerald-500';
+    if (bucket.includes('screen') || bucket.includes('mirror')) return 'border-l-blue-500';
+    if (bucket.includes('accessor') || bucket.includes('grab') || bucket.includes('dispenser') || bucket.includes('disposal')) return 'border-l-amber-500';
+    if (bucket.includes('exception') || bucket.includes('unknown')) return 'border-l-rose-500';
+    if (line.bundleId) return 'border-l-indigo-400';
+    return 'border-l-slate-300';
   };
 
   function stopRowEvent(event: React.SyntheticEvent) {
@@ -675,8 +683,47 @@ export function EstimateGrid({
     ? 'ui-panel overflow-hidden rounded-xl border-2 border-slate-200/90 shadow-md ring-1 ring-slate-200/40'
     : 'ui-panel overflow-hidden';
 
+  /**
+   * Workstation header strip — mirrors the reference's "ACTIVE AREA / LEDGER SUM"
+   * kicker row above the grid. Only shown in the pricing (non-takeoff) view.
+   */
+  const ledgerSum = useMemo(
+    () => displayRows.reduce((acc, r) => acc + Number(r.lineTotal || 0), 0),
+    [displayRows]
+  );
+  const activeAreaLabel = useMemo(() => {
+    if (organizeBy === 'item') return 'All Rooms';
+    const names = Array.from(new Set(displayRows.map((r) => r.roomLabel).filter(Boolean)));
+    if (names.length === 0) return 'No Room';
+    if (names.length === 1) return names[0];
+    return `${names.length} Rooms`;
+  }, [displayRows, organizeBy]);
+
+  /**
+   * Ghost rows — render N empty numbered rows after the last real row so the
+   * grid keeps its engineering-log density even on small estimates. Capped so
+   * the grid does not get absurdly tall on large projects.
+   */
+  const ghostRowCount = isTakeoffView
+    ? 0
+    : Math.min(Math.max(8, 12 - displayRows.length), 12);
+
   return (
     <div className={panelClass}>
+      {!isTakeoffView ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 bg-gradient-to-r from-white to-slate-50/60 px-3 py-2">
+          <div className="flex min-w-0 items-baseline gap-2">
+            <span className="ui-mono-kicker">Active Area</span>
+            <span className="font-mono text-[12px] font-semibold uppercase tracking-[0.12em] text-slate-900">
+              {activeAreaLabel}
+            </span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="ui-mono-kicker">Ledger Sum</span>
+            <span className="ui-mono-stat">{formatCurrencySafe(ledgerSum)}</span>
+          </div>
+        </div>
+      ) : null}
       {isTakeoffView ? (
         <p className="border-b border-slate-100 bg-slate-50/95 px-3 py-1.5 text-[10px] leading-snug text-slate-600">
           {pricingMode === 'labor_only'
@@ -789,6 +836,7 @@ export function EstimateGrid({
                 const selected = selectedLineId === row.lineId;
                 const stripe = index % 2 === 0;
                 const effectiveLaborCost = Number((row.laborCost * laborMultiplier).toFixed(2));
+                const rowNumber = String(index + 1).padStart(3, '0');
                 const previousBundleId = index > 0 ? displayRows[index - 1].bundleId : null;
                 const isBundleStart = organizeBy === 'room' && !!row.bundleId && (index === 0 || previousBundleId !== row.bundleId);
                 const isBundleCollapsed = organizeBy === 'room' && !!row.bundleId && !!collapsedBundles[row.bundleId];
@@ -887,6 +935,14 @@ export function EstimateGrid({
                       {isTakeoffView ? (
                         <>
                           <td className="ui-table-cell min-w-0 pr-4">
+                            <div className="mb-0.5 flex items-center gap-1.5">
+                              <span className="font-mono text-[10px] font-semibold tabular-nums tracking-[0.1em] text-slate-400">{rowNumber}</span>
+                              {row.sku ? (
+                                <span className="font-mono text-[10px] font-medium uppercase tracking-[0.1em] text-slate-400">
+                                  · IDREF <span className="text-slate-600">{row.sku}</span>
+                                </span>
+                              ) : null}
+                            </div>
                             <div
                               className="ui-table-title"
                               title={[
@@ -977,6 +1033,14 @@ export function EstimateGrid({
                       ) : (
                         <>
                           <td className="ui-table-cell min-w-0 align-top">
+                            <div className="mb-0.5 flex items-center gap-1.5">
+                              <span className="font-mono text-[10px] font-semibold tabular-nums tracking-[0.1em] text-slate-400">{rowNumber}</span>
+                              {row.sku ? (
+                                <span className="font-mono text-[10px] font-medium uppercase tracking-[0.1em] text-slate-400">
+                                  · IDREF <span className="text-slate-600">{row.sku}</span>
+                                </span>
+                              ) : null}
+                            </div>
                             <div
                               className="ui-table-title line-clamp-2 break-words"
                               title={[row.description, row.modifierNames?.length ? row.modifierNames.join(' · ') : '', row.sku ? `SKU ${row.sku}` : '', row.notes || ''].filter(Boolean).join(' · ')}
@@ -1111,6 +1175,23 @@ export function EstimateGrid({
                 );
               })
             )}
+            {!isTakeoffView && ghostRowCount > 0
+              ? Array.from({ length: ghostRowCount }, (_, ghostIdx) => {
+                  const ghostNumber = String(displayRows.length + ghostIdx + 1).padStart(3, '0');
+                  return (
+                    <tr key={`ghost-${ghostIdx}`} className="border-b border-slate-100/80 bg-white/60">
+                      <td className="px-3 py-2.5" colSpan={columnCount}>
+                        <div className="flex items-center gap-2 opacity-60">
+                          <span className="font-mono text-[10px] font-semibold tabular-nums tracking-[0.1em] text-slate-300">
+                            {ghostNumber}
+                          </span>
+                          <span className="text-[11px] italic text-slate-300">— open slot —</span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              : null}
           </tbody>
         </table>
         <datalist id={`estimate-grid-categories-${viewMode}`}>
