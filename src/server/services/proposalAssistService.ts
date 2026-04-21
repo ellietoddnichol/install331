@@ -50,11 +50,24 @@ export function extractAssumptionsFromText(text: string): IntakeProjectAssumptio
 
 export function inferPricingBasis(text: string, lineUnits: string[], geminiValue?: string): IntakeProjectMetadata['pricingBasis'] {
   const normalizedGemini = asText(geminiValue).toLowerCase();
-  if (normalizedGemini === 'material_only' || normalizedGemini === 'labor_only' || normalizedGemini === 'labor_and_material') {
+  if (
+    normalizedGemini === 'material_only' ||
+    normalizedGemini === 'labor_only' ||
+    normalizedGemini === 'labor_and_material' ||
+    normalizedGemini === 'material_with_optional_install_quote'
+  ) {
     return normalizedGemini as IntakeProjectMetadata['pricingBasis'];
   }
 
   const normalized = text.toLowerCase();
+  // Classic "material-led bid; install quoted separately" language on vendor quotes.
+  if (
+    /labor (?:is )?(?:separate|by others|quoted separately)|install (?:is )?(?:separate|quoted separately|by others)|if labor is needed[, ]+call for quote|call for (?:a )?labor quote|labor (?:by )?quote/.test(
+      normalized
+    )
+  ) {
+    return 'material_with_optional_install_quote';
+  }
   if (/material only|furnish only|supply only/.test(normalized)) return 'material_only';
   if (/install only|labor only/.test(normalized)) return 'labor_only';
   if (/furnish and install|material and labor|labor and material/.test(normalized)) return 'labor_and_material';

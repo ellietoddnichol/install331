@@ -131,6 +131,7 @@ function mapTakeoffRow(row: any): TakeoffLineRecord {
     sourceSectionHeader: normalizeNullableString(row.source_section_header),
     isInstallableScope: normalizeNullableBool(row.is_installable_scope),
     installScopeType: normalizeNullableString(row.install_scope_type),
+    installLaborFamily: normalizeNullableString(row.install_labor_family),
     sourceMaterialCost: normalizeNullableNumber(row.source_material_cost),
     generatedLaborMinutes: normalizeNullableNumber(row.generated_labor_minutes),
     laborOrigin: parseLaborOrigin(row.labor_origin),
@@ -317,6 +318,7 @@ export function createTakeoffLine(input: Partial<TakeoffLineRecord> & { projectI
   const sourceSectionHeader = normalizeNullableString(input.sourceSectionHeader);
   const isInstallableScope = normalizeNullableBool(input.isInstallableScope);
   const installScopeType = normalizeNullableString(input.installScopeType);
+  const installLaborFamily = normalizeNullableString(input.installLaborFamily);
 
   const line: TakeoffLineRecord = {
     id: input.id ?? randomUUID(),
@@ -350,6 +352,7 @@ export function createTakeoffLine(input: Partial<TakeoffLineRecord> & { projectI
     sourceSectionHeader,
     isInstallableScope,
     installScopeType,
+    installLaborFamily,
     sourceMaterialCost,
     generatedLaborMinutes,
     laborOrigin,
@@ -363,9 +366,9 @@ export function createTakeoffLine(input: Partial<TakeoffLineRecord> & { projectI
       qty, unit, material_cost, base_material_cost, labor_minutes, labor_cost, base_labor_cost, pricing_source, unit_sell, line_total, notes, bundle_id, catalog_item_id,
       variant_id, intake_scope_bucket, intake_match_confidence,
       source_manufacturer, source_bid_bucket, source_section_header,
-      is_installable_scope, install_scope_type, source_material_cost, generated_labor_minutes, labor_origin,
+      is_installable_scope, install_scope_type, install_labor_family, source_material_cost, generated_labor_minutes, labor_origin,
       created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     line.id,
     line.projectId,
@@ -398,6 +401,7 @@ export function createTakeoffLine(input: Partial<TakeoffLineRecord> & { projectI
     line.sourceSectionHeader,
     line.isInstallableScope === null ? null : line.isInstallableScope ? 1 : 0,
     line.installScopeType,
+    line.installLaborFamily,
     line.sourceMaterialCost,
     line.generatedLaborMinutes,
     line.laborOrigin,
@@ -471,6 +475,9 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
   const nextInstallScopeType = input.installScopeType !== undefined
     ? normalizeNullableString(input.installScopeType)
     : existing.installScopeType ?? null;
+  const nextInstallLaborFamily = input.installLaborFamily !== undefined
+    ? normalizeNullableString(input.installLaborFamily)
+    : existing.installLaborFamily ?? null;
   const nextSourceMaterialCost = input.sourceMaterialCost !== undefined
     ? normalizeNullableNumber(input.sourceMaterialCost)
     : existing.sourceMaterialCost ?? null;
@@ -501,6 +508,7 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
     sourceSectionHeader: nextSourceSectionHeader,
     isInstallableScope: nextIsInstallable,
     installScopeType: nextInstallScopeType,
+    installLaborFamily: nextInstallLaborFamily,
     sourceMaterialCost: nextSourceMaterialCost,
     generatedLaborMinutes: nextGeneratedLaborMinutes,
     laborOrigin: nextLaborOrigin,
@@ -513,7 +521,7 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
       qty = ?, unit = ?, material_cost = ?, base_material_cost = ?, labor_minutes = ?, labor_cost = ?, base_labor_cost = ?, pricing_source = ?, unit_sell = ?, line_total = ?, notes = ?,
       bundle_id = ?, catalog_item_id = ?, variant_id = ?, intake_scope_bucket = ?, intake_match_confidence = ?,
       source_manufacturer = ?, source_bid_bucket = ?, source_section_header = ?,
-      is_installable_scope = ?, install_scope_type = ?, source_material_cost = ?, generated_labor_minutes = ?, labor_origin = ?,
+      is_installable_scope = ?, install_scope_type = ?, install_labor_family = ?, source_material_cost = ?, generated_labor_minutes = ?, labor_origin = ?,
       updated_at = ?
     WHERE id = ?
   `).run(
@@ -546,6 +554,7 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
     next.sourceSectionHeader,
     next.isInstallableScope === null ? null : next.isInstallableScope ? 1 : 0,
     next.installScopeType,
+    next.installLaborFamily,
     next.sourceMaterialCost,
     next.generatedLaborMinutes,
     next.laborOrigin,

@@ -56,6 +56,7 @@ export function finalizeIntakeReviewLines(
 
 export function toReviewLines(lines: NormalizedIntakeLine[], catalog: CatalogItem[], matchCatalog: boolean, bundles: BundleRecord[] = []): IntakeReviewLine[] {
   const useMemory = matchCatalog && catalog.length > 0;
+  const catalogById = new Map(catalog.map((item) => [item.id, item] as const));
   const expandedLines = expandBundleLines(lines as unknown as Array<NormalizedIntakeLine & { description: string; quantity: number }>) as NormalizedIntakeLine[];
   return expandedLines.map((line) => {
     const description = line.description || line.itemName;
@@ -163,18 +164,40 @@ export function toReviewLines(lines: NormalizedIntakeLine[], catalog: CatalogIte
       sourceSectionHeader: line.sourceSectionHeader || undefined,
       isInstallableScope: line.isInstallableScope ?? false,
       installScopeType: line.installScopeType ?? null,
-      installFamilyFallback: buildInstallFamilyFallback(line, catalogMatch),
+      installFamilyFallback: buildInstallFamilyFallback(line, catalogMatch, catalogById),
     };
   });
 }
 
+/**
+ * Install-family fallback fires whenever a line is installable AND the catalog path
+ * did not produce real labor minutes. Preference order for the family key is:
+ *   1. Matched catalog item's own `installLaborFamily` (editorial override)
+ *   2. The line's `installScopeType` (parsed heuristic)
+ * This closes the zero-labor gap — a catalog match with `baseLaborMinutes <= 0`
+ * no longer suppresses install-family labor for an installable scope.
+ */
 function buildInstallFamilyFallback(
   line: NormalizedIntakeLine,
-  catalogMatch: { catalogItemId?: string | null } | null
+  catalogMatch: { catalogItemId?: string | null } | null,
+  catalogById: Map<string, CatalogItem>
 ): { key: string; minutes: number; basis: string } | null {
   if (!line.isInstallableScope) return null;
-  if (catalogMatch && catalogMatch.catalogItemId) return null;
-  const family = getInstallLaborFamily(line.installScopeType || null);
+
+  let catalogItem: CatalogItem | undefined;
+  if (catalogMatch?.catalogItemId) {
+    catalogItem = catalogById.get(catalogMatch.catalogItemId);
+    const catalogLabor = Number(catalogItem?.baseLaborMinutes ?? 0);
+    if (catalogLabor > 0) {
+      // Real catalog labor exists — no fallback needed.
+      return null;
+    }
+  }
+
+  const catalogFamilyKey = catalogItem?.installLaborFamily?.trim() || null;
+  const family =
+    getInstallLaborFamily(catalogFamilyKey) ??
+    getInstallLaborFamily(line.installScopeType || null);
   if (!family) return null;
   return {
     key: family.key,

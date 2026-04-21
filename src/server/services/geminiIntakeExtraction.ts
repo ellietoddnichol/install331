@@ -50,7 +50,7 @@ export interface GeminiExtractionResult {
   bidDate: string;
   proposalDate: string;
   estimator: string;
-  pricingBasis: '' | 'material_only' | 'labor_only' | 'labor_and_material';
+  pricingBasis: '' | 'material_only' | 'labor_only' | 'labor_and_material' | 'material_with_optional_install_quote';
   assumptions: IntakeProjectAssumption[];
   proposalAssist: IntakeProposalAssist;
   rooms: string[];
@@ -175,9 +175,13 @@ function sanitizeResult(value: any): GeminiExtractionResult {
     bidDate: asText(value?.bidDate),
     proposalDate: asText(value?.proposalDate),
     estimator: asText(value?.estimator),
-    pricingBasis: pricingBasis === 'material_only' || pricingBasis === 'labor_only' || pricingBasis === 'labor_and_material'
-      ? pricingBasis as GeminiExtractionResult['pricingBasis']
-      : '',
+    pricingBasis:
+      pricingBasis === 'material_only' ||
+      pricingBasis === 'labor_only' ||
+      pricingBasis === 'labor_and_material' ||
+      pricingBasis === 'material_with_optional_install_quote'
+        ? (pricingBasis as GeminiExtractionResult['pricingBasis'])
+        : '',
     assumptions,
     proposalAssist,
     rooms,

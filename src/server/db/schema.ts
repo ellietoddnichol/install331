@@ -429,6 +429,7 @@ export function initEstimatorSchema(db: Database) {
   ensureTakeoffColumn('source_material_cost', 'source_material_cost REAL');
   ensureTakeoffColumn('generated_labor_minutes', 'generated_labor_minutes REAL');
   ensureTakeoffColumn('labor_origin', 'labor_origin TEXT');
+  ensureTakeoffColumn('install_labor_family', 'install_labor_family TEXT');
 
   const modifierColumns = db.prepare('PRAGMA table_info(modifiers_v1)').all() as Array<{ name: string }>;
   if (modifierColumns.length > 0 && !modifierColumns.some((c) => c.name === 'description')) {

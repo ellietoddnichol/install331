@@ -1,5 +1,5 @@
 
-import { Project, CatalogItem, UserProfile, EstimateResult } from '../types';
+import { CatalogItem } from '../types';
 import { BundleRecord, CatalogSyncStatusRecord, EstimateSummary, InstallReviewEmailDraft, ModifierRecord, PeerIntakeDefaultsResponse, ProjectFileRecord, ProjectRecord, RoomRecord, SettingsRecord, TakeoffLineRecord } from '../shared/types/estimator';
 import { IntakeParseRequest, IntakeParseResult } from '../shared/types/intake';
 
@@ -491,34 +491,6 @@ export const api = {
     const payload = await handleResponse<{ data: { ok: boolean; deduped?: boolean } }>(res);
     return payload.data;
   },
-  async getProjects(): Promise<Project[]> {
-    const res = await apiFetch(`${API_BASE}/projects`);
-    return handleResponse<Project[]>(res);
-  },
-  async getProject(id: string): Promise<Project> {
-    const res = await apiFetch(`${API_BASE}/projects/${id}`);
-    return handleResponse<Project>(res);
-  },
-  async createProject(project: Project): Promise<Project> {
-    const res = await apiFetch(`${API_BASE}/projects`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(project),
-    });
-    return handleResponse<Project>(res);
-  },
-  async updateProject(project: Project): Promise<Project> {
-    const res = await apiFetch(`${API_BASE}/projects/${project.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(project),
-    });
-    return handleResponse<Project>(res);
-  },
-  async deleteProject(id: string): Promise<void> {
-    const res = await apiFetch(`${API_BASE}/projects/${id}`, { method: 'DELETE' });
-    await handleResponse<void>(res);
-  },
   async getCatalog(options?: { includeInactive?: boolean }): Promise<CatalogItem[]> {
     const q =
       options?.includeInactive === true
@@ -561,14 +533,6 @@ export const api = {
     const res = await apiFetch(`${API_BASE}/catalog/modifiers`);
     return handleResponse<ModifierRecord[]>(res);
   },
-  async createCatalogModifier(input: Partial<ModifierRecord>): Promise<ModifierRecord> {
-    const res = await apiFetch(`${API_BASE}/catalog/modifiers`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
-    });
-    return handleResponse<ModifierRecord>(res);
-  },
   async updateCatalogModifier(input: Partial<ModifierRecord> & { id: string }): Promise<ModifierRecord> {
     const res = await apiFetch(`${API_BASE}/catalog/modifiers/${input.id}`, {
       method: 'PUT',
@@ -597,32 +561,4 @@ export const api = {
     const res = await apiFetch(`${API_BASE}/catalog/bundles/${id}`, { method: 'DELETE' });
     await handleResponse<void>(res);
   },
-  async calculateEstimate(project: Project): Promise<EstimateResult> {
-    const res = await apiFetch(`${API_BASE}/estimate/calculate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(project),
-    });
-    return handleResponse<EstimateResult>(res);
-  },
-  async getSettings(): Promise<UserProfile> {
-    const res = await apiFetch(`${API_BASE}/settings`);
-    return handleResponse<UserProfile>(res);
-  },
-  async updateSettings(settings: UserProfile): Promise<UserProfile> {
-    const res = await apiFetch(`${API_BASE}/settings`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(settings),
-    });
-    return handleResponse<UserProfile>(res);
-  },
-  async getGlobalBundles(): Promise<any[]> {
-    const res = await apiFetch(`${API_BASE}/global/bundles`);
-    return handleResponse<any[]>(res);
-  },
-  async getGlobalAddIns(): Promise<any[]> {
-    const res = await apiFetch(`${API_BASE}/global/addins`);
-    return handleResponse<any[]>(res);
-  }
 };

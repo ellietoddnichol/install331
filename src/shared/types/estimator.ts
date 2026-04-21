@@ -16,7 +16,27 @@ export interface ProjectStructuredAssumption {
   createdAt: string;
 }
 
-export type PricingMode = 'material_only' | 'labor_only' | 'labor_and_material';
+export type PricingMode =
+  | 'material_only'
+  | 'labor_only'
+  | 'labor_and_material'
+  /**
+   * Vendor document is material-only, but install is installable scope.
+   * Main bid excludes labor (same math as material_only); the labor stack is
+   * generated from catalog / install-family defaults and surfaced as a
+   * companion "install quoted separately" proposal.
+   */
+  | 'material_with_optional_install_quote';
+
+/** True when the main bid total should exclude labor (material_only + material-with-optional-install). */
+export function isMaterialOnlyMainBid(mode: PricingMode | string | null | undefined): boolean {
+  return mode === 'material_only' || mode === 'material_with_optional_install_quote';
+}
+
+/** True when a labor-companion quote should always be surfaced next to the material bid. */
+export function hasLaborCompanionQuote(mode: PricingMode | string | null | undefined): boolean {
+  return mode === 'material_with_optional_install_quote';
+}
 export type ProposalFormat = 'standard' | 'condensed' | 'schedule_with_amounts' | 'executive_summary';
 export type DeliveryPricingMode = 'included' | 'flat' | 'percent';
 
@@ -211,6 +231,8 @@ export interface TakeoffLineRecord {
   isInstallableScope?: boolean | null;
   /** Normalized install scope type key (e.g. `partition_hdpe_compartment`, `grab_bar_18`). */
   installScopeType?: string | null;
+  /** Resolved install-labor family key (e.g. `partition_compartment`, `grab_bar_36`) used to seed default minutes when catalog labor is absent or zero. */
+  installLaborFamily?: string | null;
   /** Raw material cost from the source document when distinct from the catalog/generated material cost. */
   sourceMaterialCost?: number | null;
   /** App-generated install minutes (from catalog or install-family fallback). */

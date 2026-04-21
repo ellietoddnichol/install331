@@ -75,7 +75,13 @@ export function OverviewPage({
           <div className="min-w-[140px]">
             <p className="text-xs text-slate-500">Price mode</p>
             <p className="mt-0.5 font-semibold text-slate-900">
-              {pricingMode === 'material_only' ? 'Material only' : pricingMode === 'labor_only' ? 'Install only' : 'Material + install'}
+              {pricingMode === 'material_only'
+                ? 'Material only'
+                : pricingMode === 'labor_only'
+                  ? 'Install only'
+                  : pricingMode === 'material_with_optional_install_quote'
+                    ? 'Material + install (quoted separately)'
+                    : 'Material + install'}
             </p>
           </div>
           <div className="min-w-[100px]">

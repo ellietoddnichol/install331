@@ -457,8 +457,70 @@
   thead {
     display: table-header-group;
   }
+  tfoot {
+    display: table-footer-group;
+  }
+  tr,
+  td,
+  th {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
   main {
     overflow: visible !important;
     height: auto !important;
+  }
+
+  /*
+   * Phase 3.3 — tighten typography and page-break behavior for the generated
+   * proposal PDF print path. The baseline rules above handle page size and
+   * element visibility; this block focuses on widow/orphan control, keeping
+   * headings attached to their content, and polishing legal / totals blocks
+   * so they do not split in awkward places.
+   */
+  .proposal-document {
+    orphans: 3;
+    widows: 3;
+    font-feature-settings: 'tnum' on, 'lnum' on, 'ss01' on;
+    -webkit-font-smoothing: antialiased;
+    color: #0f172a !important;
+  }
+  .proposal-document h1,
+  .proposal-document h2,
+  .proposal-document h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  /* Keep the bid-bucket group heading stitched to its first section. */
+  .proposal-section > div:first-child {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  /* Invest summary rows should stay on one line; the whole totals block
+     already avoids breaking via .proposal-totals above. */
+  .proposal-totals > div > div {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  /* Acceptance / signature block must not be orphaned from its label. */
+  .proposal-document section:last-of-type {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  /* Terms / Exclusions / Clarifications columns should each stay intact. */
+  .proposal-legal-col {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  /* Tabular numerals everywhere currency is printed. */
+  .proposal-document .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Normalize link color so inline links print in body color instead of blue. */
+  .proposal-document a {
+    color: inherit !important;
+    text-decoration: none !important;
   }
 }

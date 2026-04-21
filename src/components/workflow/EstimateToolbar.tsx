@@ -5,6 +5,14 @@ import type { RoomRecord } from '../../shared/types/estimator';
 import { TAKEOFF_ALL_ROOMS } from '../../shared/constants/workspaceUi';
 import { formatLaborDurationMinutes, formatNumberSafe } from '../../utils/numberFormat';
 
+export interface EstimateToolbarBidBucketStat {
+  /** Raw bid-bucket key as persisted on lines (e.g. "Base Bid", "Alt 1"). */
+  key: string;
+  kind: 'base' | 'alternate' | 'deduct' | 'allowance' | 'unit_price' | 'unbucketed' | 'other';
+  lineCount: number;
+  laborMinutes: number;
+}
+
 interface EstimateToolbarProps {
   view: EstimateWorkspaceView;
   onViewChange: (view: EstimateWorkspaceView) => void;
@@ -27,6 +35,8 @@ interface EstimateToolbarProps {
   projectTotal?: number;
   formatCurrency: (n: number | undefined) => string;
   disabledAdd?: boolean;
+  /** Optional bid-split stats — only shown when > 1 bucket exists. Parity with intake review panel. */
+  bidBucketStats?: EstimateToolbarBidBucketStat[];
 }
 
 export function EstimateToolbar({
@@ -48,7 +58,25 @@ export function EstimateToolbar({
   projectTotal,
   formatCurrency,
   disabledAdd,
+  bidBucketStats,
 }: EstimateToolbarProps) {
+  const bucketsWithData = (bidBucketStats ?? []).filter((b) => b.lineCount > 0);
+  const showBidSplitStrip = bucketsWithData.length > 1;
+  const bidBucketKindClass = (kind: EstimateToolbarBidBucketStat['kind']): string => {
+    if (kind === 'base') return 'bg-emerald-50 text-emerald-900 ring-emerald-100/90';
+    if (kind === 'alternate') return 'bg-indigo-50 text-indigo-900 ring-indigo-100/90';
+    if (kind === 'deduct') return 'bg-rose-50 text-rose-900 ring-rose-100/90';
+    if (kind === 'allowance') return 'bg-sky-50 text-sky-900 ring-sky-100/90';
+    if (kind === 'unit_price') return 'bg-amber-50 text-amber-900 ring-amber-100/90';
+    return 'bg-slate-100 text-slate-700 ring-slate-200/80';
+  };
+  const formatBucketMinutes = (m: number): string => {
+    if (m >= 60) {
+      const hrs = m / 60;
+      return `${hrs.toFixed(hrs >= 10 ? 0 : 1)} h`;
+    }
+    return `${Math.round(m)} m`;
+  };
   const [addInsGate, setAddInsGate] = useState(false);
 
   useEffect(() => {
@@ -118,6 +146,26 @@ export function EstimateToolbar({
             ) : null}
           </div>
         </div>
+        {showBidSplitStrip ? (
+          <div
+            className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-slate-200/80 pt-2"
+            title="Bid splits detected from intake. Each chip is a bucket the estimate tracks separately (base vs. alternates, deducts, allowances, etc.)."
+          >
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Bid splits</span>
+            {bucketsWithData.map((bucket) => (
+              <span
+                key={bucket.key}
+                className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ${bidBucketKindClass(bucket.kind)}`}
+                title={`${bucket.key} · ${bucket.lineCount} line${bucket.lineCount === 1 ? '' : 's'} · ${formatBucketMinutes(bucket.laborMinutes)} install labor`}
+              >
+                <span>{bucket.key}</span>
+                <span className="rounded bg-white/60 px-1 py-[1px] text-[9px] font-medium">
+                  {bucket.lineCount} ln · {formatBucketMinutes(bucket.laborMinutes)}
+                </span>
+              </span>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       {view === 'quantities' ? (
@@ -177,7 +225,7 @@ export function EstimateToolbar({
             <span className="text-[9px] font-semibold uppercase tracking-wide text-violet-800">Edits selected row</span>
           </div>
           <p className="mt-0.5 text-[10px] leading-snug text-slate-500">
-            Does not add SKUs — opens the line drawer for modifiers, unit pricing, and notes on the selected row.
+            Does not add SKUs. Add-ins live in the right-rail lane on wide screens; this button opens the full line drawer for pricing, unit, and notes.
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <button

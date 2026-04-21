@@ -223,7 +223,7 @@ export interface IntakeProjectMetadata {
   estimator: string;
   sourceFiles: string[];
   assumptions: IntakeProjectAssumption[];
-  pricingBasis: '' | 'material_only' | 'labor_only' | 'labor_and_material';
+  pricingBasis: '' | 'material_only' | 'labor_only' | 'labor_and_material' | 'material_with_optional_install_quote';
   confidence: number;
   sources: string[];
 }
@@ -473,7 +473,12 @@ export interface IntakeAiLineClassification {
  */
 export interface IntakeAiSuggestions {
   documentType: string;
-  pricingModeSuggested: '' | 'material_only' | 'labor_only' | 'labor_and_material';
+  pricingModeSuggested:
+    | ''
+    | 'material_only'
+    | 'labor_only'
+    | 'labor_and_material'
+    | 'material_with_optional_install_quote';
   documentConfidence: number;
   documentRationale: string;
   documentEvidence: string;

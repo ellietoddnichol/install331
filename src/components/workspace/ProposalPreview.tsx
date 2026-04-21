@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { EstimateSummary, ProjectRecord, SettingsRecord, TakeoffLineRecord } from '../../shared/types/estimator';
+import { EstimateSummary, ProjectRecord, SettingsRecord, TakeoffLineRecord, isMaterialOnlyMainBid } from '../../shared/types/estimator';
 import { isDisplayableCatalogImageUrl } from '../../shared/utils/catalogImageUrl';
 import {
   buildInvestmentBreakdownRows,
-  buildProposalScheduleSections,
+  buildLaborOriginFootnote,
+  buildProposalScheduleSectionsByBidBucket,
   splitProposalTextLines,
 } from '../../shared/utils/proposalDocument';
 import { DEFAULT_PROPOSAL_ACCEPTANCE_LABEL, DEFAULT_PROPOSAL_CLARIFICATIONS, DEFAULT_PROPOSAL_EXCLUSIONS, DEFAULT_PROPOSAL_INTRO, DEFAULT_PROPOSAL_TERMS } from '../../shared/utils/proposalDefaults';
@@ -45,7 +46,7 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
 
   const pricingMode = project.pricingMode || 'labor_and_material';
   const showMaterial = pricingMode !== 'labor_only';
-  const showLabor = pricingMode !== 'material_only';
+  const showLabor = !isMaterialOnlyMainBid(pricingMode);
   const proposalVersion = `v${new Date(project.updatedAt).getTime().toString().slice(-5)}`;
   const activeProjectDate = project.bidDate || project.proposalDate || project.dueDate;
   const proposalDate = activeProjectDate
@@ -55,9 +56,15 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
   const exclusionLines = splitProposalTextLines(settings?.proposalExclusions || DEFAULT_PROPOSAL_EXCLUSIONS);
   const clarificationLines = splitProposalTextLines(settings?.proposalClarifications || DEFAULT_PROPOSAL_CLARIFICATIONS);
 
-  const proposalSections = useMemo(
+  /**
+   * Phase 3.1 — group the proposal schedule by bid bucket so alternates and deducts
+   * render as their own sections with their own subtotals. When a project only has
+   * one bucket (the common case), this collapses to a single group and the UI looks
+   * identical to the previous flat rendering.
+   */
+  const proposalBidGroups = useMemo(
     () =>
-      buildProposalScheduleSections(
+      buildProposalScheduleSectionsByBidBucket(
         lines,
         showMaterial,
         showLabor,
@@ -66,6 +73,15 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
       ),
     [catalogImageById, lines, showLabor, showMaterial, summary.conditionLaborHoursMultiplier]
   );
+  const showBidBucketGroups = proposalBidGroups.length > 1;
+  const bidBucketDisplayLabel = (label: string): string => (label?.trim() ? label.trim() : 'Additional scope');
+
+  /**
+   * Phase 3.2 — plain-English note explaining which labor was vendor-quoted
+   * vs app-generated (catalog default / install-family fallback). Hidden when
+   * labor is hidden or when 100% of labor came from the source document.
+   */
+  const laborOriginNotes = useMemo(() => buildLaborOriginFootnote(lines, showLabor), [lines, showLabor]);
 
   const showLineImages = !isExecutive && project.proposalIncludeCatalogImages;
 
@@ -181,8 +197,39 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
           {scopeHelp}
         </p>
         <div className={isCondensed ? 'mt-5 space-y-6' : 'mt-8 space-y-10'}>
-          {proposalSections.map((section) => (
-            <div key={section.section} className="proposal-section proposal-avoid-break">
+          {proposalBidGroups.map((group) => (
+            <div key={`group-${group.bucketLabel || 'unbucketed'}`} className="proposal-section">
+              {showBidBucketGroups ? (
+                <div className="mb-4 flex flex-col gap-1 border-b-2 border-slate-900/70 pb-1.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3">
+                  <div>
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      {group.bucketKind === 'base'
+                        ? 'Base bid'
+                        : group.bucketKind === 'alternate'
+                          ? 'Alternate'
+                          : group.bucketKind === 'deduct'
+                            ? 'Deduct alternate'
+                            : group.bucketKind === 'allowance'
+                              ? 'Allowance'
+                              : group.bucketKind === 'unit_price'
+                                ? 'Unit price item'
+                                : group.bucketKind === 'unbucketed'
+                                  ? 'Additional scope'
+                                  : 'Alternate scope'}
+                    </p>
+                    <h3 className={`mt-0.5 font-semibold tracking-tight text-slate-950 ${isCondensed ? 'text-[16px]' : 'text-[18px]'}`}>
+                      {bidBucketDisplayLabel(group.bucketLabel)}
+                    </h3>
+                  </div>
+                  <p className="font-semibold tabular-nums text-slate-900 sm:text-right">
+                    Subtotal{' '}
+                    <span className={isCondensed ? 'text-[16px]' : 'text-[18px]'}>{formatCurrencySafe(group.groupTotal)}</span>
+                  </p>
+                </div>
+              ) : null}
+              <div className={isCondensed ? 'space-y-5' : 'space-y-8'}>
+          {group.sections.map((section) => (
+            <div key={`${group.bucketLabel}|${section.section}`} className="proposal-section proposal-avoid-break">
               <div className="flex flex-col gap-1 border-b border-slate-300 pb-2 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
                 <h3 className={`font-semibold tracking-tight text-slate-950 ${isCondensed ? 'text-[14px]' : 'text-[15px]'}`}>
                   {section.section}
@@ -268,7 +315,26 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
               ) : null}
             </div>
           ))}
+              </div>
+            </div>
+          ))}
         </div>
+        {laborOriginNotes.length > 0 ? (
+          <div
+            className={`mt-6 rounded border border-slate-200 bg-slate-50/70 px-4 py-3 text-[11.5px] leading-[1.55] text-slate-600 proposal-avoid-break ${
+              isCondensed ? 'text-[11px]' : ''
+            }`}
+          >
+            <p className="text-[9.5px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+              How install labor was priced
+            </p>
+            <div className="mt-2 space-y-1.5">
+              {laborOriginNotes.map((note) => (
+                <p key={note}>{note}</p>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       {project.proposalIncludeSpecialNotes && project.specialNotes?.trim() ? (

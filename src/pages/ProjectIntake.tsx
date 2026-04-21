@@ -2354,7 +2354,12 @@ export function ProjectIntake() {
 
   function applySuggestedPricingModeFromAi() {
     const pm = lastIntakeParse?.aiSuggestions?.pricingModeSuggested;
-    if (pm === 'material_only' || pm === 'labor_only' || pm === 'labor_and_material') {
+    if (
+      pm === 'material_only' ||
+      pm === 'labor_only' ||
+      pm === 'labor_and_material' ||
+      pm === 'material_with_optional_install_quote'
+    ) {
       patchProjectDraft({ pricingMode: pm });
     }
   }
@@ -2709,6 +2714,7 @@ export function ProjectIntake() {
             intakeMatchConfidence: intakeFields.intakeMatchConfidence,
             isInstallableScope: intakeFields.isInstallableScope,
             installScopeType: intakeFields.installScopeType,
+            installLaborFamily: intakeFields.installLaborFamily,
             sourceManufacturer: intakeFields.sourceManufacturer,
             sourceBidBucket: intakeFields.sourceBidBucket,
             sourceSectionHeader: intakeFields.sourceSectionHeader,
@@ -3104,6 +3110,7 @@ export function ProjectIntake() {
                               <option value="material_only">Material only</option>
                               <option value="labor_only">Install only</option>
                               <option value="labor_and_material">Material + install</option>
+                              <option value="material_with_optional_install_quote">Material + install (quoted separately)</option>
                             </select>
                             <span className="mt-1 block text-[10px] text-slate-500">Controls material vs labor in the bid.</span>
                           </label>

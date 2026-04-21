@@ -195,6 +195,7 @@ export function ProjectSetupWorkspace({
                 <option value="material_only">Material only</option>
                 <option value="labor_only">Install only</option>
                 <option value="labor_and_material">Material + install</option>
+                <option value="material_with_optional_install_quote">Material + install (quoted separately)</option>
               </select>
               <span className="mt-1 block text-[10px] text-slate-500">Controls whether material and/or labor appear in the estimate.</span>
             </label>

@@ -5,6 +5,8 @@ import type { PricingMode, RoomRecord, TakeoffLineRecord } from '../../shared/ty
 import type { WorkspaceTab } from '../../shared/types/projectWorkflow';
 import { listScopeExceptionLines } from '../../shared/utils/scopeReviewExceptions';
 import type { ScopeLineException } from '../../shared/utils/scopeReviewExceptions';
+import { classifyBidBucketKind, compareBidBucketKeys } from '../../shared/utils/intakeEstimateReview';
+import type { BidBucketKind } from '../../shared/utils/intakeEstimateReview';
 import { ImportSummaryCards } from '../../components/workflow/ImportSummaryCards';
 import { EstimateTable } from '../../components/workflow/EstimateTable';
 import { StatusChip } from '../../components/workflow/StatusChip';
@@ -66,6 +68,66 @@ export function ScopeReviewPage({
   const linesById = useMemo(() => new Map(lines.map((l) => [l.id, l])), [lines]);
   const catalogById = useMemo(() => buildCatalogById(catalog), [catalog]);
   const { trusted } = useMemo(() => partitionLinesByException(lines, exceptions), [lines, exceptions]);
+
+  /**
+   * Phase 1.5 — sub-group exception rows (and trusted rows) by intake-derived bid bucket so
+   * estimators see Base Bid vs Alt 1 vs Deduct as separate sections, matching intake review.
+   * Only render bucket headers when more than one bucket exists — a single-bucket project
+   * should not gain chrome it doesn't need.
+   */
+  const exceptionGroups = useMemo(() => {
+    const groups = new Map<string, {
+      key: string;
+      label: string;
+      kind: BidBucketKind;
+      exceptions: ScopeLineException[];
+    }>();
+    exceptions.forEach((ex) => {
+      const line = linesById.get(ex.lineId);
+      const rawBucket = line?.sourceBidBucket?.trim() || '';
+      const key = rawBucket || '__unbucketed__';
+      const label = rawBucket || 'Unbucketed';
+      const kind = classifyBidBucketKind(rawBucket || null);
+      if (!groups.has(key)) groups.set(key, { key, label, kind, exceptions: [] });
+      groups.get(key)!.exceptions.push(ex);
+    });
+    return Array.from(groups.values()).sort(compareBidBucketKeys);
+  }, [exceptions, linesById]);
+
+  const trustedGroups = useMemo(() => {
+    const groups = new Map<string, {
+      key: string;
+      label: string;
+      kind: BidBucketKind;
+      lines: TakeoffLineRecord[];
+    }>();
+    trusted.forEach((line) => {
+      const rawBucket = line.sourceBidBucket?.trim() || '';
+      const key = rawBucket || '__unbucketed__';
+      const label = rawBucket || 'Unbucketed';
+      const kind = classifyBidBucketKind(rawBucket || null);
+      if (!groups.has(key)) groups.set(key, { key, label, kind, lines: [] });
+      groups.get(key)!.lines.push(line);
+    });
+    return Array.from(groups.values()).sort(compareBidBucketKeys);
+  }, [trusted]);
+
+  const bidBucketTone = (kind: BidBucketKind): string => {
+    switch (kind) {
+      case 'base':
+        return 'bg-emerald-50 text-emerald-900 ring-emerald-100/90';
+      case 'alternate':
+        return 'bg-indigo-50 text-indigo-900 ring-indigo-100/90';
+      case 'deduct':
+        return 'bg-rose-50 text-rose-900 ring-rose-100/90';
+      case 'allowance':
+        return 'bg-sky-50 text-sky-900 ring-sky-100/90';
+      case 'unit_price':
+        return 'bg-amber-50 text-amber-900 ring-amber-100/90';
+      default:
+        return 'bg-slate-100 text-slate-700 ring-slate-200/80';
+    }
+  };
 
   const [reviewScope, setReviewScope] = useState<'exceptions' | 'full_project'>('exceptions');
   const [trustedExpanded, setTrustedExpanded] = useState(false);
@@ -131,15 +193,30 @@ export function ScopeReviewPage({
       </header>
 
       {hasExceptions ? (
-        <section className="space-y-2">
+        <section className="space-y-3">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>
               <h3 className="text-sm font-semibold text-slate-900">Needs attention</h3>
-              <p className="text-[11px] text-slate-500">{exceptions.length} line{exceptions.length === 1 ? '' : 's'} — expand for rationale</p>
+              <p className="text-[11px] text-slate-500">
+                {exceptions.length} line{exceptions.length === 1 ? '' : 's'} — expand for rationale
+                {exceptionGroups.length > 1 ? ` · grouped by bid split (${exceptionGroups.length})` : ''}
+              </p>
             </div>
           </div>
+          {(exceptionGroups.length > 1 ? exceptionGroups : [{ key: '__all__', label: '', kind: 'base' as BidBucketKind, exceptions }]).map((group) => (
+          <div key={group.key} className={exceptionGroups.length > 1 ? 'space-y-2' : ''}>
+            {exceptionGroups.length > 1 ? (
+              <div className="flex items-baseline gap-2">
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ${bidBucketTone(group.kind)}`}>
+                  {group.label}
+                </span>
+                <span className="text-[10px] font-medium text-slate-500">
+                  {group.exceptions.length} line{group.exceptions.length === 1 ? '' : 's'}
+                </span>
+              </div>
+            ) : null}
           <ul className="space-y-2">
-            {exceptions.map((ex) => {
+            {group.exceptions.map((ex) => {
               const line = linesById.get(ex.lineId);
               if (!line) return null;
               const roomLabel = roomNamesById[line.roomId] || 'Unassigned';
@@ -233,6 +310,8 @@ export function ScopeReviewPage({
               );
             })}
           </ul>
+          </div>
+          ))}
         </section>
       ) : (
         <div className="flex flex-col gap-3 rounded-xl border border-emerald-200/80 bg-emerald-50/40 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -287,34 +366,52 @@ export function ScopeReviewPage({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-800">
-                  {trusted.map((line) => (
-                    <tr key={line.id} className="hover:bg-slate-50/60">
-                      <td className="max-w-[min(28rem,40vw)] px-3 py-2 font-medium text-slate-900">
-                        <span className="line-clamp-2">{line.description}</span>
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-slate-600">{roomNamesById[line.roomId] || '—'}</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-slate-600">{scopeReviewBucketLabel(line)}</td>
-                      <td className="whitespace-nowrap px-3 py-2">
-                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-900 ring-1 ring-emerald-100">
-                          {confidenceLabel(line, false)}
-                        </span>
-                      </td>
-                      <td className="max-w-[14rem] px-3 py-2 text-slate-600">
-                        <span className="line-clamp-2">{catalogMatchSummary(line, catalogById)}</span>
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-700">
-                        {line.qty} {line.unit}
-                      </td>
-                      <td className="px-2 py-2 text-right">
-                        <button
-                          type="button"
-                          onClick={() => onOpenLineInEstimate(line.id)}
-                          className="text-[10px] font-semibold text-blue-700 hover:text-blue-900"
-                        >
-                          Open
-                        </button>
-                      </td>
-                    </tr>
+                  {trustedGroups.map((group) => (
+                    <React.Fragment key={group.key}>
+                      {trustedGroups.length > 1 ? (
+                        <tr className="bg-slate-50/90">
+                          <td colSpan={7} className="px-3 py-1.5">
+                            <div className="flex items-baseline gap-2">
+                              <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide ring-1 ${bidBucketTone(group.kind)}`}>
+                                {group.label}
+                              </span>
+                              <span className="text-[10px] font-medium text-slate-500">
+                                {group.lines.length} line{group.lines.length === 1 ? '' : 's'}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                      {group.lines.map((line) => (
+                        <tr key={line.id} className="hover:bg-slate-50/60">
+                          <td className="max-w-[min(28rem,40vw)] px-3 py-2 font-medium text-slate-900">
+                            <span className="line-clamp-2">{line.description}</span>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-slate-600">{roomNamesById[line.roomId] || '—'}</td>
+                          <td className="whitespace-nowrap px-3 py-2 text-slate-600">{scopeReviewBucketLabel(line)}</td>
+                          <td className="whitespace-nowrap px-3 py-2">
+                            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-900 ring-1 ring-emerald-100">
+                              {confidenceLabel(line, false)}
+                            </span>
+                          </td>
+                          <td className="max-w-[14rem] px-3 py-2 text-slate-600">
+                            <span className="line-clamp-2">{catalogMatchSummary(line, catalogById)}</span>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-700">
+                            {line.qty} {line.unit}
+                          </td>
+                          <td className="px-2 py-2 text-right">
+                            <button
+                              type="button"
+                              onClick={() => onOpenLineInEstimate(line.id)}
+                              className="text-[10px] font-semibold text-blue-700 hover:text-blue-900"
+                            >
+                              Open
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>

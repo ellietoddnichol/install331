@@ -21,6 +21,7 @@ import {
   RoomRecord,
   SettingsRecord,
   TakeoffLineRecord,
+  isMaterialOnlyMainBid,
 } from '../shared/types/estimator';
 import { CatalogItem } from '../types';
 import { createDefaultProjectJobConditions, normalizeProjectJobConditions, recommendDeliveryPlan } from '../shared/utils/jobConditions';
@@ -52,13 +53,15 @@ import { PRICING_ALL_CATEGORIES, TAKEOFF_ALL_ROOMS } from '../shared/constants/w
 import { ProjectHeader } from '../components/workflow/ProjectHeader';
 import { ProjectStepNav } from '../components/workflow/ProjectStepNav.tsx';
 import { WorkflowRightDrawer } from '../components/workflow/WorkflowRightDrawer';
-import { EstimateToolbar } from '../components/workflow/EstimateToolbar';
+import { EstimateToolbar, type EstimateToolbarBidBucketStat } from '../components/workflow/EstimateToolbar';
+import { classifyBidBucketKind, compareBidBucketKeys } from '../shared/utils/intakeEstimateReview';
 import { RoomList } from '../components/workflow/RoomList';
 import { ProposalSectionEditor } from '../components/workflow/ProposalSectionEditor';
 import { ProposalSettingsRail } from '../components/workflow/ProposalSettingsRail';
 import { ProposalPreview } from '../components/workflow/ProposalPreview';
 import { EstimateGrid } from '../components/workspace/EstimateGrid';
 import { EstimateCostDriversBanner } from '../components/workspace/EstimateCostDriversBanner';
+import { LaborPlanPanel } from '../components/workspace/LaborPlanPanel';
 import { EstimateWorkspaceFooter } from '../components/workspace/EstimateWorkspaceFooter';
 import { ItemPicker } from '../components/workspace/ItemPicker';
 import { ModifierPanel } from '../components/workspace/ModifierPanel';
@@ -178,6 +181,17 @@ export function ProjectWorkspace() {
   /** `TAKEOFF_ALL_ROOMS` = combined view; otherwise a real room id (matches sidebar selection when drilling into one room). */
   const [takeoffRoomFilter, setTakeoffRoomFilter] = useState<string>(TAKEOFF_ALL_ROOMS);
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
+  /**
+   * Phase 1.3 — persistent right-rail modifier lane. When a line is selected and the
+   * viewport is wide enough, the lane renders alongside the estimate grid so add-ins
+   * can be applied without opening the full line-detail modal. Users can dismiss the
+   * lane and still fall back to the modal path. Dismissal resets on next selection
+   * change so the lane doesn't stay hidden forever.
+   */
+  const [modifierLaneDismissed, setModifierLaneDismissed] = useState(false);
+  useEffect(() => {
+    setModifierLaneDismissed(false);
+  }, [selectedLineId]);
   const [pricingOrganizeMode, setPricingOrganizeMode] = useState<'rooms' | 'categories'>('rooms');
   const [pricingCategoryFilter, setPricingCategoryFilter] = useState<string>(PRICING_ALL_CATEGORIES);
 
@@ -585,7 +599,7 @@ export function ProjectWorkspace() {
 
   const pricingMode: PricingMode = project?.pricingMode || 'labor_and_material';
   const showMaterial = pricingMode !== 'labor_only';
-  const showLabor = pricingMode !== 'material_only';
+  const showLabor = !isMaterialOnlyMainBid(pricingMode);
 
   const baseLaborRatePerHour = useMemo(() => {
     const n = Number(settings?.defaultLaborRatePerHour);
@@ -665,6 +679,32 @@ export function ProjectWorkspace() {
       ),
     [lines]
   );
+
+  /**
+   * Bid-bucket tally for the estimate workspace toolbar. Mirrors the intake review
+   * bid-split banner so the user keeps visibility of base vs. alternate splits after
+   * finalize. Only lines that carry `sourceBidBucket` contribute; lines without a
+   * bucket are ignored (they normally already roll into the main total).
+   */
+  const bidBucketStatsForToolbar = useMemo<EstimateToolbarBidBucketStat[]>(() => {
+    type Acc = { key: string; kind: EstimateToolbarBidBucketStat['kind']; lineCount: number; laborMinutes: number };
+    const map = new Map<string, Acc>();
+    for (const line of lines) {
+      const raw = (line.sourceBidBucket || '').trim();
+      if (!raw) continue;
+      const key = raw;
+      const kind = classifyBidBucketKind(raw) as EstimateToolbarBidBucketStat['kind'];
+      const qty = Number(line.qty || 0);
+      const minutes = Number(line.laborMinutes || 0) * qty;
+      const existing = map.get(key) || { key, kind, lineCount: 0, laborMinutes: 0 };
+      existing.lineCount += 1;
+      existing.laborMinutes += minutes;
+      map.set(key, existing);
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      compareBidBucketKeys({ key: a.key, kind: a.kind, label: a.key }, { key: b.key, kind: b.kind, label: b.key })
+    );
+  }, [lines]);
 
   function selectWorkspaceRoom(roomId: string) {
     setActiveRoomId(roomId);
@@ -1496,9 +1536,20 @@ export function ProjectWorkspace() {
           />
         )}
 
-        {activeTab === 'estimate' && (
+        {activeTab === 'estimate' && (() => {
+          /**
+           * Phase 1.3 — modifier lane is the persistent replacement for the modifiers modal
+           * on wide screens. The heavier modal (full line detail + pricing + notes) still
+           * opens via the toolbar button and row clicks; the lane is the "quick-apply"
+           * surface so estimators can add/remove add-ins without losing sight of the grid.
+           */
+          const laneActive = !!selectedLine && !modifierLaneDismissed;
+          const estimateGridClass = laneActive
+            ? 'grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[minmax(260px,300px)_minmax(0,1fr)_340px]'
+            : 'grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[minmax(260px,300px)_1fr]';
+          return (
           <div className="flex min-w-0 flex-col gap-1">
-          <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[minmax(260px,300px)_1fr]">
+          <div className={estimateGridClass}>
             <RoomList
               rooms={rooms}
               activeRoomId={activeRoomId}
@@ -1555,9 +1606,24 @@ export function ProjectWorkspace() {
                 projectTotal={summary?.baseBidTotal}
                 formatCurrency={(n) => formatCurrencySafe(n)}
                 disabledAdd={!activeRoomId}
+                bidBucketStats={bidBucketStatsForToolbar}
               />
               {estimateView === 'quantities' ? (
                 <div className="space-y-3">
+                  {summary ? (
+                    <LaborPlanPanel
+                      compact
+                      installerCount={jobConditions.installerCount}
+                      productiveCrewHoursPerDay={summary.productiveCrewHoursPerDay ?? jobConditions.installerCount * 8}
+                      totalLaborHours={summary.totalLaborHours}
+                      durationDays={summary.durationDays}
+                      baseLaborRatePerHour={baseLaborRatePerHour}
+                      effectiveLaborCostPerHour={effectiveLaborCostPerHour}
+                      laborCostMultiplier={laborCostMultiplier}
+                      laborHoursMultiplier={laborHoursMultiplier}
+                      deliveryDifficulty={jobConditions.deliveryDifficulty}
+                    />
+                  ) : null}
                   {takeoffRoomFilter === TAKEOFF_ALL_ROOMS ? (
                     <p className="text-xs leading-snug text-slate-500">
                       <span className="font-medium text-slate-700">Combined across rooms:</span> lines that match the same catalog item or SKU are rolled into one row (qty and install time are summed). Room names are listed under each item.{' '}
@@ -1587,20 +1653,33 @@ export function ProjectWorkspace() {
               ) : (
               <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
               {summary ? (
-                <EstimateCostDriversBanner
-                  pricingMode={pricingMode}
-                  baseLaborRatePerHour={baseLaborRatePerHour}
-                  effectiveLaborCostPerHour={effectiveLaborCostPerHour}
-                  laborCostMultiplier={laborCostMultiplier}
-                  laborHoursMultiplier={laborHoursMultiplier}
-                  installerCount={jobConditions.installerCount}
-                  productiveCrewHoursPerDay={summary.productiveCrewHoursPerDay ?? jobConditions.installerCount * 8}
-                  totalLaborHours={summary.totalLaborHours}
-                  durationDays={summary.durationDays}
-                  materialLoadedOrSubtotal={summary.materialLoadedSubtotal ?? summary.materialSubtotal}
-                  laborLoadedOrSubtotal={summary.laborLoadedSubtotal ?? summary.adjustedLaborSubtotal ?? summary.laborSubtotal}
-                  baseBidTotal={summary.baseBidTotal}
-                />
+                <>
+                  <LaborPlanPanel
+                    installerCount={jobConditions.installerCount}
+                    productiveCrewHoursPerDay={summary.productiveCrewHoursPerDay ?? jobConditions.installerCount * 8}
+                    totalLaborHours={summary.totalLaborHours}
+                    durationDays={summary.durationDays}
+                    baseLaborRatePerHour={baseLaborRatePerHour}
+                    effectiveLaborCostPerHour={effectiveLaborCostPerHour}
+                    laborCostMultiplier={laborCostMultiplier}
+                    laborHoursMultiplier={laborHoursMultiplier}
+                    deliveryDifficulty={jobConditions.deliveryDifficulty}
+                  />
+                  <EstimateCostDriversBanner
+                    pricingMode={pricingMode}
+                    baseLaborRatePerHour={baseLaborRatePerHour}
+                    effectiveLaborCostPerHour={effectiveLaborCostPerHour}
+                    laborCostMultiplier={laborCostMultiplier}
+                    laborHoursMultiplier={laborHoursMultiplier}
+                    installerCount={jobConditions.installerCount}
+                    productiveCrewHoursPerDay={summary.productiveCrewHoursPerDay ?? jobConditions.installerCount * 8}
+                    totalLaborHours={summary.totalLaborHours}
+                    durationDays={summary.durationDays}
+                    materialLoadedOrSubtotal={summary.materialLoadedSubtotal ?? summary.materialSubtotal}
+                    laborLoadedOrSubtotal={summary.laborLoadedSubtotal ?? summary.adjustedLaborSubtotal ?? summary.laborSubtotal}
+                    baseBidTotal={summary.baseBidTotal}
+                  />
+                </>
               ) : null}
               <div className="ui-panel space-y-2 p-2 sm:p-2.5">
                 <div>
@@ -1753,10 +1832,14 @@ export function ProjectWorkspace() {
                       )}
                     </span>
                   </span>
-                  {pricingMode === 'material_only' && (summary?.laborCompanionProposalTotal ?? 0) > 0 ? (
+                  {isMaterialOnlyMainBid(pricingMode) && (summary?.laborCompanionProposalTotal ?? 0) > 0 ? (
                     <span className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2 py-1 font-medium ring-1 ring-slate-200/80">
                       <Hammer className="h-3 w-3 text-slate-500" aria-hidden />
-                      <span className="text-slate-500">Sub labor (companion)</span>
+                      <span className="text-slate-500">
+                        {pricingMode === 'material_with_optional_install_quote'
+                          ? 'Install (quoted separately)'
+                          : 'Sub labor (companion)'}
+                      </span>
                       <span className="font-semibold tabular-nums text-slate-900">{formatCurrencySafe(summary?.laborCompanionProposalTotal ?? 0)}</span>
                     </span>
                   ) : null}
@@ -1817,6 +1900,72 @@ export function ProjectWorkspace() {
               </div>
               )}
             </div>
+            {laneActive && selectedLine ? (
+              <aside className="hidden min-w-0 xl:block">
+                <div className="sticky top-3 space-y-2 rounded-2xl border border-slate-200/80 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-3 shadow-sm">
+                  <div className="flex items-start justify-between gap-2 border-b border-slate-200/80 pb-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Line add-ins</p>
+                        <span className="rounded-full bg-violet-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-800 ring-1 ring-violet-100/90">Live</span>
+                      </div>
+                      <p className="mt-0.5 truncate text-[12px] font-semibold text-slate-900" title={selectedLine.description}>
+                        {selectedLine.description || 'Untitled line'}
+                      </p>
+                      <p className="text-[10px] text-slate-500">
+                        {lineModifiers.length === 0
+                          ? 'No add-ins yet.'
+                          : `${lineModifiers.length} add-in${lineModifiers.length === 1 ? '' : 's'} applied`}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openLineEditor(selectedLine.id)}
+                        className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+                        title="Open full line detail (pricing, notes, unit overrides)"
+                      >
+                        Full detail →
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setModifierLaneDismissed(true)}
+                        className="rounded-full p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                        aria-label="Hide add-ins lane"
+                        title="Hide add-ins lane (use the Modifiers button to reopen)"
+                      >
+                        <X className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5 text-[10px]">
+                    <div className="rounded-lg bg-white px-2 py-1.5 text-center shadow-sm ring-1 ring-slate-200/80">
+                      <p className="text-[9px] font-semibold uppercase tracking-[0.06em] text-slate-500">+Material</p>
+                      <p className="mt-0.5 text-[11px] font-semibold tabular-nums text-slate-900">
+                        {formatCurrencySafe(lineModifiers.reduce((sum, m) => sum + (m.addMaterialCost || 0), 0))}
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-white px-2 py-1.5 text-center shadow-sm ring-1 ring-slate-200/80">
+                      <p className="text-[9px] font-semibold uppercase tracking-[0.06em] text-slate-500">+Minutes</p>
+                      <p className="mt-0.5 text-[11px] font-semibold tabular-nums text-slate-900">
+                        {formatNumberSafe(lineModifiers.reduce((sum, m) => sum + (m.addLaborMinutes || 0), 0), 1)}
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-white px-2 py-1.5 text-center shadow-sm ring-1 ring-slate-200/80">
+                      <p className="text-[9px] font-semibold uppercase tracking-[0.06em] text-slate-500">Unit sell</p>
+                      <p className="mt-0.5 text-[11px] font-semibold tabular-nums text-slate-900">{formatCurrencySafe(selectedLine.unitSell)}</p>
+                    </div>
+                  </div>
+                  <ModifierPanel
+                    modifiers={modifiers}
+                    activeModifiers={lineModifiers}
+                    selectedLinePresent={!!selectedLine}
+                    onApplyModifier={(modifierId) => void applyModifier(modifierId)}
+                    onRemoveModifier={(lineModifierId) => void removeModifier(lineModifierId)}
+                  />
+                </div>
+              </aside>
+            ) : null}
           </div>
           <EstimateWorkspaceFooter
             estimateView={estimateView}
@@ -1827,7 +1976,8 @@ export function ProjectWorkspace() {
             laborLoadedSubtotal={summary?.laborLoadedSubtotal ?? summary?.adjustedLaborSubtotal ?? summary?.laborSubtotal}
           />
           </div>
-        )}
+          );
+        })()}
 
         {activeTab === 'proposal' && (
           <div className="space-y-4">

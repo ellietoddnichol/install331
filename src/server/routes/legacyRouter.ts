@@ -1,9 +1,6 @@
 import { Router } from 'express';
-import { randomUUID } from 'crypto';
-import { calculateEstimate } from '../engine.ts';
-import type { CatalogItem, Project } from '../../types.ts';
+import type { CatalogItem } from '../../types.ts';
 import {
-  syncCatalogFromGoogleSheets,
   upsertBundleInGoogleSheet,
   upsertItemInGoogleSheet,
   upsertModifierInGoogleSheet,
@@ -14,11 +11,17 @@ import { handleRouteError } from '../http/jsonErrors.ts';
 import {
   legacyBundleUpdateSchema,
   legacyCatalogItemBodySchema,
-  legacyModifierCreateSchema,
   legacyModifierUpdateSchema,
-  legacyProjectBodySchema,
-  legacySettingsBodySchema,
 } from '../validation/legacySchemas.ts';
+
+/**
+ * Legacy catalog CRUD endpoints (mounted at `/api`).
+ *
+ * Retained because the current client still calls these for catalog item, modifier,
+ * and bundle edits. The old monolithic `/projects`, `/settings`, `/estimate/calculate`,
+ * `/global/*`, and `/sync/sheets` routes were removed in the 2026-04-16 cleanup —
+ * all live callers now use `/api/v1/*`.
+ */
 
 /** Google Sheets sync is best-effort and must not block saves. */
 async function syncCatalogToGoogleSheetOptional(label: string, fn: () => Promise<void>): Promise<void> {
@@ -34,131 +37,6 @@ export const legacyRouter = Router();
 
 legacyRouter.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
-legacyRouter.get('/projects', (_req, res) => {
-  const projects = getEstimatorDb().prepare('SELECT * FROM projects ORDER BY created_date DESC').all();
-  res.json(
-    (projects as any[]).map((p) => ({
-      id: p.id,
-      projectNumber: p.project_number,
-      name: p.name,
-      clientName: p.client_name,
-      gcName: p.gc_name,
-      address: p.address,
-      bidDate: p.bid_date,
-      dueDate: p.due_date,
-      projectType: p.project_type,
-      estimator: p.estimator,
-      status: p.status,
-      createdDate: p.created_date,
-      settings: JSON.parse(p.settings),
-      proposalSettings: JSON.parse(p.proposal_settings),
-      scopes: JSON.parse(p.scopes),
-      rooms: JSON.parse(p.rooms),
-      bundles: JSON.parse(p.bundles),
-      alternates: JSON.parse(p.alternates),
-      lines: JSON.parse(p.lines),
-    }))
-  );
-});
-
-legacyRouter.get('/projects/:id', (req, res) => {
-  const p: any = getEstimatorDb().prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
-  if (!p) return res.status(404).json({ error: 'Project not found' });
-  res.json({
-    id: p.id,
-    projectNumber: p.project_number,
-    name: p.name,
-    clientName: p.client_name,
-    gcName: p.gc_name,
-    address: p.address,
-    bidDate: p.bid_date,
-    dueDate: p.due_date,
-    projectType: p.project_type,
-    estimator: p.estimator,
-    status: p.status,
-    createdDate: p.created_date,
-    settings: JSON.parse(p.settings),
-    proposalSettings: JSON.parse(p.proposal_settings),
-    scopes: JSON.parse(p.scopes),
-    rooms: JSON.parse(p.rooms),
-    bundles: JSON.parse(p.bundles),
-    alternates: JSON.parse(p.alternates),
-    lines: JSON.parse(p.lines),
-  });
-});
-
-legacyRouter.post('/projects', (req, res) => {
-  const parsed = legacyProjectBodySchema.safeParse(req.body);
-  if (!parsed.success) return handleRouteError(res, parsed.error, '[POST /api/projects]');
-  const p = parsed.data;
-  getEstimatorDb()
-    .prepare(
-      `INSERT INTO projects (id, project_number, name, client_name, gc_name, address, bid_date, due_date, project_type, estimator, status, created_date, settings, proposal_settings, scopes, rooms, bundles, alternates, lines)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      p.id,
-      p.projectNumber ?? null,
-      p.name,
-      p.clientName,
-      p.gcName ?? null,
-      p.address,
-      p.bidDate ?? null,
-      p.dueDate ?? null,
-      p.projectType ?? null,
-      p.estimator ?? null,
-      p.status,
-      p.createdDate,
-      JSON.stringify(p.settings),
-      JSON.stringify(p.proposalSettings),
-      JSON.stringify(p.scopes),
-      JSON.stringify(p.rooms),
-      JSON.stringify(p.bundles),
-      JSON.stringify(p.alternates),
-      JSON.stringify(p.lines)
-    );
-  res.status(201).json(p as unknown as Project);
-});
-
-legacyRouter.put('/projects/:id', (req, res) => {
-  const parsed = legacyProjectBodySchema.safeParse(req.body);
-  if (!parsed.success) return handleRouteError(res, parsed.error, '[PUT /api/projects/:id]');
-  const p = parsed.data;
-  getEstimatorDb()
-    .prepare(
-      `UPDATE projects SET 
-        project_number = ?, name = ?, client_name = ?, gc_name = ?, address = ?, bid_date = ?, due_date = ?, project_type = ?, estimator = ?, status = ?, 
-        settings = ?, proposal_settings = ?, scopes = ?, rooms = ?, bundles = ?, alternates = ?, lines = ?
-      WHERE id = ?`
-    )
-    .run(
-      p.projectNumber ?? null,
-      p.name,
-      p.clientName,
-      p.gcName ?? null,
-      p.address,
-      p.bidDate ?? null,
-      p.dueDate ?? null,
-      p.projectType ?? null,
-      p.estimator ?? null,
-      p.status,
-      JSON.stringify(p.settings),
-      JSON.stringify(p.proposalSettings),
-      JSON.stringify(p.scopes),
-      JSON.stringify(p.rooms),
-      JSON.stringify(p.bundles),
-      JSON.stringify(p.alternates),
-      JSON.stringify(p.lines),
-      req.params.id
-    );
-  res.json(p as unknown as Project);
-});
-
-legacyRouter.delete('/projects/:id', (req, res) => {
-  getEstimatorDb().prepare('DELETE FROM projects WHERE id = ?').run(req.params.id);
-  res.status(204).send();
-});
-
 legacyRouter.get('/catalog/items', (req, res) => {
   const includeInactive = req.query.includeInactive === '1' || req.query.includeInactive === 'true';
   res.json(listCatalogItemsForApi(includeInactive));
@@ -171,8 +49,8 @@ legacyRouter.post('/catalog/items', async (req, res) => {
   try {
     getEstimatorDb()
       .prepare(
-        `INSERT INTO catalog_items (id, sku, category, subcategory, family, description, manufacturer, brand, model, model_number, series, image_url, uom, base_material_cost, base_labor_minutes, labor_unit_type, taxable, ada_flag, tags, notes, active)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO catalog_items (id, sku, category, subcategory, family, description, manufacturer, brand, model, model_number, series, image_url, uom, base_material_cost, base_labor_minutes, labor_unit_type, taxable, ada_flag, tags, notes, active, install_labor_family)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         i.id,
@@ -195,7 +73,8 @@ legacyRouter.post('/catalog/items', async (req, res) => {
         i.adaFlag ? 1 : 0,
         JSON.stringify(i.tags ?? []),
         i.notes ?? null,
-        i.active ? 1 : 0
+        i.active ? 1 : 0,
+        i.installLaborFamily ?? null
       );
     await syncCatalogToGoogleSheetOptional('create item', () =>
       upsertItemInGoogleSheet({
@@ -232,7 +111,7 @@ legacyRouter.put('/catalog/items/:id', async (req, res) => {
       .prepare(
         `UPDATE catalog_items SET 
           sku = ?, category = ?, subcategory = ?, family = ?, description = ?, manufacturer = ?, brand = ?, model = ?, model_number = ?, series = ?, image_url = ?, uom = ?, 
-          base_material_cost = ?, base_labor_minutes = ?, labor_unit_type = ?, taxable = ?, ada_flag = ?, tags = ?, notes = ?, active = ?
+          base_material_cost = ?, base_labor_minutes = ?, labor_unit_type = ?, taxable = ?, ada_flag = ?, tags = ?, notes = ?, active = ?, install_labor_family = ?
         WHERE id = ?`
       )
       .run(
@@ -256,6 +135,7 @@ legacyRouter.put('/catalog/items/:id', async (req, res) => {
         JSON.stringify(i.tags ?? []),
         i.notes ?? null,
         i.active ? 1 : 0,
+        i.installLaborFamily ?? null,
         req.params.id
       );
     await syncCatalogToGoogleSheetOptional('update item', () =>
@@ -340,53 +220,6 @@ legacyRouter.get('/catalog/modifiers', (_req, res) => {
       updatedAt: row.updated_at,
     }))
   );
-});
-
-legacyRouter.post('/catalog/modifiers', async (req, res) => {
-  const parsed = legacyModifierCreateSchema.safeParse(req.body);
-  if (!parsed.success) return handleRouteError(res, parsed.error, '[POST /api/catalog/modifiers]');
-  const input = parsed.data;
-  const now = new Date().toISOString();
-  const record = {
-    id: input.id || randomUUID(),
-    name: input.name.trim(),
-    modifierKey: (input.modifierKey || input.name).trim().toUpperCase().replace(/\s+/g, '_'),
-    description: String(input.description ?? '').trim(),
-    appliesToCategories: input.appliesToCategories ?? [],
-    addLaborMinutes: input.addLaborMinutes ?? 0,
-    addMaterialCost: input.addMaterialCost ?? 0,
-    percentLabor: input.percentLabor ?? 0,
-    percentMaterial: input.percentMaterial ?? 0,
-    active: input.active !== false,
-    updatedAt: now,
-  };
-
-  try {
-    getEstimatorDb()
-      .prepare(
-        `INSERT INTO modifiers_v1 (
-          id, name, modifier_key, description, applies_to_categories, add_labor_minutes, add_material_cost,
-          percent_labor, percent_material, active, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        record.id,
-        record.name,
-        record.modifierKey,
-        record.description,
-        JSON.stringify(record.appliesToCategories),
-        record.addLaborMinutes,
-        record.addMaterialCost,
-        record.percentLabor,
-        record.percentMaterial,
-        record.active ? 1 : 0,
-        record.updatedAt
-      );
-    await syncCatalogToGoogleSheetOptional('create modifier', () => upsertModifierInGoogleSheet(record));
-    res.status(201).json(record);
-  } catch (err: unknown) {
-    handleRouteError(res, err, '[POST /api/catalog/modifiers]');
-  }
 });
 
 legacyRouter.put('/catalog/modifiers/:id', async (req, res) => {
@@ -541,69 +374,4 @@ legacyRouter.delete('/catalog/bundles/:id', async (req, res) => {
   } catch (err: unknown) {
     handleRouteError(res, err, '[DELETE /api/catalog/bundles/:id]');
   }
-});
-
-legacyRouter.get('/global/bundles', (_req, res) => {
-  const bundles = getEstimatorDb().prepare('SELECT * FROM global_bundles').all();
-  res.json(
-    (bundles as any[]).map((b) => ({
-      id: b.id,
-      name: b.name,
-      items: JSON.parse(b.items),
-    }))
-  );
-});
-
-legacyRouter.get('/global/addins', (_req, res) => {
-  const addins = getEstimatorDb().prepare('SELECT * FROM global_addins').all();
-  res.json(
-    (addins as any[]).map((a) => ({
-      id: a.id,
-      name: a.name,
-      cost: a.cost,
-      laborMinutes: a.labor_minutes,
-    }))
-  );
-});
-
-legacyRouter.post('/sync/sheets', async (_req, res) => {
-  try {
-    const result = await syncCatalogFromGoogleSheets();
-    res.json(result);
-  } catch (err: unknown) {
-    handleRouteError(res, err, '[POST /api/sync/sheets]');
-  }
-});
-
-legacyRouter.post('/estimate/calculate', (req, res) => {
-  const parsed = legacyProjectBodySchema.safeParse(req.body);
-  if (!parsed.success) return handleRouteError(res, parsed.error, '[POST /api/estimate/calculate]');
-  const project = parsed.data as unknown as Project;
-  const catalog = getEstimatorDb()
-    .prepare('SELECT * FROM catalog_items')
-    .all()
-    .map((i: any) => ({
-      ...i,
-      baseMaterialCost: i.base_material_cost,
-      baseLaborMinutes: i.base_labor_minutes,
-      laborUnitType: i.labor_unit_type,
-      modelNumber: i.model_number,
-      taxable: !!i.taxable,
-      adaFlag: !!i.ada_flag,
-      tags: i.tags ? JSON.parse(i.tags) : [],
-    }));
-  const result = calculateEstimate(project, catalog);
-  res.json(result);
-});
-
-legacyRouter.get('/settings', (_req, res) => {
-  const s: any = getEstimatorDb().prepare('SELECT value FROM settings WHERE key = ?').get('global');
-  res.json(JSON.parse(s.value));
-});
-
-legacyRouter.put('/settings', (req, res) => {
-  const parsed = legacySettingsBodySchema.safeParse(req.body);
-  if (!parsed.success) return handleRouteError(res, parsed.error, '[PUT /api/settings]');
-  getEstimatorDb().prepare('UPDATE settings SET value = ? WHERE key = ?').run(JSON.stringify(parsed.data), 'global');
-  res.json(parsed.data);
 });

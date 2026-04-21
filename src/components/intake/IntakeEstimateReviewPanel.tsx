@@ -225,8 +225,13 @@ export function IntakeEstimateReviewPanel({
     const totalMinutes = rows.reduce((sum, r) => sum + (r.pricingPreview?.laborMinutesEach ?? 0) * (r.pricingPreview?.qty ?? 1), 0);
     return { count: rows.length, totalMinutes };
   }, [draft.lineSuggestions]);
-  const isMaterialOnlyPricingMode = (pricingModeDraft || '').toLowerCase().includes('material_only')
-    || (pricingModeDraft || '').toLowerCase() === 'material only';
+  const pricingModeLower = (pricingModeDraft || '').toLowerCase();
+  const isMaterialOnlyPricingMode =
+    pricingModeLower === 'material_only' ||
+    pricingModeLower === 'material_with_optional_install_quote' ||
+    pricingModeLower === 'material only';
+  const isMaterialWithOptionalInstallQuote =
+    pricingModeLower === 'material_with_optional_install_quote';
 
   const catalogById = useMemo(() => new Map(catalog.map((c) => [c.id, c])), [catalog]);
 
@@ -708,9 +713,11 @@ export function IntakeEstimateReviewPanel({
             <span className="ml-1 font-normal text-[11px]">({Math.round(installFamilyLaborSummary.totalMinutes)} min total)</span>
           </p>
           <p className="mt-0.5 text-[11px] leading-snug">
-            {isMaterialOnlyPricingMode
-              ? 'Project pricing mode is Material Only, but the source document includes installable scope. Labor minutes shown are estimator-generated fallbacks — review before pricing.'
-              : 'Labor minutes for these lines came from the install-family registry because the catalog match had no explicit labor. Review or replace the catalog match to override.'}
+            {isMaterialWithOptionalInstallQuote
+              ? 'Material-led bid with install quoted separately. These labor minutes feed the companion install quote — the main bid still excludes labor.'
+              : isMaterialOnlyPricingMode
+                ? 'Project pricing mode is Material Only, but the source document includes installable scope. Labor minutes shown are estimator-generated fallbacks — review before pricing.'
+                : 'Labor minutes for these lines came from the install-family registry because the catalog match had no explicit labor. Review or replace the catalog match to override.'}
           </p>
         </div>
       ) : null}

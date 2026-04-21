@@ -1,4 +1,4 @@
-import { EstimateSummary, ProjectRecord, TakeoffLineRecord } from '../../shared/types/estimator.ts';
+import { EstimateSummary, ProjectRecord, TakeoffLineRecord, isMaterialOnlyMainBid } from '../../shared/types/estimator.ts';
 import { extendedLaborDollarsForLine } from '../../shared/utils/lineLaborExtension.ts';
 import { computeProjectConditionEffects, normalizeProjectJobConditions } from '../../shared/utils/jobConditions.ts';
 import { getConfiguredLaborRatePerHour } from '../repos/takeoffRepo.ts';
@@ -21,7 +21,7 @@ export function calculateEstimateSummary(project: ProjectRecord, lines: TakeoffL
   const rawLaborMinutesScaled = Number(rawLaborMinutesFullBase.toFixed(2));
 
   const materialForBid = pricingMode === 'labor_only' ? 0 : materialWithAllowances;
-  const laborForBidRaw = pricingMode === 'material_only' ? 0 : laborCompanionRaw;
+  const laborForBidRaw = isMaterialOnlyMainBid(pricingMode) ? 0 : laborCompanionRaw;
 
   const effects = computeProjectConditionEffects(
     project,
@@ -31,7 +31,7 @@ export function calculateEstimateSummary(project: ProjectRecord, lines: TakeoffL
   );
 
   const laborAdjustedCore = laborCompanionRaw + effects.laborAdjustmentAmount;
-  const adjustedLaborForBid = pricingMode === 'material_only' ? 0 : laborAdjustedCore;
+  const adjustedLaborForBid = isMaterialOnlyMainBid(pricingMode) ? 0 : laborAdjustedCore;
 
   const lineSubtotal = materialForBid + adjustedLaborForBid + effects.estimateAdderAmount;
 
@@ -57,7 +57,7 @@ export function calculateEstimateSummary(project: ProjectRecord, lines: TakeoffL
   const profitAmount = Number((afterMaterialOH * (project.profitPercent / 100)).toFixed(2));
   const materialLoadedSubtotal = Number((afterMaterialOH + profitAmount).toFixed(2));
 
-  const laborInMainBid = pricingMode !== 'material_only';
+  const laborInMainBid = !isMaterialOnlyMainBid(pricingMode);
   const materialInMainBid = pricingMode !== 'labor_only';
 
   const baseBidTotal = Number(

@@ -8,6 +8,7 @@ import { CatalogSyncStatusRecord, BundleRecord, ModifierRecord } from '../shared
 import { CatalogItem } from '../types';
 import { formatCurrencySafe, formatNumberSafe, formatPercentSafe } from '../utils/numberFormat';
 import { isDisplayableCatalogImageUrl } from '../shared/utils/catalogImageUrl';
+import { INSTALL_LABOR_FAMILY_OPTIONS } from '../shared/utils/installLaborFamilyOptions';
 
 function CatalogItemThumb({ url }: { url: string | undefined }) {
   const [broken, setBroken] = useState(false);
@@ -847,6 +848,31 @@ export function Catalog() {
                     value={editingItem.baseLaborMinutes}
                     onChange={(e) => setEditingItem({ ...editingItem, baseLaborMinutes: parseFloat(e.target.value) || 0 })}
                   />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                    Install Labor Family <span className="text-slate-400 font-normal">(fallback when this item has no labor minutes on a line)</span>
+                  </label>
+                  <select
+                    className="w-full h-9 px-2 border border-slate-300 rounded text-sm bg-white"
+                    value={editingItem.installLaborFamily ?? ''}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        installLaborFamily: e.target.value ? e.target.value : null,
+                      })
+                    }
+                  >
+                    <option value="">— None —</option>
+                    {INSTALL_LABOR_FAMILY_OPTIONS.map((opt) => (
+                      <option key={opt.key} value={opt.key}>
+                        {opt.label} · {opt.defaultMinutes} min {opt.unitBasis.replace('per_', '/ ')}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[10px] leading-snug text-slate-500">
+                    Drives install-family labor for intake lines that match this SKU but arrive with zero labor. Leave blank to rely on heuristic scope-type detection.
+                  </p>
                 </div>
                 <div className="col-span-2">
                   <label className="block text-[11px] font-medium text-slate-600 mb-1">Image URL (optional)</label>

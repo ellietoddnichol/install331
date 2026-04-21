@@ -265,6 +265,7 @@ export function resolveIntakePersistFieldsForTakeoffLine(input: {
   intakeMatchConfidence: IntakeMatchConfidence | null;
   isInstallableScope: boolean | null;
   installScopeType: string | null;
+  installLaborFamily: string | null;
   sourceManufacturer: string | null;
   sourceBidBucket: string | null;
   sourceSectionHeader: string | null;
@@ -277,6 +278,7 @@ export function resolveIntakePersistFieldsForTakeoffLine(input: {
     intakeMatchConfidence: null,
     isInstallableScope: null,
     installScopeType: null,
+    installLaborFamily: null,
     sourceManufacturer: null,
     sourceBidBucket: null,
     sourceSectionHeader: null,
@@ -296,11 +298,13 @@ export function resolveIntakePersistFieldsForTakeoffLine(input: {
   const generatedLaborMinutes = row.pricingPreview?.laborFromInstallFamily
     ? row.pricingPreview?.laborMinutesEach ?? null
     : null;
+  const installLaborFamily = row.pricingPreview?.installFamilyKey ?? null;
   return {
     intakeScopeBucket: row.scopeBucket ?? null,
     intakeMatchConfidence: confidence,
     isInstallableScope: row.isInstallableScope ?? null,
     installScopeType: row.installScopeType ?? null,
+    installLaborFamily,
     sourceManufacturer: row.sourceManufacturer ?? null,
     sourceBidBucket: row.sourceBidBucket ?? null,
     sourceSectionHeader: row.sourceSectionHeader ?? null,
@@ -485,7 +489,12 @@ export function computeDraftBasisSummary(
   }
 ): DraftBasisSummary {
   const pricingMode = (options?.pricingMode || '').toLowerCase();
-  const isMaterialOnly = pricingMode.includes('material_only') || pricingMode === 'material only';
+  // Both `material_only` and `material_with_optional_install_quote` exclude labor from the
+  // draft *primary* total; the latter still generates companion install minutes for a quote.
+  const isMaterialOnly =
+    pricingMode === 'material_only' ||
+    pricingMode === 'material_with_optional_install_quote' ||
+    pricingMode === 'material only';
   const warnings: string[] = [];
   let acceptedPricedLines = 0;
   let needsReviewPricedLines = 0;

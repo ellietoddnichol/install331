@@ -36,7 +36,9 @@ export function EstimateCostDriversBanner({
       ? 'This bid includes catalog material units and install labor on each line, then company markup/tax/burden in the engine.'
       : pricingMode === 'labor_only'
         ? 'This bid is labor-led: line dollars emphasize install; material columns stay out of the way.'
-        : 'This bid is material-led: line dollars emphasize material; companion install labor is separated where applicable.';
+        : pricingMode === 'material_with_optional_install_quote'
+          ? 'This bid is material-led; install labor is tracked for a companion quote that is billed separately.'
+          : 'This bid is material-led: line dollars emphasize material; companion install labor is separated where applicable.';
 
   return (
     <section className="rounded-xl border border-slate-200/90 bg-gradient-to-b from-slate-50/95 to-white px-3 py-2.5 text-[11px] text-slate-700 shadow-sm">

@@ -59,7 +59,12 @@ export function buildIntakeAiSuggestionsFromGemini(gemini: GeminiExtractionResul
 
   const pb = gemini.pricingBasis;
   const pricingModeSuggested: IntakeAiSuggestions['pricingModeSuggested'] =
-    pb === 'material_only' || pb === 'labor_only' || pb === 'labor_and_material' ? pb : '';
+    pb === 'material_only' ||
+    pb === 'labor_only' ||
+    pb === 'labor_and_material' ||
+    pb === 'material_with_optional_install_quote'
+      ? pb
+      : '';
 
   return {
     documentType: gemini.documentType || 'unknown',

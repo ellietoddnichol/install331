@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Layers3, Sparkles } from 'lucide-react';
-import { RoomRecord, TakeoffLineModifierRollup, TakeoffLineRecord } from '../../shared/types/estimator';
+import { ChevronDown, ChevronRight, Info, Layers3, Sparkles } from 'lucide-react';
+import { PricingMode, RoomRecord, TakeoffLineModifierRollup, TakeoffLineRecord, isMaterialOnlyMainBid } from '../../shared/types/estimator';
 import { formatClientProposalItemDisplay } from '../../shared/utils/proposalDocument';
 import { formatCurrencySafe, formatLaborDurationMinutes, formatNumberSafe } from '../../utils/numberFormat';
 
@@ -9,7 +9,7 @@ interface Props {
   rooms: RoomRecord[];
   categories: string[];
   roomNamesById: Record<string, string>;
-  pricingMode: 'material_only' | 'labor_only' | 'labor_and_material';
+  pricingMode: PricingMode;
   viewMode: 'takeoff' | 'estimate';
   organizeBy: 'room' | 'item';
   /** In takeoff view, show each line’s room under the item (e.g. when listing all rooms). */
@@ -53,6 +53,16 @@ interface DisplayRow {
   canDelete: boolean;
   modifierNames: string[];
   modifierRollup: TakeoffLineModifierRollup | null;
+  /** Intake-persisted bid bucket (e.g. "Base Bid" / "Alt 1"). Used for estimate-workspace bid-split chips. */
+  sourceBidBucket: string | null;
+  /** Source manufacturer inherited from the intake section header, if any. */
+  sourceManufacturer: string | null;
+  /** `source`, `catalog`, or `install_family` — drives the "generated labor" badge. */
+  laborOrigin: 'source' | 'catalog' | 'install_family' | null;
+  /** Catalog- or heuristic-seeded install-labor-family key, surfaced in the row tooltip. */
+  installLaborFamily: string | null;
+  /** Whether the row was classified as installable scope during intake. */
+  isInstallableScope: boolean | null;
 }
 
 function normalizeGroupKey(line: TakeoffLineRecord): string {
@@ -86,8 +96,19 @@ export function EstimateGrid({
   categoryGroupHeaders = false,
 }: Props) {
   const [collapsedBundles, setCollapsedBundles] = useState<Record<string, boolean>>({});
+  /**
+   * Phase 1.4 — row-level "why this labor" inspector. One row at a time keeps the grid
+   * readable; clicking the info button again on the same row collapses it. The inspector
+   * exposes the labor-origin chain (source vs catalog vs install-family fallback), the
+   * unit and extended minutes, the unit labor $, and the current add-in deltas so the
+   * estimator can answer "where does this labor come from?" without opening the modal.
+   */
+  const [inspectorOpenLineId, setInspectorOpenLineId] = useState<string | null>(null);
+  const toggleInspector = (lineId: string) => {
+    setInspectorOpenLineId((current) => (current === lineId ? null : lineId));
+  };
   const showMaterial = pricingMode !== 'labor_only';
-  const showLabor = pricingMode !== 'material_only';
+  const showLabor = !isMaterialOnlyMainBid(pricingMode);
   const isTakeoffView = viewMode === 'takeoff';
   const addInsColumn = !isTakeoffView ? 1 : 0;
   const columnCount = isTakeoffView ? 4 : 8 + (showLabor ? 2 : 0) + (showMaterial ? 1 : 0) + addInsColumn;
@@ -186,6 +207,94 @@ export function EstimateGrid({
     return <div className="mt-0.5 text-xs font-normal leading-snug text-slate-700">{names.join(' · ')}</div>;
   }
 
+  /**
+   * Compact chips surfacing the intake-derived context on each row so the estimate
+   * workspace has visible parity with the intake review panel:
+   *   - Bid bucket ("Base Bid" / "Alt 1") so split bids are visible in the grid.
+   *   - Labor origin ("Gen labor") when minutes came from the install-family fallback,
+   *     with a tooltip that includes the install-labor-family key for transparency.
+   *   - Source manufacturer (muted) so multi-vendor documents keep attribution.
+   */
+  function bidBucketBadgeClass(bucket: string): string {
+    const lc = bucket.toLowerCase();
+    if (lc.includes('alt')) return 'bg-indigo-50 text-indigo-900 ring-indigo-100/90';
+    if (lc === 'mixed') return 'bg-amber-50 text-amber-900 ring-amber-100/90';
+    if (lc.includes('base')) return 'bg-emerald-50 text-emerald-900 ring-emerald-100/90';
+    if (lc.includes('deduct')) return 'bg-rose-50 text-rose-900 ring-rose-100/90';
+    if (lc.includes('allowance')) return 'bg-sky-50 text-sky-900 ring-sky-100/90';
+    return 'bg-slate-100 text-slate-700 ring-slate-200/80';
+  }
+
+  function intakeContextChips(row: DisplayRow) {
+    const chips: React.ReactNode[] = [];
+    if (row.sourceBidBucket) {
+      chips.push(
+        <span
+          key="bid-bucket"
+          className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ring-1 ${bidBucketBadgeClass(row.sourceBidBucket)}`}
+          title={`Bid bucket from intake: ${row.sourceBidBucket}`}
+        >
+          {row.sourceBidBucket}
+        </span>
+      );
+    }
+    if (row.laborOrigin === 'install_family') {
+      const familyKey = row.installLaborFamily || null;
+      const familyLabel = familyKey || 'install family';
+      const minutesPerUnit = Number.isFinite(row.laborMinutesPerUnit) && row.laborMinutesPerUnit > 0
+        ? row.laborMinutesPerUnit
+        : null;
+      const extendedMinutes = Number.isFinite(row.laborMinutesExtended) && row.laborMinutesExtended > 0
+        ? row.laborMinutesExtended
+        : null;
+      const tooltipParts = [`Labor generated from install-labor family \`${familyLabel}\``];
+      if (minutesPerUnit !== null) {
+        tooltipParts.push(`~${minutesPerUnit.toFixed(minutesPerUnit < 10 ? 1 : 0)} min / unit`);
+      }
+      if (extendedMinutes !== null && extendedMinutes !== minutesPerUnit) {
+        tooltipParts.push(`${Math.round(extendedMinutes)} min total`);
+      }
+      tooltipParts.push('No explicit labor on catalog item or source document.');
+      chips.push(
+        <span
+          key="labor-origin"
+          className="inline-flex max-w-[14rem] items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-950 ring-1 ring-amber-100/90"
+          title={tooltipParts.join(' — ')}
+        >
+          <span>Gen labor</span>
+          {familyKey ? (
+            <span className="truncate font-mono normal-case text-amber-900/80" aria-label={`install family ${familyKey}`}>
+              · {familyKey}
+            </span>
+          ) : null}
+        </span>
+      );
+    } else if (row.laborOrigin === 'catalog' && row.isInstallableScope) {
+      chips.push(
+        <span
+          key="labor-origin"
+          className="rounded bg-sky-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-sky-900 ring-1 ring-sky-100/90"
+          title="Labor minutes came from the matched catalog item (not the source document)."
+        >
+          Cat labor
+        </span>
+      );
+    }
+    if (row.sourceManufacturer) {
+      chips.push(
+        <span
+          key="manufacturer"
+          className="rounded bg-slate-50 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-slate-600 ring-1 ring-slate-200/80"
+          title={`Source manufacturer: ${row.sourceManufacturer}`}
+        >
+          {row.sourceManufacturer}
+        </span>
+      );
+    }
+    if (chips.length === 0) return null;
+    return <div className="mt-1 flex flex-wrap items-center gap-1" aria-hidden={false}>{chips}</div>;
+  }
+
   function pricingStreamPills() {
     return (
       <div className="mt-1 flex flex-wrap gap-1" aria-hidden>
@@ -207,6 +316,133 @@ export function EstimateGrid({
             Labor off
           </span>
         )}
+      </div>
+    );
+  }
+
+  /**
+   * Phase 1.4 — render the "why this labor" inspector row. Displayed below the opened
+   * row and spans the whole grid width; answers: where did the labor minutes come from
+   * (source doc, catalog item, or install-family fallback), what install family, how
+   * many minutes per unit vs extended, unit labor $, and add-in deltas.
+   */
+  function renderLaborInspector(row: DisplayRow) {
+    const origin = row.laborOrigin;
+    const originLabel =
+      origin === 'install_family'
+        ? 'Install-family fallback'
+        : origin === 'catalog'
+          ? 'Catalog item labor'
+          : origin === 'source'
+            ? 'Source document labor'
+            : origin === null || origin === undefined
+              ? 'Not classified'
+              : origin;
+    const originExplanation =
+      origin === 'install_family'
+        ? 'Source document and matched catalog item had no explicit labor. Minutes were generated from the install-labor family so the line still carries install pricing.'
+        : origin === 'catalog'
+          ? 'Labor minutes were taken from the matched catalog item.'
+          : origin === 'source'
+            ? 'Labor minutes were priced on the source document itself.'
+            : (origin as unknown as string) === 'mixed'
+              ? 'Multiple underlying lines had different labor origins — expand to a single-room view to inspect each line individually.'
+              : 'No labor origin recorded (typically a manual line).';
+    const mins = row.laborMinutesPerUnit;
+    const minsExtended = row.laborMinutesExtended;
+    const unitLabor = row.laborCost;
+    const unitMaterial = row.materialCost;
+    const rollup = row.modifierRollup;
+    const addinCount = rollup?.count ?? 0;
+    const originTone =
+      origin === 'install_family'
+        ? 'bg-amber-50 text-amber-950 ring-amber-100/90'
+        : origin === 'catalog'
+          ? 'bg-sky-50 text-sky-900 ring-sky-100/90'
+          : origin === 'source'
+            ? 'bg-emerald-50 text-emerald-900 ring-emerald-100/90'
+            : 'bg-slate-100 text-slate-700 ring-slate-200/80';
+    return (
+      <div className="space-y-2 rounded-xl bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_100%)] p-3 text-[11px] text-slate-700 shadow-inner ring-1 ring-slate-200/80">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-500">Why this labor</p>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ${originTone}`}>{originLabel}</span>
+              {row.installLaborFamily ? (
+                <span className="rounded-full bg-white px-2 py-0.5 font-mono text-[10px] font-semibold text-slate-700 ring-1 ring-slate-200/80" title="Install-labor family key">
+                  {row.installLaborFamily}
+                </span>
+              ) : null}
+              {row.isInstallableScope ? (
+                <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-900 ring-1 ring-violet-100/90" title="Classified as installable scope during intake">
+                  Installable scope
+                </span>
+              ) : null}
+              {row.sourceBidBucket ? (
+                <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700 ring-1 ring-slate-200/80" title="Bid bucket inherited from intake section">
+                  {row.sourceBidBucket}
+                </span>
+              ) : null}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setInspectorOpenLineId(null);
+            }}
+            className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-medium text-slate-600 shadow-sm transition hover:bg-slate-50"
+          >
+            Close
+          </button>
+        </div>
+        <p className="max-w-prose text-[11px] leading-snug text-slate-600">{originExplanation}</p>
+        <div className="grid grid-cols-2 gap-1.5 md:grid-cols-4">
+          <div className="rounded-lg bg-white px-2 py-1.5 shadow-sm ring-1 ring-slate-200/80">
+            <p className="text-[9px] font-semibold uppercase tracking-[0.06em] text-slate-500">Minutes / unit</p>
+            <p className="mt-0.5 text-[12px] font-semibold tabular-nums text-slate-900">{formatNumberSafe(mins, 2)} min</p>
+          </div>
+          <div className="rounded-lg bg-white px-2 py-1.5 shadow-sm ring-1 ring-slate-200/80">
+            <p className="text-[9px] font-semibold uppercase tracking-[0.06em] text-slate-500">Minutes (extended)</p>
+            <p className="mt-0.5 text-[12px] font-semibold tabular-nums text-slate-900">
+              {minsExtended >= 60 ? formatLaborDurationMinutes(minsExtended) : `${formatNumberSafe(minsExtended, 1)} min`}
+            </p>
+          </div>
+          <div className="rounded-lg bg-white px-2 py-1.5 shadow-sm ring-1 ring-slate-200/80">
+            <p className="text-[9px] font-semibold uppercase tracking-[0.06em] text-slate-500">Labor $ / unit</p>
+            <p className="mt-0.5 text-[12px] font-semibold tabular-nums text-slate-900">{formatCurrencySafe(unitLabor)}</p>
+            {mins > 0 && unitLabor > 0 ? (
+              <p className="mt-0.5 text-[9px] leading-snug text-slate-500">≈ {formatCurrencySafe((unitLabor / mins) * 60)}/hr applied</p>
+            ) : null}
+          </div>
+          <div className="rounded-lg bg-white px-2 py-1.5 shadow-sm ring-1 ring-slate-200/80">
+            <p className="text-[9px] font-semibold uppercase tracking-[0.06em] text-slate-500">Material $ / unit</p>
+            <p className="mt-0.5 text-[12px] font-semibold tabular-nums text-slate-900">{formatCurrencySafe(unitMaterial)}</p>
+          </div>
+        </div>
+        <div className="rounded-lg bg-white px-2.5 py-2 shadow-sm ring-1 ring-slate-200/80">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.06em] text-slate-500">Add-in contributions</p>
+          {addinCount > 0 && rollup ? (
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+              <span className="font-semibold text-violet-900">{addinCount} add-in{addinCount === 1 ? '' : 's'}</span>
+              {rollup.addMaterialCost > 0.005 ? (
+                <span className="tabular-nums text-slate-700">+{formatCurrencySafe(rollup.addMaterialCost)} material</span>
+              ) : null}
+              {rollup.addLaborMinutes > 0.05 ? (
+                <span className="tabular-nums text-slate-700">+{formatNumberSafe(rollup.addLaborMinutes, 1)} min labor</span>
+              ) : null}
+              {rollup.hasPercentAdjustments ? (
+                <span className="text-slate-500">% adjustments applied on base</span>
+              ) : null}
+            </div>
+          ) : (
+            <p className="mt-1 text-[11px] text-slate-500">No add-ins on this line.</p>
+          )}
+          {row.modifierNames.length > 0 ? (
+            <p className="mt-1 text-[10px] leading-snug text-slate-500">{row.modifierNames.join(' · ')}</p>
+          ) : null}
+        </div>
       </div>
     );
   }
@@ -268,6 +504,11 @@ export function EstimateGrid({
         canDelete: true,
         modifierNames: [...(line.modifierNames || [])],
         modifierRollup: line.lineModifierRollup && line.lineModifierRollup.count > 0 ? line.lineModifierRollup : null,
+        sourceBidBucket: line.sourceBidBucket ?? null,
+        sourceManufacturer: line.sourceManufacturer ?? null,
+        laborOrigin: line.laborOrigin ?? null,
+        installLaborFamily: line.installLaborFamily ?? null,
+        isInstallableScope: line.isInstallableScope ?? null,
       }));
     }
 
@@ -313,6 +554,11 @@ export function EstimateGrid({
         canDelete: false,
         modifierNames: [],
         modifierRollup: null,
+        sourceBidBucket: line.sourceBidBucket ?? null,
+        sourceManufacturer: line.sourceManufacturer ?? null,
+        laborOrigin: line.laborOrigin ?? null,
+        installLaborFamily: line.installLaborFamily ?? null,
+        isInstallableScope: line.isInstallableScope ?? null,
         roomIds: new Set<string>(),
         notesSet: new Set<string>(),
         modSet: new Set<string>(),
@@ -347,6 +593,28 @@ export function EstimateGrid({
       if (!existing.sourceRef && line.sourceRef) existing.sourceRef = line.sourceRef;
       existing.matched = existing.matched || !!line.catalogItemId;
       if (existing.sourceType !== (line.sourceType || 'line')) existing.sourceType = 'mixed';
+
+      const incomingBucket = line.sourceBidBucket ?? null;
+      if (existing.sourceBidBucket && incomingBucket && existing.sourceBidBucket !== incomingBucket) {
+        existing.sourceBidBucket = 'mixed';
+      } else if (!existing.sourceBidBucket && incomingBucket) {
+        existing.sourceBidBucket = incomingBucket;
+      }
+      const incomingOrigin = line.laborOrigin ?? null;
+      if (existing.laborOrigin && incomingOrigin && existing.laborOrigin !== incomingOrigin) {
+        // Prefer the "weakest" origin so the badge errs on the side of flagging generated labor.
+        existing.laborOrigin =
+          existing.laborOrigin === 'install_family' || incomingOrigin === 'install_family'
+            ? 'install_family'
+            : existing.laborOrigin === 'catalog' || incomingOrigin === 'catalog'
+              ? 'catalog'
+              : 'source';
+      } else if (!existing.laborOrigin && incomingOrigin) {
+        existing.laborOrigin = incomingOrigin;
+      }
+      if (!existing.installLaborFamily && line.installLaborFamily) existing.installLaborFamily = line.installLaborFamily;
+      if (existing.isInstallableScope == null && line.isInstallableScope != null) existing.isInstallableScope = line.isInstallableScope;
+      if (!existing.sourceManufacturer && line.sourceManufacturer) existing.sourceManufacturer = line.sourceManufacturer;
       byItem.set(key, existing);
     });
 
@@ -393,6 +661,11 @@ export function EstimateGrid({
           canDelete: entry.canDelete,
           modifierNames,
           modifierRollup,
+          sourceBidBucket: entry.sourceBidBucket,
+          sourceManufacturer: entry.sourceManufacturer,
+          laborOrigin: entry.laborOrigin,
+          installLaborFamily: entry.installLaborFamily,
+          isInstallableScope: entry.isInstallableScope,
         };
       })
       .sort((left, right) => right.lineTotal - left.lineTotal || left.description.localeCompare(right.description));
@@ -410,7 +683,9 @@ export function EstimateGrid({
             ? 'Project is priced labor-only — material is hidden in Pricing; install time still drives labor here.'
             : pricingMode === 'material_only'
               ? 'Project is material-led — companion install labor (if any) is broken out separately in Pricing.'
-              : 'Project includes material and install labor; this grid shows quantities and baseline install minutes per line.'}
+              : pricingMode === 'material_with_optional_install_quote'
+                ? 'Material-led bid with install quoted separately — install labor is tracked here for the companion quote.'
+                : 'Project includes material and install labor; this grid shows quantities and baseline install minutes per line.'}
         </p>
       ) : null}
       {organizeBy === 'room' && bundleIdList.length > 0 ? (
@@ -632,6 +907,7 @@ export function EstimateGrid({
                             {(organizeBy === 'item' && (row.roomHint || row.roomLabel)) || (organizeBy === 'room' && takeoffShowRoom && row.roomLabel) ? (
                               <div className="mt-0.5 text-xs font-medium leading-snug text-slate-600">{row.roomHint || row.roomLabel}</div>
                             ) : null}
+                            {intakeContextChips(row)}
                           </td>
                           <td className="ui-table-cell whitespace-nowrap text-right tabular-nums">
                             <span className="ui-table-num">{formatNumberSafe(row.qty, row.qty % 1 === 0 ? 0 : 2)}</span>
@@ -647,6 +923,22 @@ export function EstimateGrid({
                           </td>
                           <td className="ui-table-cell pl-2 text-right" onClick={stopRowEvent}>
                             <div className="flex items-center justify-end gap-1">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleInspector(row.lineId);
+                                }}
+                                className={`ui-table-action w-7 min-w-[1.75rem] border-transparent px-0 ${
+                                  inspectorOpenLineId === row.lineId
+                                    ? 'bg-blue-50 text-blue-800 ring-1 ring-blue-200'
+                                    : 'text-slate-500 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700'
+                                }`}
+                                aria-label="Why this labor?"
+                                title="Why this labor? (unit minutes, install family, add-ins, rate applied)"
+                              >
+                                <Info className="h-3.5 w-3.5" aria-hidden />
+                              </button>
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -693,6 +985,7 @@ export function EstimateGrid({
                             </div>
                             {disp.subtitle ? <div className="ui-table-meta line-clamp-2">{disp.subtitle}</div> : null}
                             {modifierLine(row.modifierNames)}
+                            {intakeContextChips(row)}
                             {!isTakeoffView ? pricingStreamPills() : null}
                           </td>
                           <td className="ui-table-cell">
@@ -758,6 +1051,22 @@ export function EstimateGrid({
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  toggleInspector(row.lineId);
+                                }}
+                                className={`ui-table-action w-7 min-w-[1.75rem] border-transparent px-0 ${
+                                  inspectorOpenLineId === row.lineId
+                                    ? 'bg-blue-50 text-blue-800 ring-1 ring-blue-200'
+                                    : 'text-slate-500 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700'
+                                }`}
+                                aria-label="Why this labor?"
+                                title="Why this labor? (unit minutes, install family, add-ins, rate applied)"
+                              >
+                                <Info className="h-3.5 w-3.5" aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   (onOpenLineDetail ?? onSelectLine)(row.lineId);
                                 }}
                                 className={`ui-table-action ${selected ? 'border-blue-300 bg-blue-50 text-blue-800' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
@@ -791,6 +1100,13 @@ export function EstimateGrid({
                         </>
                       )}
                     </tr>
+                    {inspectorOpenLineId === row.lineId ? (
+                      <tr className="border-b border-slate-200/80 bg-slate-50/40">
+                        <td colSpan={columnCount} className="px-3 py-2">
+                          {renderLaborInspector(row)}
+                        </td>
+                      </tr>
+                    ) : null}
                   </React.Fragment>
                 );
               })

@@ -1,4 +1,4 @@
-import { EstimateSummary, PricingMode, ProposalFormat, TakeoffLineRecord } from '../types/estimator';
+import { EstimateSummary, PricingMode, ProposalFormat, TakeoffLineRecord, isMaterialOnlyMainBid } from '../types/estimator';
 import { isDisplayableCatalogImageUrl } from './catalogImageUrl';
 
 export const PROPOSAL_FORMAT_OPTIONS: Array<{ value: ProposalFormat; label: string; hint: string }> = [
@@ -48,6 +48,25 @@ export interface ProposalScheduleSection {
   totalLaborCost: number;
   totalLaborHours: number;
   sectionTotal: number;
+}
+
+/**
+ * Phase 3.1 — bid-bucket grouping for the proposal schedule. Lets the client-facing
+ * proposal render "Base Bid" and "Alt 1" / "Deduct" as visibly distinct areas with
+ * their own subtotals instead of blending every line into one category list. Empty
+ * or single-bucket projects collapse to a single group so the chrome only shows when
+ * it adds information.
+ */
+export interface ProposalScheduleBidGroup {
+  /** Raw bucket label from intake (e.g. "Base Bid", "Alt 1"). Empty string means unbucketed. */
+  bucketLabel: string;
+  /** Normalized kind for sorting / tone selection. */
+  bucketKind: 'base' | 'alternate' | 'deduct' | 'allowance' | 'unit_price' | 'unbucketed' | 'other';
+  sections: ProposalScheduleSection[];
+  groupTotal: number;
+  groupMaterialCost: number;
+  groupLaborCost: number;
+  groupLaborHours: number;
 }
 
 export interface ClientFacingPricingRow {
@@ -370,6 +389,87 @@ export function buildProposalScheduleSections(
     .sort((left, right) => right.sectionTotal - left.sectionTotal || left.section.localeCompare(right.section));
 }
 
+function classifyProposalBidBucket(raw: string | null | undefined): ProposalScheduleBidGroup['bucketKind'] {
+  const label = (raw || '').trim();
+  if (!label) return 'unbucketed';
+  const lower = label.toLowerCase();
+  if (/\bbase\s*bid\b/.test(lower) || lower === 'base') return 'base';
+  if (/\bdeduct/.test(lower)) return 'deduct';
+  if (/\balt(?:ernate)?\b/.test(lower)) return 'alternate';
+  if (/\ballowance/.test(lower)) return 'allowance';
+  if (/\bunit\s*price/.test(lower)) return 'unit_price';
+  return 'other';
+}
+
+const PROPOSAL_BUCKET_ORDER: Record<ProposalScheduleBidGroup['bucketKind'], number> = {
+  base: 0,
+  alternate: 1,
+  deduct: 2,
+  allowance: 3,
+  unit_price: 4,
+  other: 5,
+  unbucketed: 6,
+};
+
+/**
+ * Phase 3.1 — build the proposal schedule grouped by intake-derived bid bucket.
+ * Always returns at least one group; multi-bucket projects get distinct groups
+ * sorted base → alternates → deducts → allowance → unit price → other → unbucketed.
+ * Lines with no `sourceBidBucket` collapse into an `unbucketed` group rather than
+ * being dropped, so manual-added lines stay visible in the proposal.
+ */
+export function buildProposalScheduleSectionsByBidBucket(
+  lines: TakeoffLineRecord[],
+  showMaterial: boolean,
+  showLabor: boolean,
+  laborHourMultiplier = 1,
+  catalogImageById?: ReadonlyMap<string, string> | Map<string, string> | null
+): ProposalScheduleBidGroup[] {
+  const byBucket = new Map<string, TakeoffLineRecord[]>();
+  lines.forEach((line) => {
+    const raw = line.sourceBidBucket?.trim() || '';
+    const key = raw || '__unbucketed__';
+    const existing = byBucket.get(key);
+    if (existing) existing.push(line);
+    else byBucket.set(key, [line]);
+  });
+
+  const groups: ProposalScheduleBidGroup[] = [];
+  byBucket.forEach((bucketLines, key) => {
+    const bucketLabel = key === '__unbucketed__' ? '' : key;
+    const bucketKind = classifyProposalBidBucket(bucketLabel || null);
+    const sections = buildProposalScheduleSections(
+      bucketLines,
+      showMaterial,
+      showLabor,
+      laborHourMultiplier,
+      catalogImageById
+    );
+    const groupMaterialCost = Number(sections.reduce((sum, s) => sum + s.totalMaterialCost, 0).toFixed(2));
+    const groupLaborCost = Number(sections.reduce((sum, s) => sum + s.totalLaborCost, 0).toFixed(2));
+    const groupLaborHours = Number(sections.reduce((sum, s) => sum + s.totalLaborHours, 0).toFixed(2));
+    const groupTotal = Number((groupMaterialCost + groupLaborCost).toFixed(2));
+    groups.push({
+      bucketLabel,
+      bucketKind,
+      sections,
+      groupTotal,
+      groupMaterialCost,
+      groupLaborCost,
+      groupLaborHours,
+    });
+  });
+
+  return groups.sort((a, b) => {
+    const ko = PROPOSAL_BUCKET_ORDER[a.bucketKind] - PROPOSAL_BUCKET_ORDER[b.bucketKind];
+    if (ko !== 0) return ko;
+    const numA = Number((a.bucketLabel.match(/\b(\d+)\b/) || [, ''])[1] || '0');
+    const numB = Number((b.bucketLabel.match(/\b(\d+)\b/) || [, ''])[1] || '0');
+    if (numA !== numB) return numA - numB;
+    return a.bucketLabel.localeCompare(b.bucketLabel);
+  });
+}
+
 export function buildClientFacingPricingRows(
   summary: {
     materialSubtotal: number;
@@ -382,7 +482,7 @@ export function buildClientFacingPricingRows(
   pricingMode: PricingMode
 ): ClientFacingPricingRow[] {
   const showMaterial = pricingMode !== 'labor_only';
-  const showLabor = pricingMode !== 'material_only';
+  const showLabor = !isMaterialOnlyMainBid(pricingMode);
   const materialBase = showMaterial ? Number((summary.materialLoadedSubtotal ?? summary.materialSubtotal) ?? 0) : 0;
   const laborBase = showLabor
     ? Number((summary.laborLoadedSubtotal ?? summary.adjustedLaborSubtotal ?? summary.laborSubtotal) ?? 0)
@@ -433,7 +533,7 @@ export interface InvestmentBreakdownRow {
 export function buildInvestmentBreakdownRows(summary: EstimateSummary, pricingMode: PricingMode): InvestmentBreakdownRow[] {
   const rows: InvestmentBreakdownRow[] = [];
   const showM = pricingMode !== 'labor_only';
-  const showL = pricingMode !== 'material_only';
+  const showL = !isMaterialOnlyMainBid(pricingMode);
 
   if (showM && summary.materialLoadedSubtotal > 0) {
     const hasMatMarkup =
@@ -515,4 +615,116 @@ export function buildInvestmentBreakdownRows(summary: EstimateSummary, pricingMo
 
   rows.push({ label: 'Total proposal', amount: summary.baseBidTotal, isTotal: true });
   return rows;
+}
+
+/**
+ * Phase 3.2 — summary of where each labor-bearing line's minutes came from.
+ * `source` = the source document / vendor quote priced labor on that line directly.
+ * `catalog` = our catalog item's default labor minutes were used.
+ * `install_family` = no usable source or catalog labor, so the app filled in
+ * labor from a generic install-family fallback (e.g. "partition_compartment").
+ *
+ * The proposal uses this to surface a plain-English transparency footnote when
+ * some or all of the labor was app-generated rather than vendor-quoted.
+ */
+export interface ProposalLaborOriginBreakdown {
+  /** Lines that carry extended labor minutes > 0. */
+  totalLaborLineCount: number;
+  sourceLineCount: number;
+  catalogLineCount: number;
+  installFamilyLineCount: number;
+  /** Labor minutes from lines flagged `source` (sum of laborMinutes × qty). */
+  sourceMinutes: number;
+  catalogMinutes: number;
+  installFamilyMinutes: number;
+  totalMinutes: number;
+  /** True when at least one labor-bearing line was app-generated (catalog default or install-family fallback). */
+  hasGenerated: boolean;
+}
+
+export function summarizeLaborOriginBreakdown(lines: TakeoffLineRecord[]): ProposalLaborOriginBreakdown {
+  const breakdown: ProposalLaborOriginBreakdown = {
+    totalLaborLineCount: 0,
+    sourceLineCount: 0,
+    catalogLineCount: 0,
+    installFamilyLineCount: 0,
+    sourceMinutes: 0,
+    catalogMinutes: 0,
+    installFamilyMinutes: 0,
+    totalMinutes: 0,
+    hasGenerated: false,
+  };
+  for (const line of lines) {
+    const unitMinutes = Number(line.laborMinutes) || 0;
+    const qty = Number(line.qty) || 0;
+    const extMinutes = unitMinutes * qty;
+    if (extMinutes <= 0) continue;
+    breakdown.totalLaborLineCount += 1;
+    breakdown.totalMinutes += extMinutes;
+    const origin: 'source' | 'catalog' | 'install_family' =
+      line.laborOrigin === 'source'
+        ? 'source'
+        : line.laborOrigin === 'install_family'
+          ? 'install_family'
+          : 'catalog';
+    if (origin === 'source') {
+      breakdown.sourceLineCount += 1;
+      breakdown.sourceMinutes += extMinutes;
+    } else if (origin === 'catalog') {
+      breakdown.catalogLineCount += 1;
+      breakdown.catalogMinutes += extMinutes;
+      breakdown.hasGenerated = true;
+    } else {
+      breakdown.installFamilyLineCount += 1;
+      breakdown.installFamilyMinutes += extMinutes;
+      breakdown.hasGenerated = true;
+    }
+  }
+  return breakdown;
+}
+
+/**
+ * Phase 3.2 — client-facing sentences describing how labor was priced on this
+ * proposal. Returns an empty array when nothing notable needs to be disclosed
+ * (e.g. labor is hidden, or 100% of labor was vendor-quoted on the source).
+ */
+export function buildLaborOriginFootnote(
+  lines: TakeoffLineRecord[],
+  showLabor: boolean
+): string[] {
+  if (!showLabor) return [];
+  const breakdown = summarizeLaborOriginBreakdown(lines);
+  if (breakdown.totalLaborLineCount === 0) return [];
+  if (!breakdown.hasGenerated) return [];
+
+  const notes: string[] = [];
+  const generatedLines = breakdown.catalogLineCount + breakdown.installFamilyLineCount;
+  const totalLines = breakdown.totalLaborLineCount;
+  const allGenerated = breakdown.sourceLineCount === 0;
+  const anyVendor = breakdown.sourceLineCount > 0;
+
+  if (allGenerated) {
+    notes.push(
+      'Install labor on this proposal was generated from our internal labor standards. The source documents did not include itemized labor pricing.'
+    );
+  } else {
+    notes.push(
+      `Install labor was generated from our internal labor standards for ${generatedLines} of ${totalLines} priced items. The remaining ${breakdown.sourceLineCount} item${breakdown.sourceLineCount === 1 ? '' : 's'} used labor pricing provided by the source vendor quote.`
+    );
+  }
+
+  if (breakdown.installFamilyLineCount > 0) {
+    const label = breakdown.installFamilyLineCount === 1 ? 'item used' : 'items used';
+    notes.push(
+      `${breakdown.installFamilyLineCount} ${label} an install-family labor default because no exact catalog match or vendor labor was available. We are happy to confirm those assumptions on request.`
+    );
+  }
+
+  if (anyVendor && breakdown.catalogLineCount > 0 && breakdown.installFamilyLineCount === 0) {
+    notes.push(
+      'Labor assumptions reflect our typical production rates for commercial Division 10 scopes and can be tightened after a site visit.'
+    );
+  }
+
+  return notes;
 }

@@ -136,6 +136,69 @@ test('Div10 sample: review lines get install-family fallback labor when no catal
   assert.ok(partition!.installFamilyFallback!.minutes > 0);
 });
 
+test('Phase 0.2: catalog match with zero labor still triggers install-family fallback (zero-labor gap closed)', () => {
+  // Catalog has a SKU that will match by code, but baseLaborMinutes is 0.
+  const zeroLaborCatalog: CatalogItem[] = [
+    {
+      id: 'zero-labor-item',
+      sku: '4781-11',
+      category: 'Toilet Accessories',
+      description: 'Sanitary napkin disposal',
+      uom: 'EA',
+      baseMaterialCost: 72,
+      baseLaborMinutes: 0, // <-- the bug case
+      taxable: false,
+      adaFlag: false,
+      active: true,
+    } as CatalogItem,
+  ];
+  const result = parseSpreadsheetRows(sampleRows, 'div10-smoke', zeroLaborCatalog);
+  assert.ok(result);
+  const reviewLines = toReviewLines(result!.rows, zeroLaborCatalog, true, []);
+  const disposal = reviewLines.find(
+    (r) => /sanitary napkin/i.test(r.description) && r.catalogMatch?.catalogItemId === 'zero-labor-item'
+  );
+  assert.ok(disposal, 'expected sanitary napkin row to match the zero-labor catalog item');
+  assert.equal(disposal!.isInstallableScope, true);
+  assert.ok(
+    disposal!.installFamilyFallback,
+    'zero-labor catalog match should still surface an install-family fallback'
+  );
+  assert.ok(disposal!.installFamilyFallback!.minutes > 0);
+});
+
+test('Phase 0.2: catalog item installLaborFamily overrides the parsed installScopeType', () => {
+  // Catalog declares a specific family key; the in-code registry must prefer it.
+  const editorialCatalog: CatalogItem[] = [
+    {
+      id: 'editorial-item',
+      sku: '4781-11',
+      category: 'Toilet Accessories',
+      description: 'Sanitary napkin disposal',
+      uom: 'EA',
+      baseMaterialCost: 72,
+      baseLaborMinutes: 0,
+      installLaborFamily: 'accessory_generic', // editorial override
+      taxable: false,
+      adaFlag: false,
+      active: true,
+    } as CatalogItem,
+  ];
+  const result = parseSpreadsheetRows(sampleRows, 'div10-smoke', editorialCatalog);
+  assert.ok(result);
+  const reviewLines = toReviewLines(result!.rows, editorialCatalog, true, []);
+  const disposal = reviewLines.find(
+    (r) => /sanitary napkin/i.test(r.description) && r.catalogMatch?.catalogItemId === 'editorial-item'
+  );
+  assert.ok(disposal, 'expected sanitary napkin row to match editorial catalog item');
+  assert.ok(disposal!.installFamilyFallback);
+  assert.equal(
+    disposal!.installFamilyFallback!.key,
+    'accessory_generic',
+    'catalog installLaborFamily should win over parsed installScopeType'
+  );
+});
+
 // --- Regression coverage for issues surfaced by the Lewis & Clark LPS proposal PDF ---
 
 test('Alt. 1 Bid section header parses the bid bucket correctly (regex tolerates the period)', () => {

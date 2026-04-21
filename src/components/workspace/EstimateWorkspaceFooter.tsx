@@ -23,7 +23,13 @@ export function EstimateWorkspaceFooter({
 }: EstimateWorkspaceFooterProps) {
   const bid = baseBidTotal;
   const modeLabel =
-    pricingMode === 'material_only' ? 'Material bid' : pricingMode === 'labor_only' ? 'Labor bid' : 'Labor + material bid';
+    pricingMode === 'material_only'
+      ? 'Material bid'
+      : pricingMode === 'labor_only'
+        ? 'Labor bid'
+        : pricingMode === 'material_with_optional_install_quote'
+          ? 'Material bid · install quoted separately'
+          : 'Labor + material bid';
 
   return (
     <footer className="sticky bottom-0 z-20 mt-2 border-t border-slate-200/90 bg-white/95 px-3 py-2 shadow-[0_-4px_20px_rgba(15,23,42,0.06)] backdrop-blur-md supports-[backdrop-filter]:bg-white/88 print:hidden">
