@@ -1,3 +1,5 @@
+import type { IntakeMatchConfidence, IntakeScopeBucket } from './intake.ts';
+
 export type ProjectStatus = 'Draft' | 'Submitted' | 'Awarded' | 'Lost' | 'Archived';
 
 /** Company-wide intake automation: Tier A lines can be auto-linked or pre-accepted in estimate review. */
@@ -161,6 +163,15 @@ export interface RoomRecord {
 
 export type TakeoffPricingSource = 'auto' | 'manual';
 
+/** Aggregated line_modifiers_v1 for a takeoff line (enriched in listTakeoffLine APIs, not a DB column). */
+export interface TakeoffLineModifierRollup {
+  count: number;
+  addMaterialCost: number;
+  addLaborMinutes: number;
+  /** True when any applied modifier uses % material or % labor. */
+  hasPercentAdjustments: boolean;
+}
+
 export interface TakeoffLineRecord {
   id: string;
   projectId: string;
@@ -186,8 +197,14 @@ export interface TakeoffLineRecord {
   bundleId: string | null;
   catalogItemId: string | null;
   variantId: string | null;
+  /** Intake classifier bucket persisted when lines are created from intake finalize. */
+  intakeScopeBucket?: IntakeScopeBucket | null;
+  /** Intake catalog shortlist confidence for the linked catalog id when known. */
+  intakeMatchConfidence?: IntakeMatchConfidence | null;
   /** Applied line modifiers (e.g. Recessed); server-computed from line_modifiers_v1, not a DB column on takeoff_lines_v1. */
   modifierNames?: string[];
+  /** Count + additive impacts from line_modifiers_v1 (percents flagged separately). */
+  lineModifierRollup?: TakeoffLineModifierRollup;
   createdAt: string;
   updatedAt: string;
 }

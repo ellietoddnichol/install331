@@ -1,16 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  ArrowRight,
-  Calculator,
   ChevronDown,
-  Clock3,
   Download,
-  Gauge,
   Hammer,
   Layers3,
   Sparkles,
-  Wallet,
   CalendarClock,
   X,
 } from 'lucide-react';
@@ -45,12 +40,17 @@ import {
   tabFromSearchParam,
   writeWorkspaceUi,
 } from '../shared/utils/projectWorkspaceSession';
+import {
+  isValidWorkspaceStep,
+  projectWorkspacePath,
+  workspaceTabFromPathSegment,
+} from '../shared/utils/projectWorkspaceRoutes.ts';
 import { getErrorMessage } from '../shared/utils/errorMessage';
 import { scopeExceptionCount } from '../shared/utils/scopeReviewExceptions';
 import { computeFieldScheduleHint } from '../shared/utils/fieldScheduleHint';
 import { PRICING_ALL_CATEGORIES, TAKEOFF_ALL_ROOMS } from '../shared/constants/workspaceUi';
 import { ProjectHeader } from '../components/workflow/ProjectHeader';
-import { WorkflowTabs } from '../components/workflow/WorkflowTabs';
+import { ProjectStepNav } from '../components/workflow/ProjectStepNav.tsx';
 import { WorkflowRightDrawer } from '../components/workflow/WorkflowRightDrawer';
 import { EstimateToolbar } from '../components/workflow/EstimateToolbar';
 import { RoomList } from '../components/workflow/RoomList';
@@ -58,6 +58,8 @@ import { ProposalSectionEditor } from '../components/workflow/ProposalSectionEdi
 import { ProposalSettingsRail } from '../components/workflow/ProposalSettingsRail';
 import { ProposalPreview } from '../components/workflow/ProposalPreview';
 import { EstimateGrid } from '../components/workspace/EstimateGrid';
+import { EstimateCostDriversBanner } from '../components/workspace/EstimateCostDriversBanner';
+import { EstimateWorkspaceFooter } from '../components/workspace/EstimateWorkspaceFooter';
 import { ItemPicker } from '../components/workspace/ItemPicker';
 import { ModifierPanel } from '../components/workspace/ModifierPanel';
 import { BundlePickerModal } from '../components/workspace/BundlePickerModal';
@@ -118,13 +120,26 @@ const DEFAULT_ROOM_CREATION_DRAFT: RoomCreationDraft = {
 };
 
 export function ProjectWorkspace() {
-  const { id } = useParams<{ id: string }>();
+  const { id, workspaceStep } = useParams<{ id: string; workspaceStep: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [loading, setLoading] = useState(true);
   const [workspaceLoadError, setWorkspaceLoadError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>(() => tabFromSearchParam(searchParams.get('tab')));
+  const location = useLocation();
+
+  const activeTab: WorkspaceTab = useMemo(() => {
+    const fromPath = workspaceTabFromPathSegment(workspaceStep);
+    return fromPath ?? 'estimate';
+  }, [workspaceStep]);
+
+  const goToTab = useCallback(
+    (tab: WorkspaceTab) => {
+      if (!id) return;
+      navigate(projectWorkspacePath(id, tab));
+    },
+    [id, navigate]
+  );
   const [estimateView, setEstimateView] = useState<EstimateWorkspaceView>(() => estimateViewFromSearchParams(searchParams));
 
   const [project, setProject] = useState<ProjectRecord | null>(null);
@@ -191,13 +206,13 @@ export function ProjectWorkspace() {
 
   const exceptionCount = useMemo(() => scopeExceptionCount(lines), [lines]);
 
-  const workflowTabsItems = useMemo(
+  const stepNavItems = useMemo(
     () => [
-      { id: 'overview' as const, label: 'Overview' },
-      { id: 'setup' as const, label: 'Setup' },
-      { id: 'scope-review' as const, label: 'Scope review', badge: exceptionCount },
-      { id: 'estimate' as const, label: 'Estimate' },
-      { id: 'proposal' as const, label: 'Proposal' },
+      { id: 'overview' as const, label: 'Overview', tier: 'secondary' as const },
+      { id: 'setup' as const, label: 'Setup', tier: 'secondary' as const },
+      { id: 'scope-review' as const, label: 'Scope review', badge: exceptionCount, tier: 'primary' as const },
+      { id: 'estimate' as const, label: 'Estimate', tier: 'primary' as const },
+      { id: 'proposal' as const, label: 'Proposal', tier: 'primary' as const },
     ],
     [exceptionCount]
   );
@@ -207,6 +222,32 @@ export function ProjectWorkspace() {
     setWorkspaceLoadError(null);
     void loadWorkspace(id);
   }, [id]);
+
+  /**
+   * Resolve legacy `?tab=` on path-based URLs: if it disagrees with the path segment, navigate to the tab path;
+   * if it matches, strip the redundant query param.
+   */
+  useLayoutEffect(() => {
+    if (!id) return;
+    const tabQ = searchParams.get('tab');
+    if (!tabQ) return;
+    const fromQuery = tabFromSearchParam(tabQ);
+    const next = new URLSearchParams(searchParams);
+    next.delete('tab');
+    const qs = next.toString() ? `?${next.toString()}` : '';
+    if (fromQuery === activeTab) {
+      navigate(`${location.pathname}${qs}`, { replace: true });
+      return;
+    }
+    navigate(`${projectWorkspacePath(id, fromQuery)}${qs}`, { replace: true });
+  }, [id, activeTab, searchParams, navigate, location.pathname]);
+
+  useEffect(() => {
+    if (!id || !workspaceStep) return;
+    if (!isValidWorkspaceStep(workspaceStep)) {
+      navigate(projectWorkspacePath(id, 'estimate'), { replace: true });
+    }
+  }, [id, workspaceStep, navigate]);
 
   useEffect(() => {
     const onCatalogSynced = () => {
@@ -230,33 +271,40 @@ export function ProjectWorkspace() {
   /** Empty scope review is a dead-end — send estimators straight to the estimate with a clear status flag. */
   useEffect(() => {
     if (loading) return;
-    if (searchParams.get('tab') !== 'scope-review') return;
+    if (activeTab !== 'scope-review') return;
     if (exceptionCount > 0) return;
-    setActiveTab('estimate');
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.delete('tab');
-        next.delete('view');
-        next.set('scopeChecked', '1');
-        return next;
-      },
-      { replace: true }
-    );
-  }, [loading, exceptionCount, searchParams, setSearchParams]);
+    if (!id) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('tab');
+    next.delete('view');
+    next.set('scopeChecked', '1');
+    const qs = next.toString();
+    navigate(`${projectWorkspacePath(id, 'estimate')}${qs ? `?${qs}` : ''}`, { replace: true });
+  }, [loading, exceptionCount, activeTab, id, navigate, searchParams]);
 
+  /** Keep `?view=quantities` in sync for the Estimate step only; path carries the workspace tab. */
   useEffect(() => {
     const next = new URLSearchParams(searchParams);
-    if (activeTab === 'estimate') {
+    let changed = false;
+    if (next.has('tab')) {
       next.delete('tab');
-      if (estimateView === 'quantities') next.set('view', 'quantities');
-      else next.delete('view');
-    } else {
-      next.set('tab', activeTab);
-      next.delete('view');
+      changed = true;
     }
-
-    if (next.toString() !== searchParams.toString()) {
+    if (activeTab === 'estimate') {
+      if (estimateView === 'quantities') {
+        if (next.get('view') !== 'quantities') {
+          next.set('view', 'quantities');
+          changed = true;
+        }
+      } else if (next.has('view')) {
+        next.delete('view');
+        changed = true;
+      }
+    } else if (next.has('view')) {
+      next.delete('view');
+      changed = true;
+    }
+    if (changed && next.toString() !== searchParams.toString()) {
       setSearchParams(next, { replace: true });
     }
   }, [activeTab, estimateView, searchParams, setSearchParams]);
@@ -604,6 +652,19 @@ export function ProjectWorkspace() {
       { lineCount: 0, totalQty: 0, laborMinutes: 0 }
     );
   }, [takeoffGridLines]);
+
+  const estimateProjectLineStats = useMemo(
+    () =>
+      lines.reduce(
+        (acc, line) => ({
+          lineCount: acc.lineCount + 1,
+          totalQty: acc.totalQty + (Number(line.qty) || 0),
+          laborMinutes: acc.laborMinutes + Number(line.laborMinutes || 0) * (Number(line.qty) || 0),
+        }),
+        { lineCount: 0, totalQty: 0, laborMinutes: 0 }
+      ),
+    [lines]
+  );
 
   function selectWorkspaceRoom(roomId: string) {
     setActiveRoomId(roomId);
@@ -1118,6 +1179,10 @@ export function ProjectWorkspace() {
     await refreshTakeoff(project.id);
   }
 
+  function selectEstimateLine(lineId: string) {
+    setSelectedLineId(lineId);
+  }
+
   function openLineEditor(lineId: string) {
     setSelectedLineId(lineId);
     setModifiersModalOpen(true);
@@ -1261,7 +1326,7 @@ export function ProjectWorkspace() {
 
       const mergedFields = Object.fromEntries(updates) as Partial<SettingsRecord>;
       setSettings(ensureProposalDefaults({ ...settings, ...mergedFields }));
-      setActiveTab('proposal');
+      goToTab('proposal');
     } catch (error: unknown) {
       window.alert(getErrorMessage(error, 'Unable to generate proposal draft right now.'));
     } finally {
@@ -1278,7 +1343,7 @@ export function ProjectWorkspace() {
     try {
       const draft = await api.generateV1InstallReviewEmail(project.id);
       setInstallReviewDraft(draft);
-      setActiveTab('proposal');
+      goToTab('proposal');
     } catch (error: unknown) {
       window.alert(getErrorMessage(error, 'Unable to generate install review email right now.'));
     } finally {
@@ -1349,19 +1414,22 @@ export function ProjectWorkspace() {
         statusActionLabel={statusActionLabel}
       />
 
-      <div className="ui-page space-y-2">
-        <p className="ui-label px-1">Project workflow</p>
-        <WorkflowTabs
-          tabs={workflowTabsItems}
-          active={activeTab}
-          onChange={(tab) => setActiveTab(tab)}
-          trailing={
-            <button type="button" onClick={() => void syncCatalogFromSheets()} className="ui-btn-secondary h-8 px-2.5 text-[11px] font-semibold">
-              Sync catalog
-            </button>
-          }
-        />
-
+      <div className="ui-page">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+          <ProjectStepNav
+            projectId={project.id}
+            items={stepNavItems}
+            trailing={
+              <button
+                type="button"
+                onClick={() => void syncCatalogFromSheets()}
+                className="ui-btn-secondary h-9 w-full px-2.5 text-[11px] font-semibold"
+              >
+                Sync catalog
+              </button>
+            }
+          />
+          <div className="min-w-0 flex-1 space-y-3">
         {activeTab === 'overview' && (
           <OverviewPage
             project={project}
@@ -1371,7 +1439,7 @@ export function ProjectWorkspace() {
             scopeCategoryOptions={scopeCategoryOptions}
             selectedScopeCategories={selectedScopeCategories}
             jobConditions={jobConditions}
-            setActiveTab={setActiveTab}
+            setActiveTab={goToTab}
             projectFiles={projectFiles}
             fileUploading={fileUploading}
             onUploadFile={(f) => void uploadProjectFile(f)}
@@ -1391,10 +1459,10 @@ export function ProjectWorkspace() {
             selectedScopeCategories={selectedScopeCategories}
             toggleScopeCategory={toggleScopeCategory}
             rooms={rooms}
-            setActiveTab={setActiveTab}
+            setActiveTab={goToTab}
             onOpenEstimateQuantities={() => {
               setEstimateView('quantities');
-              setActiveTab('estimate');
+              if (id) navigate(`${projectWorkspacePath(id, 'estimate')}?view=quantities`);
             }}
             summary={summary}
             settings={settings}
@@ -1409,26 +1477,28 @@ export function ProjectWorkspace() {
             rooms={rooms}
             categories={categories}
             roomNamesById={roomNamesById}
+            catalog={catalog}
             pricingMode={pricingMode}
             laborMultiplier={summary?.conditionLaborMultiplier || 1}
             selectedLineId={selectedLineId}
             onSelectLine={openLineEditor}
             onPersistLine={(lineId, updates) => void persistLine(lineId, updates)}
             onDeleteLine={(lineId) => void deleteLine(lineId)}
-            setActiveTab={setActiveTab}
+            setActiveTab={goToTab}
             onOpenLineInEstimate={(lineId) => {
               const line = lines.find((l) => l.id === lineId);
               if (line?.roomId) selectWorkspaceRoom(line.roomId);
               setSelectedLineId(lineId);
               setEstimateView('quantities');
-              setActiveTab('estimate');
+              if (id) navigate(`${projectWorkspacePath(id, 'estimate')}?view=quantities`);
               setModifiersModalOpen(true);
             }}
           />
         )}
 
         {activeTab === 'estimate' && (
-          <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(260px,300px)_1fr]">
+          <div className="flex min-w-0 flex-col gap-1">
+          <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[minmax(260px,300px)_1fr]">
             <RoomList
               rooms={rooms}
               activeRoomId={activeRoomId}
@@ -1477,6 +1547,9 @@ export function ProjectWorkspace() {
                 onAddManualLine={() => void addManualLine()}
                 onOpenCatalog={() => setCatalogOpen(true)}
                 onOpenBundles={() => setBundleModalOpen(true)}
+                onOpenLineAddIns={() => setModifiersModalOpen(true)}
+                canOpenLineAddIns={!!selectedLineId}
+                selectedLineLabel={selectedLine?.description ?? null}
                 activeRoomId={activeRoomId}
                 activeRoomLabel={roomNamesById[activeRoomId] || 'select a room'}
                 projectTotal={summary?.baseBidTotal}
@@ -1512,100 +1585,24 @@ export function ProjectWorkspace() {
                   />
                 </div>
               ) : (
-              <div className="space-y-3">
-              <p className="px-0.5 text-xs leading-snug text-slate-500">
-                <span className="font-medium text-slate-700">Active room</span>{' '}
-                <span className="font-medium text-slate-900">{roomNamesById[activeRoomId] || 'Unassigned'}</span>
-                <span className="text-slate-500">
-                  {' '}
-                  — install pricing for lines in this room (sidebar). Project total is in the bar above. Use{' '}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setEstimateView('quantities')}
-                  className="font-semibold text-blue-800 underline decoration-slate-300 underline-offset-2 hover:text-blue-950"
-                >
-                  Quantities
-                </button>
-                <span className="text-slate-500"> for the same compact header + View menu as the takeoff table.</span>
-              </p>
-
-              <div className="ui-panel-muted px-3 py-2.5">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-lg border border-slate-200/90 bg-white p-3 shadow-sm">
-                    <div className="flex min-w-0 gap-2">
-                      <div
-                        className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white"
-                        style={{ background: 'var(--brand)' }}
-                      >
-                        <Gauge className="h-3.5 w-3.5" aria-hidden />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="ui-label !normal-case tracking-wide text-slate-500">Labor rate (sub)</p>
-                        <p className="mt-0.5 text-base font-semibold tabular-nums tracking-tight text-slate-950">
-                          {formatCurrencySafe(effectiveLaborCostPerHour)}
-                          <span className="text-sm font-semibold text-slate-600">/hr</span>
-                          <span className="ml-1.5 text-xs font-medium text-slate-500">effective</span>
-                        </p>
-                        <p className="mt-1 text-xs text-slate-600">
-                          Base <span className="font-semibold tabular-nums text-slate-900">{formatCurrencySafe(baseLaborRatePerHour)}/hr</span>
-                          <span className="text-slate-400"> · </span>
-                          ×<span className="font-semibold tabular-nums text-slate-900">{formatNumberSafe(laborCostMultiplier, 2)}</span> cost
-                        </p>
-                        {Math.abs(laborHoursMultiplier - 1) > 0.001 ? (
-                          <p className="ui-callout mt-2 border-blue-200/50 bg-blue-50/60 text-slate-800">
-                            Time multiplier <span className="font-semibold tabular-nums text-slate-900">×{formatNumberSafe(laborHoursMultiplier, 2)}</span>{' '}
-                            (hours, separate from $/hr).
-                          </p>
-                        ) : (
-                          <p className="ui-typo-muted mt-0.5">Labor time ×1.00 (no schedule multiplier).</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="rounded-lg border border-slate-200/90 bg-slate-50/90 p-3 shadow-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-slate-800">Project condition notes</p>
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab('setup')}
-                        className="text-xs font-semibold text-blue-700 hover:text-blue-800"
-                      >
-                        Edit in Setup
-                      </button>
-                    </div>
-                    {laborRateModifiersActive ? (
-                      <p className="mt-2 text-xs leading-relaxed text-slate-600">
-                        Multipliers above come from job conditions (e.g. labor factor, night work, floors, adders).
-                      </p>
-                    ) : null}
-                    {(summary?.conditionAssumptions?.length || 0) > 0 ? (
-                      <ul className="mt-2 list-disc space-y-2 pl-5 text-sm leading-relaxed text-slate-700">
-                        {(summary?.conditionAssumptions || []).map((line, idx) => (
-                          <li key={idx}>{line}</li>
-                        ))}
-                      </ul>
-                    ) : laborRateModifiersActive ? (
-                      <p className="mt-2 text-sm leading-relaxed text-slate-600">Adjust job conditions in Setup to see narrative notes here.</p>
-                    ) : (
-                      <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                        Turn on job conditions in Setup if this job needs productivity or cost adjustments.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+              {summary ? (
+                <EstimateCostDriversBanner
+                  pricingMode={pricingMode}
+                  baseLaborRatePerHour={baseLaborRatePerHour}
+                  effectiveLaborCostPerHour={effectiveLaborCostPerHour}
+                  laborCostMultiplier={laborCostMultiplier}
+                  laborHoursMultiplier={laborHoursMultiplier}
+                  installerCount={jobConditions.installerCount}
+                  productiveCrewHoursPerDay={summary.productiveCrewHoursPerDay ?? jobConditions.installerCount * 8}
+                  totalLaborHours={summary.totalLaborHours}
+                  durationDays={summary.durationDays}
+                  materialLoadedOrSubtotal={summary.materialLoadedSubtotal ?? summary.materialSubtotal}
+                  laborLoadedOrSubtotal={summary.laborLoadedSubtotal ?? summary.adjustedLaborSubtotal ?? summary.laborSubtotal}
+                  baseBidTotal={summary.baseBidTotal}
+                />
+              ) : null}
               <div className="ui-panel space-y-2 p-2 sm:p-2.5">
-                <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200/80 pb-1.5">
-                    <button onClick={() => setCatalogOpen(true)} className="ui-btn-primary inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-[11px] font-semibold">
-                      <Sparkles className="h-3 w-3" /> Bulk add
-                    </button>
-                    <button onClick={() => setBundleModalOpen(true)} className="ui-btn-secondary h-8 rounded-md px-2.5 text-[11px] font-medium">Bundle</button>
-                    <button onClick={() => setModifiersModalOpen(true)} disabled={!selectedLine} className="ui-btn-secondary h-8 rounded-md px-2.5 text-[11px] font-medium disabled:opacity-50">Edit line</button>
-                    <button onClick={() => setActiveTab('proposal')} className="ui-btn-secondary h-8 rounded-md px-2.5 text-[11px] font-medium inline-flex items-center gap-0.5">Proposal <ArrowRight className="h-3 w-3" /></button>
-                </div>
-
                 <div>
                   <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                     <div className="min-w-0">
@@ -1740,119 +1737,65 @@ export function ProjectWorkspace() {
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch lg:gap-3">
-                  <div className="min-w-0 flex-1">
-                  <p className="ui-label mb-1 px-0.5 !normal-case text-slate-600">Rollup</p>
-                  <div className="-mx-0.5 flex gap-2 overflow-x-auto pb-1 pt-0.5 [scrollbar-width:thin]">
-                    <div className={`min-w-[9.25rem] shrink-0 rounded-lg p-2 shadow-sm ring-1 ${showMaterial ? 'bg-white ring-slate-200/80' : 'bg-slate-50 opacity-50 ring-slate-200/80'}`}><div className="flex items-center justify-between gap-1"><p className="text-[10px] font-semibold text-slate-600">Material</p><Wallet className="h-3.5 w-3.5 shrink-0 text-slate-400" /></div><p className="mt-1 text-sm font-semibold tabular-nums text-slate-950">{formatCurrencySafe(summary?.materialLoadedSubtotal ?? summary?.materialSubtotal)}</p><p className="mt-0.5 text-[10px] leading-snug text-slate-500">Tax + mat O&amp;P</p></div>
-                    <div
-                      className={`min-w-[9.25rem] shrink-0 rounded-lg p-2 shadow-sm ring-1 ${
-                        showLabor || (pricingMode === 'material_only' && (summary?.laborCompanionProposalTotal ?? 0) > 0)
-                          ? 'bg-white ring-slate-200/80'
-                          : 'bg-slate-50 opacity-50 ring-slate-200/80'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-1">
-                        <p className="text-[10px] font-semibold text-slate-600">{pricingMode === 'material_only' ? 'Sub labor' : 'Labor'}</p>
-                        <Hammer className="h-3.5 w-3.5 shrink-0 text-slate-500" />
-                      </div>
-                      <p className="mt-1 text-sm font-semibold tabular-nums text-slate-950">
-                        {formatCurrencySafe(
-                          showLabor
-                            ? summary?.laborLoadedSubtotal ?? summary?.adjustedLaborSubtotal ?? summary?.laborSubtotal
-                            : summary?.laborCompanionProposalTotal ?? 0
-                        )}
-                      </p>
-                      <p className="mt-0.5 text-[10px] leading-snug text-slate-500">
-                        {showLabor ? 'Burden + labor O&amp;P' : 'Not in mat. total'}
-                      </p>
-                    </div>
-                    <div className="min-w-[9.25rem] shrink-0 rounded-lg bg-white p-2 shadow-sm ring-1 ring-slate-200/80">
-                      <div className="flex items-center justify-between gap-1">
-                        <p className="text-[10px] font-semibold text-slate-600">Markup + tax</p>
-                        <Sparkles className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                      </div>
-                      <p className="mt-1 text-sm font-semibold tabular-nums text-slate-950">
-                        {formatCurrencySafe(
-                          (summary?.taxAmount || 0) +
-                            (summary?.overheadAmount || 0) +
-                            (summary?.profitAmount || 0) +
-                            (summary?.burdenAmount || 0) +
-                            (summary?.laborOverheadAmount || 0) +
-                            (summary?.laborProfitAmount || 0) +
-                            (summary?.subLaborManagementFeeAmount || 0)
-                        )}
-                      </p>
-                      <p className="mt-0.5 text-[10px] text-slate-500">Stack</p>
-                    </div>
-                    <div className="min-w-[10rem] shrink-0 rounded-lg bg-white p-2 shadow-sm ring-1 ring-slate-200/80">
-                      <div className="flex items-center justify-between gap-1">
-                        <p className="text-[10px] font-semibold text-slate-600">Labor time</p>
-                        <Clock3 className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                      </div>
-                      <p className="mt-1 text-sm font-semibold tabular-nums text-slate-950">{formatNumberSafe(summary?.totalLaborHours || 0, 1)} hr</p>
-                      <p className="mt-0.5 text-[10px] font-medium tabular-nums text-slate-600">{formatNumberSafe(Math.round(summary?.totalLaborMinutes ?? (summary?.totalLaborHours || 0) * 60), 0)} min</p>
-                      <p className="mt-0.5 text-[9px] leading-snug text-slate-500">
-                        After mult. · {formatNumberSafe(summary?.productiveCrewHoursPerDay ?? jobConditions.installerCount * 8, 1)} crew-hr/d
-                      </p>
-                    </div>
-                    <div className="min-w-[7.5rem] shrink-0 rounded-lg bg-white p-2 shadow-sm ring-1 ring-slate-200/80">
-                      <div className="flex items-center justify-between gap-1">
-                        <p className="text-[10px] font-semibold text-slate-600">Days</p>
-                        <CalendarClock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                      </div>
-                      <p className="mt-1 text-sm font-semibold tabular-nums text-slate-950">{formatNumberSafe(summary?.durationDays || 0, 0)}</p>
-                      <p className="mt-0.5 text-[10px] text-slate-500">Setup crew · calendar math</p>
-                      {fieldScheduleHint ? (
-                        <div className="mt-1 space-y-0.5 text-[9px] font-medium leading-snug text-blue-950/90">
-                          <p>
-                            Field suggestion only: {fieldScheduleHint.fieldCrew} crew · ~{formatNumberSafe(fieldScheduleHint.fieldDays, 1)} d
-                          </p>
-                          <p className="font-normal text-slate-600">
-                            Totals unchanged — pricing still uses Setup crew and the estimate engine.
-                          </p>
-                        </div>
-                      ) : null}
-                    </div>
-                    <div className="min-w-[9.5rem] shrink-0 rounded-lg border-2 border-blue-200/80 bg-[var(--brand-soft)] p-2 shadow-sm ring-1 ring-blue-200/60">
-                      <div className="flex items-center justify-between gap-1">
-                        <p className="text-[10px] font-semibold text-[var(--brand-strong)]">Grand total</p>
-                        <Calculator className="h-3.5 w-3.5 shrink-0 text-blue-700/80" />
-                      </div>
-                      <p className="mt-1 text-sm font-semibold tabular-nums text-slate-950">{formatCurrencySafe(summary?.baseBidTotal)}</p>
-                      <p className="mt-0.5 text-[10px] text-slate-600">
-                        Room {formatCurrencySafe(roomSubtotal)}
-                        {pricingOrganizeMode === 'categories' && pricingCategoryFilter !== PRICING_ALL_CATEGORIES ? (
-                          <>
-                            {' '}
-                            · Shown {formatCurrencySafe(pricingChipSubtotal)}
-                          </>
-                        ) : null}
-                      </p>
-                    </div>
-                  </div>
-                  </div>
-
-                  <div className="flex shrink-0 flex-wrap content-start items-center gap-1.5 border-t border-slate-200/70 pt-2 text-[11px] text-slate-600 lg:max-w-[14rem] lg:border-l lg:border-t-0 lg:pl-3 lg:pt-0 xl:max-w-none xl:flex-nowrap">
-                    <span className="rounded-full bg-slate-50 px-2 py-1 font-medium ring-1 ring-slate-200/80">
-                      {pricingGridLines.length} line{pricingGridLines.length === 1 ? '' : 's'}
-                      {pricingOrganizeMode === 'categories' && pricingCategoryFilter !== PRICING_ALL_CATEGORIES ? ' shown' : ''}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-slate-200/70 pt-1.5 text-[11px] text-slate-600">
+                  <span className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2 py-1 font-medium ring-1 ring-slate-200/80">
+                    <Sparkles className="h-3 w-3 text-slate-400" aria-hidden />
+                    <span className="text-slate-500">Markup / tax stack</span>
+                    <span className="font-semibold tabular-nums text-slate-900">
+                      {formatCurrencySafe(
+                        (summary?.taxAmount || 0) +
+                          (summary?.overheadAmount || 0) +
+                          (summary?.profitAmount || 0) +
+                          (summary?.burdenAmount || 0) +
+                          (summary?.laborOverheadAmount || 0) +
+                          (summary?.laborProfitAmount || 0) +
+                          (summary?.subLaborManagementFeeAmount || 0)
+                      )}
                     </span>
-                    <span className="rounded-full bg-slate-50 px-2 py-1 font-medium ring-1 ring-slate-200/80">{selectedScopeCategories.length || categories.filter((category) => category !== 'all').length} categories</span>
-                    {selectedLine ? (
-                      <span className="max-w-[min(100%,20rem)] truncate rounded-full bg-blue-50 px-2 py-1 font-medium text-blue-900 ring-1 ring-blue-200/80">{selectedLine.description}</span>
-                    ) : (
-                      <span className="rounded-full bg-slate-50 px-2 py-1 font-medium ring-1 ring-slate-200/80">Select a row</span>
-                    )}
-                    {(summary?.conditionAssumptions?.length || 0) > 0 ? (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800">
-                        <Layers3 className="h-3.5 w-3.5 text-slate-500" /> {summary?.conditionAssumptions?.length}
-                      </span>
-                    ) : null}
-                  </div>
+                  </span>
+                  {pricingMode === 'material_only' && (summary?.laborCompanionProposalTotal ?? 0) > 0 ? (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2 py-1 font-medium ring-1 ring-slate-200/80">
+                      <Hammer className="h-3 w-3 text-slate-500" aria-hidden />
+                      <span className="text-slate-500">Sub labor (companion)</span>
+                      <span className="font-semibold tabular-nums text-slate-900">{formatCurrencySafe(summary?.laborCompanionProposalTotal ?? 0)}</span>
+                    </span>
+                  ) : null}
+                  {fieldScheduleHint ? (
+                    <span className="inline-flex items-center gap-1 rounded-md border border-blue-200/70 bg-blue-50/60 px-2 py-1 font-medium text-blue-900">
+                      <CalendarClock className="h-3 w-3 text-blue-700/80" aria-hidden />
+                      Field hint: {fieldScheduleHint.fieldCrew} crew · ~{formatNumberSafe(fieldScheduleHint.fieldDays, 1)} d (advisory)
+                    </span>
+                  ) : null}
+                  {(summary?.conditionAssumptions?.length || 0) > 0 ? (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2 py-1 font-medium ring-1 ring-slate-200/80">
+                      <Layers3 className="h-3 w-3 text-slate-500" aria-hidden />
+                      {summary?.conditionAssumptions?.length} condition note{summary?.conditionAssumptions?.length === 1 ? '' : 's'}
+                    </span>
+                  ) : null}
+                  <span className="ml-auto inline-flex items-center gap-1 rounded-md bg-slate-50 px-2 py-1 font-medium ring-1 ring-slate-200/80">
+                    <span className="text-slate-500">Room total</span>
+                    <span className="font-semibold tabular-nums text-slate-900">{formatCurrencySafe(roomSubtotal)}</span>
+                  </span>
+                  {pricingOrganizeMode === 'categories' && pricingCategoryFilter !== PRICING_ALL_CATEGORIES ? (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2 py-1 font-medium ring-1 ring-slate-200/80">
+                      <span className="text-slate-500">Shown</span>
+                      <span className="font-semibold tabular-nums text-slate-900">{formatCurrencySafe(pricingChipSubtotal)}</span>
+                    </span>
+                  ) : null}
+                  <span className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2 py-1 font-medium ring-1 ring-slate-200/80">
+                    {pricingGridLines.length} line{pricingGridLines.length === 1 ? '' : 's'}
+                    {pricingOrganizeMode === 'categories' && pricingCategoryFilter !== PRICING_ALL_CATEGORIES ? ' shown' : ''}
+                  </span>
+                  {selectedLine ? (
+                    <span className="max-w-[min(100%,22rem)] truncate inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-1 font-medium text-blue-900 ring-1 ring-blue-200/80">
+                      <span className="text-blue-700/80">Selected:</span>
+                      <span className="truncate">{selectedLine.description}</span>
+                    </span>
+                  ) : null}
                 </div>
               </div>
 
+              <div className="min-h-0 min-w-0 flex-1">
               <EstimateGrid
                 lines={sortedPricingGridLines}
                 rooms={rooms}
@@ -1863,13 +1806,26 @@ export function ProjectWorkspace() {
                 organizeBy="room"
                 laborMultiplier={summary?.conditionLaborMultiplier || 1}
                 selectedLineId={selectedLineId}
-                onSelectLine={openLineEditor}
+                onSelectLine={selectEstimateLine}
+                onOpenLineDetail={openLineEditor}
                 onPersistLine={(lineId, updates) => void persistLine(lineId, updates)}
                 onDeleteLine={(lineId) => void deleteLine(lineId)}
+                workspaceFrame
+                categoryGroupHeaders={pricingOrganizeMode === 'categories' && pricingCategoryFilter === PRICING_ALL_CATEGORIES}
               />
+              </div>
               </div>
               )}
             </div>
+          </div>
+          <EstimateWorkspaceFooter
+            estimateView={estimateView}
+            lineStats={estimateProjectLineStats}
+            baseBidTotal={summary?.baseBidTotal}
+            pricingMode={pricingMode}
+            materialLoadedSubtotal={summary?.materialLoadedSubtotal ?? summary?.materialSubtotal}
+            laborLoadedSubtotal={summary?.laborLoadedSubtotal ?? summary?.adjustedLaborSubtotal ?? summary?.laborSubtotal}
+          />
           </div>
         )}
 
@@ -2036,6 +1992,8 @@ export function ProjectWorkspace() {
           </div>
         )}
 
+          </div>
+        </div>
       </div>
 
       <ItemPicker
@@ -2074,11 +2032,11 @@ export function ProjectWorkspace() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 max-w-[min(100%,42rem)]">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="ui-chip-soft">Line editor</span>
+                    <span className="ui-chip-soft">Line + add-ins</span>
                     <span className="ui-chip-soft">{selectedLine.category || 'Uncategorized'}</span>
                     <span className="ui-chip-soft">{roomNamesById[selectedLine.roomId] || 'Unassigned room'}</span>
                   </div>
-                  <h3 className="mt-1 text-base font-semibold tracking-tight text-slate-950">Edit line</h3>
+                  <h3 className="mt-1 text-base font-semibold tracking-tight text-slate-950">Line, pricing, and add-ons</h3>
                 </div>
                 <button onClick={() => setModifiersModalOpen(false)} className="h-9 shrink-0 rounded-full border border-slate-200 bg-white px-3 text-[11px] font-medium text-slate-700 shadow-sm transition hover:bg-slate-50">Done</button>
               </div>

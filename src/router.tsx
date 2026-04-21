@@ -15,6 +15,9 @@ const Settings = lazy(() => import('./pages/Settings.tsx').then((m) => ({ defaul
 const Div10BrainAdmin = lazy(() =>
   import('./pages/admin/Div10BrainAdmin.tsx').then((m) => ({ default: m.Div10BrainAdmin }))
 );
+const ProjectWorkspaceIndexRedirect = lazy(() =>
+  import('./components/routing/ProjectWorkspaceIndexRedirect.tsx').then((m) => ({ default: m.ProjectWorkspaceIndexRedirect }))
+);
 
 /**
  * Nested routes + `<Outlet />` enable loaders/actions (Phase 1+).
@@ -35,7 +38,8 @@ export const appRouter = createBrowserRouter([
           { index: true, element: <Dashboard /> },
           { path: 'projects', element: <Projects /> },
           { path: 'project/new', element: <ProjectIntake /> },
-          { path: 'project/:id', element: <ProjectWorkspace /> },
+          { path: 'project/:id', element: <ProjectWorkspaceIndexRedirect /> },
+          { path: 'project/:id/:workspaceStep', element: <ProjectWorkspace /> },
           { path: 'catalog', element: <Catalog /> },
           { path: 'help', element: <Help /> },
           { path: 'settings', element: <Settings /> },

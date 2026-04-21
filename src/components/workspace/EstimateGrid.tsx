@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Layers3, Sparkles } from 'lucide-react';
-import { RoomRecord, TakeoffLineRecord } from '../../shared/types/estimator';
+import { RoomRecord, TakeoffLineModifierRollup, TakeoffLineRecord } from '../../shared/types/estimator';
 import { formatClientProposalItemDisplay } from '../../shared/utils/proposalDocument';
 import { formatCurrencySafe, formatLaborDurationMinutes, formatNumberSafe } from '../../utils/numberFormat';
 
@@ -17,8 +17,14 @@ interface Props {
   laborMultiplier?: number;
   selectedLineId: string | null;
   onSelectLine: (lineId: string) => void;
+  /** When set, the row action button opens line detail (e.g. drawer) without relying on `onSelectLine` (used for pricing: row = select, button = open). */
+  onOpenLineDetail?: (lineId: string) => void;
   onPersistLine: (lineId: string, updates?: Partial<TakeoffLineRecord>) => Promise<void> | void;
   onDeleteLine: (lineId: string) => void;
+  /** Visual weight: workspace uses a stronger frame for the pricing grid. */
+  workspaceFrame?: boolean;
+  /** When true (pricing view only), inject category group divider rows at category boundaries. Rows must already be sorted by category. */
+  categoryGroupHeaders?: boolean;
 }
 
 interface DisplayRow {
@@ -46,6 +52,7 @@ interface DisplayRow {
   bundleId: string | null;
   canDelete: boolean;
   modifierNames: string[];
+  modifierRollup: TakeoffLineModifierRollup | null;
 }
 
 function normalizeGroupKey(line: TakeoffLineRecord): string {
@@ -72,29 +79,45 @@ export function EstimateGrid({
   laborMultiplier = 1,
   selectedLineId,
   onSelectLine,
+  onOpenLineDetail,
   onPersistLine,
   onDeleteLine,
+  workspaceFrame = false,
+  categoryGroupHeaders = false,
 }: Props) {
   const [collapsedBundles, setCollapsedBundles] = useState<Record<string, boolean>>({});
   const showMaterial = pricingMode !== 'labor_only';
   const showLabor = pricingMode !== 'material_only';
   const isTakeoffView = viewMode === 'takeoff';
-  const columnCount = isTakeoffView ? 4 : 8 + (showLabor ? 2 : 0) + (showMaterial ? 1 : 0);
+  const addInsColumn = !isTakeoffView ? 1 : 0;
+  const columnCount = isTakeoffView ? 4 : 8 + (showLabor ? 2 : 0) + (showMaterial ? 1 : 0) + addInsColumn;
 
   /** Fixed column shares so the line grid—not a single description column—uses most width sensibly */
   const estimateColWidths = useMemo(() => {
     if (isTakeoffView) return null;
     if (showLabor && showMaterial) {
-      return ['26%', '9%', '10%', '4%', '3%', '8%', '9%', '8%', '8%', '8%', '7%'];
+      return ['22%', '8%', '9%', '4%', '3%', '7%', '8%', '7%', '7%', '7%', '9%', '6%'];
     }
     if (showLabor) {
-      return ['28%', '10%', '11%', '5%', '4%', '9%', '10%', '9%', '9%', '5%'];
+      return ['23%', '9%', '10%', '4%', '4%', '8%', '9%', '8%', '7%', '8%', '9%'];
     }
-    return ['30%', '10%', '12%', '5%', '4%', '10%', '12%', '12%', '5%'];
+    return ['26%', '9%', '11%', '4%', '4%', '10%', '10%', '10%', '9%', '10%'];
   }, [isTakeoffView, showLabor, showMaterial]);
 
+  const bundleIdList = useMemo(
+    () => Array.from(new Set(lines.map((l) => l.bundleId).filter(Boolean) as string[])),
+    [lines]
+  );
+
   const bundleMeta = useMemo(() => {
-    const byBundle: Record<string, { count: number; subtotal: number; name: string; laborMinutesExtended: number }> = {};
+    const byBundle: Record<string, {
+      count: number;
+      subtotal: number;
+      name: string;
+      laborMinutesExtended: number;
+      materialSubtotal: number;
+      laborSubtotal: number;
+    }> = {};
     lines.forEach((line) => {
       if (!line.bundleId) return;
       if (!byBundle[line.bundleId]) {
@@ -103,14 +126,56 @@ export function EstimateGrid({
           subtotal: 0,
           name: line.notes?.trim() || line.category || 'Bundle',
           laborMinutesExtended: 0,
+          materialSubtotal: 0,
+          laborSubtotal: 0,
         };
       }
+      const qty = Number(line.qty || 0);
       byBundle[line.bundleId].count += 1;
       byBundle[line.bundleId].subtotal += line.lineTotal;
-      byBundle[line.bundleId].laborMinutesExtended += Number(line.laborMinutes || 0) * Number(line.qty || 0);
+      byBundle[line.bundleId].laborMinutesExtended += Number(line.laborMinutes || 0) * qty;
+      byBundle[line.bundleId].materialSubtotal += Number(line.materialCost || 0) * qty;
+      byBundle[line.bundleId].laborSubtotal += Number(line.laborCost || 0) * qty * (laborMultiplier || 1);
     });
     return byBundle;
-  }, [lines]);
+  }, [lines, laborMultiplier]);
+
+  const categoryMeta = useMemo(() => {
+    const byCategory: Record<string, {
+      count: number;
+      subtotal: number;
+      laborMinutesExtended: number;
+      materialSubtotal: number;
+      laborSubtotal: number;
+    }> = {};
+    lines.forEach((line) => {
+      const key = String(line.category || '').trim() || 'Uncategorized';
+      if (!byCategory[key]) {
+        byCategory[key] = {
+          count: 0,
+          subtotal: 0,
+          laborMinutesExtended: 0,
+          materialSubtotal: 0,
+          laborSubtotal: 0,
+        };
+      }
+      const qty = Number(line.qty || 0);
+      byCategory[key].count += 1;
+      byCategory[key].subtotal += line.lineTotal;
+      byCategory[key].laborMinutesExtended += Number(line.laborMinutes || 0) * qty;
+      byCategory[key].materialSubtotal += Number(line.materialCost || 0) * qty;
+      byCategory[key].laborSubtotal += Number(line.laborCost || 0) * qty * (laborMultiplier || 1);
+    });
+    return byCategory;
+  }, [lines, laborMultiplier]);
+
+  function collapseAllBundles() {
+    setCollapsedBundles(Object.fromEntries(bundleIdList.map((bid) => [bid, true])));
+  }
+
+  function expandAllBundles() {
+    setCollapsedBundles({});
+  }
 
   function itemCellDisplay(description: string, sku: string | null) {
     return formatClientProposalItemDisplay(String(description || '').trim(), sku);
@@ -119,6 +184,49 @@ export function EstimateGrid({
   function modifierLine(names: string[]) {
     if (!names.length) return null;
     return <div className="mt-0.5 text-xs font-normal leading-snug text-slate-700">{names.join(' · ')}</div>;
+  }
+
+  function pricingStreamPills() {
+    return (
+      <div className="mt-1 flex flex-wrap gap-1" aria-hidden>
+        {showMaterial ? (
+          <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-900 ring-1 ring-emerald-100/90">
+            Material
+          </span>
+        ) : (
+          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500 ring-1 ring-slate-200/80">
+            Mat off
+          </span>
+        )}
+        {showLabor ? (
+          <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-950 ring-1 ring-amber-100/90">
+            Install labor
+          </span>
+        ) : (
+          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500 ring-1 ring-slate-200/80">
+            Labor off
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  function addInsSummaryCell(rollup: TakeoffLineModifierRollup | null, names: string[]) {
+    if (!rollup || rollup.count < 1) {
+      return <span className="text-[11px] text-slate-400">None</span>;
+    }
+    const bits: string[] = [];
+    if (rollup.addMaterialCost > 0.005) bits.push(`+${formatCurrencySafe(rollup.addMaterialCost)} mat`);
+    if (rollup.addLaborMinutes > 0.05) bits.push(`+${formatNumberSafe(rollup.addLaborMinutes, 0)} min`);
+    if (rollup.hasPercentAdjustments) bits.push('% on base');
+    const sub = bits.join(' · ') || 'See names under item';
+    const title = names.length ? `${rollup.count} add-ins — ${names.join(', ')}` : `${rollup.count} add-ins`;
+    return (
+      <div className="text-left" title={title}>
+        <span className="text-[11px] font-semibold text-violet-900">{rollup.count} add-in{rollup.count === 1 ? '' : 's'}</span>
+        <span className="mt-0.5 block text-[10px] leading-snug text-slate-600">{sub}</span>
+      </div>
+    );
   }
 
   const rowAccentClass = (line: TakeoffLineRecord) => {
@@ -159,6 +267,7 @@ export function EstimateGrid({
         bundleId: line.bundleId,
         canDelete: true,
         modifierNames: [...(line.modifierNames || [])],
+        modifierRollup: line.lineModifierRollup && line.lineModifierRollup.count > 0 ? line.lineModifierRollup : null,
       }));
     }
 
@@ -172,6 +281,10 @@ export function EstimateGrid({
         totalLabor: number;
         totalLaborMinutes: number;
         totalSell: number;
+        rollupCount: number;
+        rollupAddMat: number;
+        rollupAddMin: number;
+        rollupHasPct: boolean;
       }
     >();
     lines.forEach((line) => {
@@ -199,6 +312,7 @@ export function EstimateGrid({
         bundleId: null,
         canDelete: false,
         modifierNames: [],
+        modifierRollup: null,
         roomIds: new Set<string>(),
         notesSet: new Set<string>(),
         modSet: new Set<string>(),
@@ -206,6 +320,10 @@ export function EstimateGrid({
         totalLabor: 0,
         totalLaborMinutes: 0,
         totalSell: 0,
+        rollupCount: 0,
+        rollupAddMat: 0,
+        rollupAddMin: 0,
+        rollupHasPct: false,
       };
 
       existing.qty += Number(line.qty || 0);
@@ -217,6 +335,13 @@ export function EstimateGrid({
       existing.roomIds.add(line.roomId);
       if (line.notes) existing.notesSet.add(line.notes.trim());
       (line.modifierNames || []).forEach((m) => existing.modSet.add(m));
+      const lr = line.lineModifierRollup;
+      if (lr && lr.count > 0) {
+        existing.rollupCount += lr.count;
+        existing.rollupAddMat += lr.addMaterialCost;
+        existing.rollupAddMin += lr.addLaborMinutes;
+        existing.rollupHasPct = existing.rollupHasPct || lr.hasPercentAdjustments;
+      }
       if (!existing.category && line.category) existing.category = line.category;
       if (!existing.sku && line.sku) existing.sku = line.sku;
       if (!existing.sourceRef && line.sourceRef) existing.sourceRef = line.sourceRef;
@@ -235,6 +360,15 @@ export function EstimateGrid({
         const laborMinutesExtended = entry.totalLaborMinutes;
         const laborMinutesPerUnit = qty > 0 ? Number((laborMinutesExtended / qty).toFixed(2)) : 0;
         const modifierNames = Array.from(entry.modSet).sort((a, b) => a.localeCompare(b));
+        const modifierRollup =
+          entry.rollupCount > 0
+            ? {
+                count: entry.rollupCount,
+                addMaterialCost: entry.rollupAddMat,
+                addLaborMinutes: entry.rollupAddMin,
+                hasPercentAdjustments: entry.rollupHasPct,
+              }
+            : null;
         return {
           id: entry.id,
           lineId: entry.lineId,
@@ -258,15 +392,49 @@ export function EstimateGrid({
           bundleId: entry.bundleId,
           canDelete: entry.canDelete,
           modifierNames,
+          modifierRollup,
         };
       })
       .sort((left, right) => right.lineTotal - left.lineTotal || left.description.localeCompare(right.description));
   }, [lines, organizeBy, roomNamesById]);
 
+  const panelClass = workspaceFrame && !isTakeoffView
+    ? 'ui-panel overflow-hidden rounded-xl border-2 border-slate-200/90 shadow-md ring-1 ring-slate-200/40'
+    : 'ui-panel overflow-hidden';
+
   return (
-    <div className="ui-panel overflow-hidden">
+    <div className={panelClass}>
+      {isTakeoffView ? (
+        <p className="border-b border-slate-100 bg-slate-50/95 px-3 py-1.5 text-[10px] leading-snug text-slate-600">
+          {pricingMode === 'labor_only'
+            ? 'Project is priced labor-only — material is hidden in Pricing; install time still drives labor here.'
+            : pricingMode === 'material_only'
+              ? 'Project is material-led — companion install labor (if any) is broken out separately in Pricing.'
+              : 'Project includes material and install labor; this grid shows quantities and baseline install minutes per line.'}
+        </p>
+      ) : null}
+      {organizeBy === 'room' && bundleIdList.length > 0 ? (
+        <div className="flex flex-wrap items-center justify-end gap-2 border-b border-slate-100 bg-white px-2 py-1">
+          <span className="text-[10px] font-medium text-slate-500">
+            {bundleIdList.length} bundle{bundleIdList.length === 1 ? '' : 's'}
+          </span>
+          <button type="button" className="text-[10px] font-semibold text-blue-800 underline decoration-slate-300 underline-offset-2" onClick={collapseAllBundles}>
+            Collapse all
+          </button>
+          <button type="button" className="text-[10px] font-semibold text-blue-800 underline decoration-slate-300 underline-offset-2" onClick={expandAllBundles}>
+            Expand all
+          </button>
+        </div>
+      ) : null}
       <div className="ui-data-grid-scroll">
         <table className="ui-data-grid-table">
+          {estimateColWidths ? (
+            <colgroup>
+              {estimateColWidths.map((w, i) => (
+                <col key={i} style={{ width: w }} />
+              ))}
+            </colgroup>
+          ) : null}
           <thead className="ui-data-grid-thead">
             <tr>
               {isTakeoffView ? (
@@ -295,18 +463,44 @@ export function EstimateGrid({
                   className="ui-table-th-end w-[6.25rem] whitespace-nowrap"
                   title="Labor minutes × qty per line (before project schedule multipliers; see Labor time card for adjusted totals)"
                 >
-                  Install time
+                  <span className="block">Install time</span>
+                  <span className="mt-0.5 block text-[9px] font-normal normal-case tracking-normal text-slate-500">minutes</span>
                 </th>
               ) : null}
               {!isTakeoffView && showLabor ? (
-                <th className="ui-table-th-end w-[5.25rem] whitespace-nowrap border-l border-slate-300/60 pl-3">Labor $</th>
+                <th className="ui-table-th-end w-[5.25rem] whitespace-nowrap border-l border-slate-300/60 pl-3">
+                  <span className="block">Labor $</span>
+                  <span className="mt-0.5 block text-[9px] font-normal normal-case tracking-normal text-slate-500">
+                    install / unit
+                    {laborMultiplier !== 1 ? ` · ×${formatNumberSafe(laborMultiplier, 2)} job` : ''}
+                  </span>
+                </th>
               ) : null}
               {!isTakeoffView && showMaterial ? (
-                <th className="ui-table-th-end w-[5.25rem] whitespace-nowrap">Material</th>
+                <th className="ui-table-th-end w-[5.25rem] whitespace-nowrap">
+                  <span className="block">Material $</span>
+                  <span className="mt-0.5 block text-[9px] font-normal normal-case tracking-normal text-slate-500">per unit</span>
+                </th>
               ) : null}
-              {!isTakeoffView ? <th className="ui-table-th-end w-[5.25rem] whitespace-nowrap">Unit sell</th> : null}
-              {!isTakeoffView ? <th className="ui-table-th-end w-[5.25rem] whitespace-nowrap">Total</th> : null}
-              {!isTakeoffView ? <th className="ui-table-th-end w-[7.25rem] whitespace-nowrap pl-2">Actions</th> : null}
+              {!isTakeoffView ? (
+                <th className="ui-table-th-end w-[5.25rem] whitespace-nowrap">
+                  <span className="block">Unit sell</span>
+                  <span className="mt-0.5 block text-[9px] font-normal normal-case tracking-normal text-slate-500">in this bid</span>
+                </th>
+              ) : null}
+              {!isTakeoffView ? (
+                <th className="ui-table-th-end w-[5.25rem] whitespace-nowrap">
+                  <span className="block">Line total</span>
+                  <span className="mt-0.5 block text-[9px] font-normal normal-case tracking-normal text-slate-500">qty × unit</span>
+                </th>
+              ) : null}
+              {!isTakeoffView ? (
+                <th className="ui-table-th min-w-[6.5rem] whitespace-normal text-left">
+                  <span className="block">Add-ins</span>
+                  <span className="mt-0.5 block text-[9px] font-normal normal-case tracking-normal text-slate-500">modifiers</span>
+                </th>
+              ) : null}
+              {!isTakeoffView ? <th className="ui-table-th-end w-[7.25rem] whitespace-nowrap pl-2">Open</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -329,10 +523,41 @@ export function EstimateGrid({
                   return null;
                 }
 
+                const currentCategory = String(row.category || '').trim() || 'Uncategorized';
+                const previousCategory = index > 0 ? (String(displayRows[index - 1].category || '').trim() || 'Uncategorized') : null;
+                const isCategoryStart = categoryGroupHeaders && !isTakeoffView && (index === 0 || previousCategory !== currentCategory);
+
                 const disp = itemCellDisplay(row.description, row.sku);
 
                 return (
                   <React.Fragment key={row.id}>
+                    {isCategoryStart ? (
+                      <tr className="border-b border-slate-200/80 bg-gradient-to-r from-slate-50 to-white">
+                        <td colSpan={columnCount} className="px-3 py-2">
+                          <div className="flex flex-wrap items-center gap-2 text-xs">
+                            <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-300/80 bg-white px-2 py-0.5 font-semibold text-slate-900 shadow-sm">
+                              <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'var(--brand)' }} aria-hidden />
+                              {currentCategory}
+                            </span>
+                            <span className="text-slate-500">
+                              ({categoryMeta[currentCategory]?.count || 0})
+                            </span>
+                            <span className="tabular-nums text-slate-500">
+                              Mat <span className="font-semibold text-slate-900">{formatCurrencySafe(categoryMeta[currentCategory]?.materialSubtotal ?? 0)}</span>
+                            </span>
+                            <span className="tabular-nums text-slate-500">
+                              · Lab <span className="font-semibold text-slate-900">{formatCurrencySafe(categoryMeta[currentCategory]?.laborSubtotal ?? 0)}</span>
+                            </span>
+                            <span className="tabular-nums text-slate-500">
+                              · {formatLaborDurationMinutes(categoryMeta[currentCategory]?.laborMinutesExtended ?? 0)}
+                            </span>
+                            <span className="ml-auto border-l border-slate-300 pl-2 tabular-nums font-semibold text-slate-900">
+                              {formatCurrencySafe(categoryMeta[currentCategory]?.subtotal ?? 0)}
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
                     {isBundleStart && row.bundleId ? (
                       <tr className="border-b border-slate-200/80 bg-slate-100/90">
                         <td colSpan={columnCount} className="px-3 py-2">
@@ -355,7 +580,20 @@ export function EstimateGrid({
                                 · {formatLaborDurationMinutes(bundleMeta[row.bundleId]?.laborMinutesExtended ?? 0)}
                               </span>
                             ) : (
-                              <span className="ml-1 text-slate-900">{formatCurrencySafe(bundleMeta[row.bundleId]?.subtotal)}</span>
+                              <>
+                                <span className="ml-1 tabular-nums text-slate-500">
+                                  Mat <span className="font-semibold text-slate-900">{formatCurrencySafe(bundleMeta[row.bundleId]?.materialSubtotal ?? 0)}</span>
+                                </span>
+                                <span className="tabular-nums text-slate-500">
+                                  · Lab <span className="font-semibold text-slate-900">{formatCurrencySafe(bundleMeta[row.bundleId]?.laborSubtotal ?? 0)}</span>
+                                </span>
+                                <span className="tabular-nums text-slate-500">
+                                  · {formatLaborDurationMinutes(bundleMeta[row.bundleId]?.laborMinutesExtended ?? 0)}
+                                </span>
+                                <span className="ml-1 border-l border-slate-300 pl-2 tabular-nums font-semibold text-slate-900">
+                                  {formatCurrencySafe(bundleMeta[row.bundleId]?.subtotal)}
+                                </span>
+                              </>
                             )}
                           </button>
                         </td>
@@ -411,7 +649,10 @@ export function EstimateGrid({
                             <div className="flex items-center justify-end gap-1">
                               <button
                                 type="button"
-                                onClick={() => onSelectLine(row.lineId)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  (onOpenLineDetail ?? onSelectLine)(row.lineId);
+                                }}
                                 className={`ui-table-action ${selected ? 'border-blue-400 bg-blue-50 text-blue-900' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
                               >
                                 {selected ? (
@@ -452,6 +693,7 @@ export function EstimateGrid({
                             </div>
                             {disp.subtitle ? <div className="ui-table-meta line-clamp-2">{disp.subtitle}</div> : null}
                             {modifierLine(row.modifierNames)}
+                            {!isTakeoffView ? pricingStreamPills() : null}
                           </td>
                           <td className="ui-table-cell">
                             <div className="text-xs font-normal leading-snug text-slate-800" title={row.roomHint || row.roomLabel}>
@@ -487,11 +729,19 @@ export function EstimateGrid({
                           {!isTakeoffView && showMaterial ? (
                             <td className="ui-table-cell text-right">
                               <span className="ui-table-num">{formatCurrencySafe(row.materialCost)}</span>
+                              <div className="ui-table-meta text-right text-[10px] text-slate-500">mat / u</div>
                             </td>
                           ) : null}
                           {!isTakeoffView ? (
                             <td className="ui-table-cell text-right">
                               <span className="ui-table-num">{formatCurrencySafe(row.unitSell)}</span>
+                              {showMaterial && showLabor ? (
+                                <div className="ui-table-meta text-right text-[10px] text-slate-500">mat + labor</div>
+                              ) : showLabor ? (
+                                <div className="ui-table-meta text-right text-[10px] text-slate-500">labor-led</div>
+                              ) : showMaterial ? (
+                                <div className="ui-table-meta text-right text-[10px] text-slate-500">material-led</div>
+                              ) : null}
                             </td>
                           ) : null}
                           {!isTakeoffView ? (
@@ -499,22 +749,28 @@ export function EstimateGrid({
                               <span className="ui-table-num-em">{formatCurrencySafe(row.lineTotal)}</span>
                             </td>
                           ) : null}
+                          {!isTakeoffView ? (
+                            <td className="ui-table-cell align-top text-left">{addInsSummaryCell(row.modifierRollup, row.modifierNames)}</td>
+                          ) : null}
                           <td className="ui-table-cell pl-2 text-right" onClick={stopRowEvent}>
                             <div className="flex items-center justify-end gap-1">
                               <button
                                 type="button"
-                                onClick={() => onSelectLine(row.lineId)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  (onOpenLineDetail ?? onSelectLine)(row.lineId);
+                                }}
                                 className={`ui-table-action ${selected ? 'border-blue-300 bg-blue-50 text-blue-800' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
                               >
                                 {selected ? (
                                   <span className="inline-flex items-center gap-1">
                                     <Sparkles className="h-3.5 w-3.5 shrink-0" />
-                                    Open
+                                    {onOpenLineDetail ? 'Open' : 'Line'}
                                   </span>
-                                ) : organizeBy === 'item' ? (
-                                  'Inspect'
+                                ) : onOpenLineDetail ? (
+                                  'Open'
                                 ) : (
-                                  'Edit'
+                                  'Line'
                                 )}
                               </button>
                               {row.canDelete ? (

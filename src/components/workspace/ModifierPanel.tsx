@@ -24,8 +24,8 @@ export function ModifierPanel({ modifiers, activeModifiers, selectedLinePresent,
   return (
     <div className="space-y-3">
       <div>
-        <p className="text-[12px] font-semibold tracking-[-0.02em] text-slate-900 mb-1">Active On Item</p>
-        <p className="text-[11px] text-slate-500 mb-2">Applied labor and material adjustments for the current line.</p>
+        <p className="text-[12px] font-semibold tracking-[-0.02em] text-slate-900 mb-1">Add-ins on this line</p>
+        <p className="text-[11px] text-slate-500 mb-2">These stack on the base scope item and flow into unit material, labor minutes, and $.</p>
         {activeModifiers.length === 0 ? (
           <div className="rounded-2xl bg-white/80 px-3 py-3 text-xs text-slate-500 shadow-sm ring-1 ring-slate-200/80">No active modifiers on selected line.</div>
         ) : (
@@ -48,8 +48,8 @@ export function ModifierPanel({ modifiers, activeModifiers, selectedLinePresent,
       </div>
 
       <div>
-        <p className="text-[12px] font-semibold tracking-[-0.02em] text-slate-900 mb-1">Apply Modifier</p>
-        <p className="text-[11px] text-slate-500 mb-2">Stack add-ins and labor multipliers without leaving the line editor.</p>
+        <p className="text-[12px] font-semibold tracking-[-0.02em] text-slate-900 mb-1">Apply add-in from library</p>
+        <p className="text-[11px] text-slate-500 mb-2">Same catalog as bulk modifiers — each apply recalculates this line&apos;s unit costs.</p>
         {!selectedLinePresent ? (
           <div className="rounded-2xl bg-white/80 px-3 py-3 text-xs text-slate-500 shadow-sm ring-1 ring-slate-200/80">Select an estimate row to apply modifiers.</div>
         ) : (

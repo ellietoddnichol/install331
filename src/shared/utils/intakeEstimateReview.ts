@@ -6,6 +6,7 @@ import type {
   IntakeApplicationStatus,
   IntakeCatalogMatch,
   IntakeEstimateDraft,
+  IntakeMatchConfidence,
   IntakeLineEstimateSuggestion,
   IntakeReviewLine,
   IntakeScopeBucket,
@@ -251,6 +252,34 @@ export function getActiveCatalogMatchForRow(
   const fromTop = row.topCatalogCandidates.find((c) => c.catalogItemId === id);
   if (fromTop) return fromTop;
   return null;
+}
+
+/** Persist intake scope + catalog confidence onto takeoff lines at project creation. */
+export function resolveIntakePersistFieldsForTakeoffLine(input: {
+  draft: IntakeEstimateDraft | undefined;
+  fingerprint: string | undefined;
+  lineByFingerprint: Record<string, EstimateReviewLineState>;
+  catalogItemId: string | null;
+}): { intakeScopeBucket: IntakeScopeBucket | null; intakeMatchConfidence: IntakeMatchConfidence | null } {
+  const { draft, fingerprint, lineByFingerprint, catalogItemId } = input;
+  if (!draft || !fingerprint) {
+    return { intakeScopeBucket: null, intakeMatchConfidence: null };
+  }
+  const row = draft.lineSuggestions.find((r) => r.reviewLineFingerprint === fingerprint);
+  if (!row) {
+    return { intakeScopeBucket: null, intakeMatchConfidence: null };
+  }
+  const st = lineByFingerprint[fingerprint];
+  const m = st ? getActiveCatalogMatchForRow(row, st) : null;
+  let confidence: IntakeMatchConfidence | null = m?.confidence ?? null;
+  if (!confidence && catalogItemId) {
+    const alt = row.topCatalogCandidates.find((c) => c.catalogItemId === catalogItemId);
+    confidence = alt?.confidence ?? null;
+  }
+  return {
+    intakeScopeBucket: row.scopeBucket ?? null,
+    intakeMatchConfidence: confidence,
+  };
 }
 
 /** Line shape used at project creation (intake review step). */

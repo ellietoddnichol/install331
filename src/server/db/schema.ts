@@ -406,6 +406,15 @@ export function initEstimatorSchema(db: Database) {
     `).run(defaultLaborRatePerHour);
   }
 
+  const takeoffIntakeCols = db.prepare('PRAGMA table_info(takeoff_lines_v1)').all() as Array<{ name: string }>;
+  if (!takeoffIntakeCols.some((c) => c.name === 'intake_scope_bucket')) {
+    db.exec('ALTER TABLE takeoff_lines_v1 ADD COLUMN intake_scope_bucket TEXT');
+  }
+  const takeoffIntakeCols2 = db.prepare('PRAGMA table_info(takeoff_lines_v1)').all() as Array<{ name: string }>;
+  if (!takeoffIntakeCols2.some((c) => c.name === 'intake_match_confidence')) {
+    db.exec('ALTER TABLE takeoff_lines_v1 ADD COLUMN intake_match_confidence TEXT');
+  }
+
   const modifierColumns = db.prepare('PRAGMA table_info(modifiers_v1)').all() as Array<{ name: string }>;
   if (modifierColumns.length > 0 && !modifierColumns.some((c) => c.name === 'description')) {
     db.exec("ALTER TABLE modifiers_v1 ADD COLUMN description TEXT NOT NULL DEFAULT ''");

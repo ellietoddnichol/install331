@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { ArrowRight, Sparkles } from 'lucide-react';
 import type { EstimateWorkspaceView } from '../../shared/types/projectWorkflow';
 import type { RoomRecord } from '../../shared/types/estimator';
@@ -16,6 +16,11 @@ interface EstimateToolbarProps {
   onAddManualLine: () => void;
   onOpenCatalog: () => void;
   onOpenBundles: () => void;
+  /** Open line detail / modifiers (add-ins) for the selected line. */
+  onOpenLineAddIns?: () => void;
+  canOpenLineAddIns?: boolean;
+  /** Short label for the currently selected line (used in add-ins affordance). */
+  selectedLineLabel?: string | null;
   activeRoomId: string;
   activeRoomLabel: string;
   /** Project total when pricing view */
@@ -35,12 +40,32 @@ export function EstimateToolbar({
   onAddManualLine,
   onOpenCatalog,
   onOpenBundles,
+  onOpenLineAddIns,
+  canOpenLineAddIns,
+  selectedLineLabel,
   activeRoomId,
   activeRoomLabel,
   projectTotal,
   formatCurrency,
   disabledAdd,
 }: EstimateToolbarProps) {
+  const [addInsGate, setAddInsGate] = useState(false);
+
+  useEffect(() => {
+    if (!addInsGate) return;
+    const t = window.setTimeout(() => setAddInsGate(false), 4500);
+    return () => window.clearTimeout(t);
+  }, [addInsGate]);
+
+  function handleAddInsClick() {
+    if (!onOpenLineAddIns) return;
+    if (!canOpenLineAddIns) {
+      setAddInsGate(true);
+      return;
+    }
+    onOpenLineAddIns();
+  }
+
   return (
     <div className="space-y-2">
       <div className="ui-panel-muted px-3 py-2.5">
@@ -91,14 +116,6 @@ export function EstimateToolbar({
                 Quantities <ArrowRight className="h-3 w-3" />
               </button>
             ) : null}
-            <button
-              type="button"
-              onClick={onAddManualLine}
-              disabled={disabledAdd || !activeRoomId}
-              className="ui-btn-primary inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Sparkles className="h-3 w-3" /> Add line
-            </button>
           </div>
         </div>
       </div>
@@ -122,27 +139,68 @@ export function EstimateToolbar({
               ))}
             </select>
           </label>
-          <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+        </div>
+      ) : null}
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="rounded-lg border border-slate-200/80 bg-white/90 px-2.5 py-2 shadow-sm">
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Add scope items</p>
+            <span className="text-[9px] font-semibold uppercase tracking-wide text-emerald-800">Creates rows</span>
+          </div>
+          <p className="mt-0.5 text-[10px] leading-snug text-slate-500">
+            Adds new rows to {view === 'pricing' ? 'the estimate' : 'the takeoff'} (catalog picker, bundle, or typed line). Does not touch the selected row.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
             <button type="button" onClick={onOpenCatalog} className="ui-btn-primary inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-semibold">
               Catalog
             </button>
             <button type="button" onClick={onOpenBundles} className="ui-btn-secondary h-8 rounded-md px-2.5 text-xs font-medium">
               Bundles
             </button>
+            <button
+              type="button"
+              onClick={onAddManualLine}
+              disabled={disabledAdd || !activeRoomId}
+              className="ui-btn-secondary inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Sparkles className="h-3 w-3" /> Add line
+            </button>
           </div>
+          <p className="mt-1.5 text-[10px] text-slate-500">
+            New rows land in <span className="font-medium text-slate-700">{activeRoomLabel}</span>.
+          </p>
         </div>
-      ) : null}
-
-      {view === 'quantities' ? (
-        <p className="text-xs leading-snug text-slate-500">
-          <span className="font-medium text-slate-700">New lines</span> use the selected room in the sidebar (
-          <span className="font-medium text-slate-800">{activeRoomLabel}</span>). Switch to{' '}
-          <button type="button" onClick={() => onViewChange('pricing')} className="font-semibold text-blue-800 underline decoration-slate-300 underline-offset-2">
-            Pricing
-          </button>{' '}
-          for dollars and rollups by room.
-        </p>
-      ) : null}
+        <div className="rounded-lg border border-slate-200/60 bg-slate-50/80 px-2.5 py-2">
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Line add-ins</p>
+            <span className="text-[9px] font-semibold uppercase tracking-wide text-violet-800">Edits selected row</span>
+          </div>
+          <p className="mt-0.5 text-[10px] leading-snug text-slate-500">
+            Does not add SKUs — opens the line drawer for modifiers, unit pricing, and notes on the selected row.
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handleAddInsClick}
+              disabled={!onOpenLineAddIns}
+              className="ui-btn-secondary h-8 rounded-md px-2.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Modifiers and line detail
+            </button>
+            {selectedLineLabel ? (
+              <span className="max-w-[16rem] truncate rounded-md border border-violet-200/70 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-900" title={selectedLineLabel}>
+                {selectedLineLabel}
+              </span>
+            ) : (
+              <span className="rounded-md border border-slate-200/80 bg-white px-2 py-0.5 text-[10px] font-medium text-slate-500">No row selected</span>
+            )}
+          </div>
+          {addInsGate ? (
+            <p className="mt-2 text-[10px] font-medium text-amber-900">Select a row in the grid, then open add-ins.</p>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }

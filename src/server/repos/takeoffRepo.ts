@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { getEstimatorDb } from '../db/connection.ts';
-import { TakeoffLineRecord, TakeoffPricingSource } from '../../shared/types/estimator.ts';
+import type { IntakeMatchConfidence, IntakeScopeBucket } from '../../shared/types/intake.ts';
+import { TakeoffLineModifierRollup, TakeoffLineRecord, TakeoffPricingSource } from '../../shared/types/estimator.ts';
 import { recordIntakeCatalogMemoryFromAcceptedMatch } from './intakeCatalogMemoryRepo.ts';
 
 const DEFAULT_LABOR_RATE_PER_HOUR = Number(process.env.DEFAULT_LABOR_RATE_PER_HOUR || 100);
@@ -36,6 +37,28 @@ function normalizePricingSource(value: unknown): TakeoffPricingSource {
 
 function calculateUnitSell(materialCost: number, laborCost: number): number {
   return Number((materialCost + laborCost).toFixed(2));
+}
+
+const INTAKE_SCOPE_BUCKETS: IntakeScopeBucket[] = [
+  'priced_base_scope',
+  'line_condition',
+  'project_condition',
+  'deduction_alternate',
+  'excluded_by_others',
+  'allowance',
+  'informational_only',
+  'unknown',
+];
+
+function parseIntakeScopeBucket(raw: unknown): IntakeScopeBucket | null {
+  const s = String(raw ?? '').trim();
+  return INTAKE_SCOPE_BUCKETS.includes(s as IntakeScopeBucket) ? (s as IntakeScopeBucket) : null;
+}
+
+function parseIntakeMatchConfidence(raw: unknown): IntakeMatchConfidence | null {
+  const s = String(raw ?? '').trim();
+  if (s === 'strong' || s === 'possible' || s === 'none') return s;
+  return null;
 }
 
 /** Record catalog learning when the link or identifying text changed (skip pure pricing/qty edits). */
@@ -75,6 +98,8 @@ function mapTakeoffRow(row: any): TakeoffLineRecord {
     bundleId: row.bundle_id,
     catalogItemId: row.catalog_item_id,
     variantId: row.variant_id,
+    intakeScopeBucket: parseIntakeScopeBucket(row.intake_scope_bucket),
+    intakeMatchConfidence: parseIntakeMatchConfidence(row.intake_match_confidence),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -103,11 +128,44 @@ function batchModifierNamesByLineIds(lineIds: string[]): Map<string, string[]> {
   return map;
 }
 
+function batchLineModifierRollups(lineIds: string[]): Map<string, TakeoffLineModifierRollup> {
+  const out = new Map<string, TakeoffLineModifierRollup>();
+  if (lineIds.length === 0) return out;
+  const placeholders = lineIds.map(() => '?').join(',');
+  const rows = getEstimatorDb()
+    .prepare(
+      `SELECT line_id,
+        COUNT(*) AS modifier_count,
+        COALESCE(SUM(add_material_cost), 0) AS sum_add_material,
+        COALESCE(SUM(add_labor_minutes), 0) AS sum_add_labor_minutes,
+        MAX(CASE WHEN COALESCE(percent_material, 0) > 0 OR COALESCE(percent_labor, 0) > 0 THEN 1 ELSE 0 END) AS has_percent
+       FROM line_modifiers_v1 WHERE line_id IN (${placeholders}) GROUP BY line_id`
+    )
+    .all(...lineIds) as Array<{
+      line_id: string;
+      modifier_count: number;
+      sum_add_material: number;
+      sum_add_labor_minutes: number;
+      has_percent: number;
+    }>;
+  for (const row of rows) {
+    out.set(row.line_id, {
+      count: Number(row.modifier_count) || 0,
+      addMaterialCost: Number(row.sum_add_material) || 0,
+      addLaborMinutes: Number(row.sum_add_labor_minutes) || 0,
+      hasPercentAdjustments: Number(row.has_percent) > 0,
+    });
+  }
+  return out;
+}
+
 export function enrichLineWithModifierNames(line: TakeoffLineRecord): TakeoffLineRecord {
   const names = batchModifierNamesByLineIds([line.id]).get(line.id);
+  const rollup = batchLineModifierRollups([line.id]).get(line.id);
   return {
     ...line,
     modifierNames: names && names.length > 0 ? names : undefined,
+    lineModifierRollup: rollup && rollup.count > 0 ? rollup : undefined,
   };
 }
 
@@ -116,10 +174,13 @@ export function listTakeoffLines(projectId: string, roomId?: string): TakeoffLin
     ? getEstimatorDb().prepare('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? AND room_id = ? ORDER BY created_at').all(projectId, roomId)
     : getEstimatorDb().prepare('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? ORDER BY created_at').all(projectId);
   const lines = rows.map(mapTakeoffRow);
-  const byLine = batchModifierNamesByLineIds(lines.map((l) => l.id));
+  const ids = lines.map((l) => l.id);
+  const byLine = batchModifierNamesByLineIds(ids);
+  const rollups = batchLineModifierRollups(ids);
   return lines.map((line) => ({
     ...line,
     modifierNames: byLine.get(line.id)?.length ? byLine.get(line.id) : undefined,
+    lineModifierRollup: rollups.get(line.id),
   }));
 }
 
@@ -194,6 +255,15 @@ export function createTakeoffLine(input: Partial<TakeoffLineRecord> & { projectI
   );
   const totals = computeLineTotal(qty, materialCost, laborCost, input.unitSell, pricingSource);
 
+  const intakeScopeBucket =
+    input.intakeScopeBucket !== undefined && input.intakeScopeBucket !== null
+      ? parseIntakeScopeBucket(input.intakeScopeBucket)
+      : null;
+  const intakeMatchConfidence =
+    input.intakeMatchConfidence !== undefined && input.intakeMatchConfidence !== null
+      ? parseIntakeMatchConfidence(input.intakeMatchConfidence)
+      : null;
+
   const line: TakeoffLineRecord = {
     id: input.id ?? randomUUID(),
     projectId: input.projectId,
@@ -219,6 +289,8 @@ export function createTakeoffLine(input: Partial<TakeoffLineRecord> & { projectI
     bundleId: input.bundleId ?? null,
     catalogItemId: input.catalogItemId ?? null,
     variantId: input.variantId ?? null,
+    intakeScopeBucket,
+    intakeMatchConfidence,
     createdAt: now,
     updatedAt: now
   };
@@ -227,8 +299,8 @@ export function createTakeoffLine(input: Partial<TakeoffLineRecord> & { projectI
     INSERT INTO takeoff_lines_v1 (
       id, project_id, room_id, source_type, source_ref, description, sku, category, subcategory, base_type,
       qty, unit, material_cost, base_material_cost, labor_minutes, labor_cost, base_labor_cost, pricing_source, unit_sell, line_total, notes, bundle_id, catalog_item_id,
-      variant_id, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      variant_id, intake_scope_bucket, intake_match_confidence, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     line.id,
     line.projectId,
@@ -254,6 +326,8 @@ export function createTakeoffLine(input: Partial<TakeoffLineRecord> & { projectI
     line.bundleId,
     line.catalogItemId,
     line.variantId,
+    line.intakeScopeBucket,
+    line.intakeMatchConfidence,
     line.createdAt,
     line.updatedAt
   );
@@ -275,6 +349,7 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
 
   const sanitizedInput = { ...input };
   delete (sanitizedInput as Partial<{ modifierNames?: unknown }>).modifierNames;
+  delete (sanitizedInput as Partial<{ lineModifierRollup?: unknown }>).lineModifierRollup;
 
   const laborRatePerHour = getConfiguredLaborRatePerHour();
   const qty = input.qty ?? existing.qty;
@@ -296,6 +371,19 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
     pricingSource
   );
 
+  const nextIntakeScope =
+    input.intakeScopeBucket !== undefined
+      ? input.intakeScopeBucket === null
+        ? null
+        : parseIntakeScopeBucket(input.intakeScopeBucket)
+      : existing.intakeScopeBucket ?? null;
+  const nextIntakeConf =
+    input.intakeMatchConfidence !== undefined
+      ? input.intakeMatchConfidence === null
+        ? null
+        : parseIntakeMatchConfidence(input.intakeMatchConfidence)
+      : existing.intakeMatchConfidence ?? null;
+
   const next: TakeoffLineRecord = {
     ...existing,
     ...sanitizedInput,
@@ -309,6 +397,8 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
     pricingSource,
     unitSell: totals.unitSell,
     lineTotal: totals.lineTotal,
+    intakeScopeBucket: nextIntakeScope,
+    intakeMatchConfidence: nextIntakeConf,
     updatedAt: new Date().toISOString()
   };
 
@@ -316,7 +406,7 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
     UPDATE takeoff_lines_v1 SET
       room_id = ?, source_type = ?, source_ref = ?, description = ?, sku = ?, category = ?, subcategory = ?, base_type = ?,
       qty = ?, unit = ?, material_cost = ?, base_material_cost = ?, labor_minutes = ?, labor_cost = ?, base_labor_cost = ?, pricing_source = ?, unit_sell = ?, line_total = ?, notes = ?,
-      bundle_id = ?, catalog_item_id = ?, variant_id = ?, updated_at = ?
+      bundle_id = ?, catalog_item_id = ?, variant_id = ?, intake_scope_bucket = ?, intake_match_confidence = ?, updated_at = ?
     WHERE id = ?
   `).run(
     next.roomId,
@@ -341,6 +431,8 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
     next.bundleId,
     next.catalogItemId,
     next.variantId,
+    next.intakeScopeBucket,
+    next.intakeMatchConfidence,
     next.updatedAt,
     lineId
   );

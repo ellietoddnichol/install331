@@ -47,6 +47,7 @@ import {
   ESTIMATE_REVIEW_LOW_SCORE_THRESHOLD,
   getActiveCatalogMatchForRow,
   inferJobConditionPatchesFromText,
+  resolveIntakePersistFieldsForTakeoffLine,
   resolveLineForProjectCreation,
   type EstimateReviewLineState,
 } from '../shared/utils/intakeEstimateReview';
@@ -2672,22 +2673,32 @@ export function ProjectIntake() {
       );
       const linesToCreate = resolvedLineSuggestions.filter((line) => (createConfirmedOnly ? line.include : true));
       if (linesToCreate.length > 0) {
-        const payload = linesToCreate.map((line) => ({
-          projectId: createdProject.id,
-          roomId: roomMap.get(normalizeRoomName(line.roomName)) || createdRooms[0].id,
-          sourceType: mode,
-          sourceRef: line.sourceReference || (mode === 'takeoff' ? (takeoffFileName || sourceProjectId || null) : (uploadedFileName || sourceProjectId || null)),
-          description: line.description,
-          sku: line.sku,
-          category: line.category,
-          qty: line.qty ?? 0,
-          unit: line.unit,
-          materialCost: line.materialCost,
-          laborMinutes: line.laborMinutes,
-          laborCost: 0,
-          catalogItemId: line.catalogItemId,
-          notes: line.notes,
-        }));
+        const payload = linesToCreate.map((line) => {
+          const intakeFields = resolveIntakePersistFieldsForTakeoffLine({
+            draft: draftForResolve,
+            fingerprint: line.reviewLineFingerprint,
+            lineByFingerprint: estimateReviewLines,
+            catalogItemId: line.catalogItemId,
+          });
+          return {
+            projectId: createdProject.id,
+            roomId: roomMap.get(normalizeRoomName(line.roomName)) || createdRooms[0].id,
+            sourceType: mode,
+            sourceRef: line.sourceReference || (mode === 'takeoff' ? (takeoffFileName || sourceProjectId || null) : (uploadedFileName || sourceProjectId || null)),
+            description: line.description,
+            sku: line.sku,
+            category: line.category,
+            qty: line.qty ?? 0,
+            unit: line.unit,
+            materialCost: line.materialCost,
+            laborMinutes: line.laborMinutes,
+            laborCost: 0,
+            catalogItemId: line.catalogItemId,
+            notes: line.notes,
+            intakeScopeBucket: intakeFields.intakeScopeBucket,
+            intakeMatchConfidence: intakeFields.intakeMatchConfidence,
+          };
+        });
         await api.finalizeV1ParserLines(payload);
       }
 
@@ -2706,7 +2717,7 @@ export function ProjectIntake() {
         }
       }
 
-      navigate(`/project/${createdProject.id}?tab=estimate&view=quantities`);
+      navigate(`/project/${createdProject.id}/estimate?view=quantities`);
     } catch (error) {
       console.error(error);
       alert('Failed to create project from reviewed items.');
