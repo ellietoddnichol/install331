@@ -1454,7 +1454,7 @@ export function ProjectWorkspace() {
         statusActionLabel={statusActionLabel}
       />
 
-      <div className="ui-page">
+      <div className="ui-page-wide">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
           <ProjectStepNav
             projectId={project.id}

@@ -72,6 +72,10 @@
     @apply mx-auto w-full max-w-[1600px] px-3 py-1.5 md:px-4 md:py-2.5;
   }
 
+  .ui-page-wide {
+    @apply mx-auto w-full max-w-[2000px] px-3 py-1.5 md:px-4 md:py-2.5;
+  }
+
   .ui-page-narrow {
     @apply mx-auto w-full max-w-[1240px] px-3 py-1.5 md:px-4 md:py-2.5;
   }
