@@ -107,7 +107,7 @@ export function Projects() {
 
   return (
     <div className="ui-page space-y-4">
-      <div className="flex items-end justify-between gap-4 border-b border-slate-200/80 pb-4">
+      <div className="ui-panel flex items-end justify-between gap-4 px-4 py-3.5">
         <div>
           <div className="flex items-center gap-2.5">
             <span className="ui-status-live">Live</span>
@@ -163,11 +163,11 @@ export function Projects() {
       </div>
 
       <div className="px-1 flex flex-wrap items-center gap-2 text-xs">
-        <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 font-medium text-blue-800">
+        <span className="ui-chip-soft">
           Filter: {activeFilterLabel}
         </span>
         {search.trim() ? (
-          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-600">
+          <span className="ui-chip-soft">
             Search: {search.trim()}
           </span>
         ) : null}
@@ -179,7 +179,7 @@ export function Projects() {
               setStatus('all');
               setSort('newest');
             }}
-            className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-600 hover:bg-slate-50"
+            className="ui-ghost-btn h-8 rounded-full px-3 text-[11px]"
           >
             Clear Filters
           </button>
@@ -204,7 +204,7 @@ export function Projects() {
         ) : (
           <table className="w-full text-left">
             <thead>
-              <tr className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 backdrop-blur-sm">
+              <tr className="sticky top-0 z-10 border-b border-[var(--line)] bg-[var(--surface-soft)]/95 backdrop-blur-sm">
                 <th className="ui-table-th px-5 py-3">Project</th>
                 <th className="ui-table-th px-5 py-3">Client</th>
                 <th className="ui-table-th px-5 py-3">Status</th>
@@ -212,7 +212,7 @@ export function Projects() {
                 <th className="ui-table-th-end px-5 py-3">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-[color-mix(in_srgb,var(--line)_55%,white)]">
               {filtered.map((project, idx) => {
                 const tone = statusTone(project.status);
                 const rowNumber = String(idx + 1).padStart(3, '0');
@@ -222,7 +222,7 @@ export function Projects() {
                     role="button"
                     tabIndex={0}
                     title="Click row to open"
-                    className={`cursor-pointer border-l-[3px] ${tone.accent} outline-none hover:bg-slate-50/80 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400/50`}
+                    className={`cursor-pointer border-l-[3px] ${tone.accent} outline-none hover:bg-[var(--surface-soft)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus-ring)]`}
                     onClick={() => navigate(`/project/${project.id}`)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {

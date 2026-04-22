@@ -113,7 +113,7 @@ export function Settings() {
 
   return (
     <div className="ui-page-narrow space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200/80 pb-4">
+      <div className="ui-panel flex flex-wrap items-end justify-between gap-4 px-4 py-3.5">
         <div>
           <div className="flex items-center gap-2.5">
             <span className="ui-status-live">Live</span>
@@ -168,7 +168,7 @@ export function Settings() {
           </div>
         </div>
         {!!syncStatus?.message && (
-          <p className="text-xs text-slate-600 border border-slate-200 rounded p-2 bg-slate-50">{syncStatus.message}</p>
+          <div className="ui-panel-muted p-3 text-xs text-[var(--text)]">{syncStatus.message}</div>
         )}
         <p className="text-xs text-slate-500">
           Use <span className="font-medium text-slate-700">Backfill Takeoff Registry</span> to mirror the app-side takeoff model registry into the Google Sheets ITEMS tab.

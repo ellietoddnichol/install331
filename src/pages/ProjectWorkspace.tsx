@@ -1702,16 +1702,18 @@ export function ProjectWorkspace() {
                 <div>
                   <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                     <div className="min-w-0">
-                      <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Group by</p>
-                      <div className="inline-flex rounded-lg border border-slate-200/90 bg-white p-0.5 shadow-sm">
+                      <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Group by</p>
+                      <div className="inline-flex rounded-lg border border-[var(--line)] bg-[var(--surface)] p-0.5">
                         <button
                           type="button"
                           onClick={() => {
                             setPricingOrganizeMode('rooms');
                             setPricingCategoryFilter(PRICING_ALL_CATEGORIES);
                           }}
-                          className={`rounded-md px-2.5 py-1 text-[11px] font-semibold ${
-                            pricingOrganizeMode === 'rooms' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
+                          className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition ${
+                            pricingOrganizeMode === 'rooms'
+                              ? 'bg-[var(--brand-deep)] text-white'
+                              : 'text-[var(--text)] hover:bg-[var(--surface-soft)]'
                           }`}
                         >
                           Rooms
@@ -1722,14 +1724,16 @@ export function ProjectWorkspace() {
                             setPricingOrganizeMode('categories');
                             setPricingCategoryFilter(PRICING_ALL_CATEGORIES);
                           }}
-                          className={`rounded-md px-2.5 py-1 text-[11px] font-semibold ${
-                            pricingOrganizeMode === 'categories' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
+                          className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition ${
+                            pricingOrganizeMode === 'categories'
+                              ? 'bg-[var(--brand-deep)] text-white'
+                              : 'text-[var(--text)] hover:bg-[var(--surface-soft)]'
                           }`}
                         >
                           Categories
                         </button>
                       </div>
-                      <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
+                      <p className="mt-1.5 text-[11px] leading-snug text-[var(--text-muted)]">
                         {pricingOrganizeMode === 'rooms'
                           ? 'Jump between rooms (same as the room chips below).'
                           : 'Filter the table by catalog category for this room; All keeps every line.'}
@@ -1833,11 +1837,11 @@ export function ProjectWorkspace() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-slate-200/70 pt-1.5 text-[11px] text-slate-600">
-                  <span className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2 py-1 font-medium ring-1 ring-slate-200/80">
-                    <Sparkles className="h-3 w-3 text-slate-400" aria-hidden />
-                    <span className="text-slate-500">Markup / tax stack</span>
-                    <span className="font-semibold tabular-nums text-slate-900">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-[var(--line)] pt-1.5 text-[11px] text-[var(--text)]">
+                  <span className="inline-flex items-center gap-1 rounded-md bg-[var(--surface-soft)] px-2 py-1 font-medium ring-1 ring-[color-mix(in_srgb,var(--line)_65%,white)]">
+                    <Sparkles className="h-3 w-3 text-[var(--text-muted)]" aria-hidden />
+                    <span className="text-[var(--text-muted)]">Markup / tax stack</span>
+                    <span className="font-semibold tabular-nums text-[var(--text)]">
                       {formatCurrencySafe(
                         (summary?.taxAmount || 0) +
                           (summary?.overheadAmount || 0) +
@@ -1850,9 +1854,9 @@ export function ProjectWorkspace() {
                     </span>
                   </span>
                   {isMaterialOnlyMainBid(pricingMode) && (summary?.laborCompanionProposalTotal ?? 0) > 0 ? (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2 py-1 font-medium ring-1 ring-slate-200/80">
-                      <Hammer className="h-3 w-3 text-slate-500" aria-hidden />
-                      <span className="text-slate-500">
+                    <span className="inline-flex items-center gap-1 rounded-md bg-[var(--surface-soft)] px-2 py-1 font-medium ring-1 ring-[color-mix(in_srgb,var(--line)_65%,white)]">
+                      <Hammer className="h-3 w-3 text-[var(--text-muted)]" aria-hidden />
+                      <span className="text-[var(--text-muted)]">
                         {pricingMode === 'material_with_optional_install_quote'
                           ? 'Install (quoted separately)'
                           : 'Sub labor (companion)'}

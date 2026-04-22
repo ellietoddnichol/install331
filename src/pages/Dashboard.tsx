@@ -138,7 +138,7 @@ export function Dashboard() {
               <button
                 key={project.id}
                 onClick={() => navigate(`/project/${project.id}`)}
-                className="group flex w-full items-center justify-between gap-3 rounded-md border border-slate-200/80 bg-white px-3 py-2 text-left transition-colors hover:border-blue-300 hover:bg-blue-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/40"
+                className="group flex w-full items-center justify-between gap-3 rounded-md border border-[color-mix(in_srgb,var(--line)_75%,white)] bg-[var(--surface)] px-3 py-2 text-left transition-colors hover:border-[var(--focus-border)] hover:bg-[var(--brand-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-slate-900">{project.projectName}</p>
@@ -157,7 +157,7 @@ export function Dashboard() {
 
   return (
     <div className="ui-page space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200/80 pb-4">
+      <div className="ui-panel flex flex-wrap items-end justify-between gap-4 px-4 py-3.5">
         <div>
           <div className="flex items-center gap-2.5">
             <span className="ui-status-live">Live</span>
@@ -174,7 +174,7 @@ export function Dashboard() {
           <button onClick={() => navigate('/project/new')} className="ui-btn-cta">
             <Plus className="mr-1.5 h-3.5 w-3.5" /> New Project
           </button>
-          <button onClick={() => navigate('/projects')} className="ui-btn-secondary h-10 px-3 text-[11px] font-semibold uppercase tracking-[0.06em]">
+          <button onClick={() => navigate('/projects')} className="ui-btn-secondary h-10 px-4 text-[11px] font-semibold uppercase tracking-[0.06em]">
             View All
           </button>
         </div>

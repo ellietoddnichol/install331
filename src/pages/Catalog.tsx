@@ -15,7 +15,7 @@ function CatalogItemThumb({ url }: { url: string | undefined }) {
   if (!url || !isDisplayableCatalogImageUrl(url) || broken) {
     return (
       <div
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded border border-dashed border-slate-200 bg-slate-50 text-[9px] text-slate-400"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded border border-dashed border-[var(--line)] bg-[var(--surface-soft)] text-[9px] text-[var(--text-muted)]"
         title={url && !isDisplayableCatalogImageUrl(url) ? 'URL not shown as image' : undefined}
       >
         —
@@ -26,7 +26,7 @@ function CatalogItemThumb({ url }: { url: string | undefined }) {
     <img
       src={url}
       alt=""
-      className="h-10 w-10 shrink-0 rounded border border-slate-200/90 bg-white object-contain"
+      className="h-10 w-10 shrink-0 rounded border border-[var(--line)] bg-[var(--surface)] object-contain"
       loading="lazy"
       onError={() => setBroken(true)}
     />
@@ -40,7 +40,7 @@ function statusClass(status: CatalogSyncStatusRecord['status']): string {
   if (status === 'success') return 'ui-status-ok';
   if (status === 'running') return 'ui-status-info';
   if (status === 'failed') return 'ui-status-error';
-  return 'border border-slate-300 bg-slate-100 text-slate-600';
+  return 'ui-chip-soft text-[var(--text-muted)]';
 }
 
 export function Catalog() {
@@ -319,7 +319,7 @@ export function Catalog() {
 
   return (
     <div className="ui-page space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200/80 pb-4">
+      <div className="ui-panel flex flex-wrap items-end justify-between gap-4 px-4 py-3.5">
         <div>
           <div className="flex items-center gap-2.5">
             <span className="ui-status-live">Live</span>
@@ -342,7 +342,7 @@ export function Catalog() {
             </p>
           </div>
           <div className="flex items-center gap-2 text-xs">
-            <span className="inline-flex items-center gap-1 rounded border border-slate-300 bg-slate-50 px-2 py-1 text-slate-700">
+            <span className="ui-chip-soft inline-flex items-center gap-1">
               <Database className="w-3.5 h-3.5" />
               Source: Google Sheets
             </span>
@@ -759,9 +759,9 @@ export function Catalog() {
       </section>
 
       {editingItem ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/45">
-          <form onSubmit={handleSaveItem} className="bg-white w-full max-w-2xl rounded-lg shadow-xl overflow-hidden flex flex-col border border-slate-200">
-            <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 sm:p-6">
+          <form onSubmit={handleSaveItem} className="ui-panel w-full max-w-2xl overflow-hidden p-0 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3.5">
               <div>
                 <p className="ui-mono-kicker">Module 01 / Catalog Record</p>
                 <h2 className="mt-1 text-base font-semibold text-slate-900">Edit Catalog Item</h2>
@@ -769,7 +769,8 @@ export function Catalog() {
               <button
                 type="button"
                 onClick={() => setEditingItem(null)}
-                className="p-1.5 hover:bg-slate-100 rounded text-slate-500"
+                aria-label="Close edit catalog item"
+                className="ui-ghost-btn h-9 w-9 justify-center p-0"
               >
                 <Plus className="w-4 h-4 rotate-45" />
               </button>
@@ -782,7 +783,7 @@ export function Catalog() {
                   <input
                     type="text"
                     required
-                    className="w-full h-9 px-2 border border-slate-300 rounded text-sm"
+                    className="ui-input"
                     value={editingItem.description}
                     onChange={(e) => setEditingItem({ ...editingItem, description: e.target.value })}
                   />
@@ -791,7 +792,7 @@ export function Catalog() {
                   <label className="block text-[11px] font-medium text-slate-600 mb-1">SKU</label>
                   <input
                     type="text"
-                    className="w-full h-9 px-2 border border-slate-300 rounded text-sm"
+                    className="ui-input"
                     value={editingItem.sku}
                     onChange={(e) => setEditingItem({ ...editingItem, sku: e.target.value })}
                   />
@@ -800,7 +801,7 @@ export function Catalog() {
                   <label className="block text-[11px] font-medium text-slate-600 mb-1">Category</label>
                   <input
                     type="text"
-                    className="w-full h-9 px-2 border border-slate-300 rounded text-sm"
+                    className="ui-input"
                     value={editingItem.category}
                     onChange={(e) => setEditingItem({ ...editingItem, category: e.target.value })}
                   />
@@ -809,7 +810,7 @@ export function Catalog() {
                   <label className="block text-[11px] font-medium text-slate-600 mb-1">Manufacturer</label>
                   <input
                     type="text"
-                    className="w-full h-9 px-2 border border-slate-300 rounded text-sm"
+                    className="ui-input"
                     value={editingItem.manufacturer ?? ''}
                     onChange={(e) =>
                       setEditingItem({
@@ -824,7 +825,7 @@ export function Catalog() {
                   <input
                     type="text"
                     placeholder="Brand line from sheet"
-                    className="w-full h-9 px-2 border border-slate-300 rounded text-sm"
+                    className="ui-input"
                     value={editingItem.brand ?? ''}
                     onChange={(e) =>
                       setEditingItem({
@@ -837,7 +838,7 @@ export function Catalog() {
                 <div>
                   <label className="block text-[11px] font-medium text-slate-600 mb-1">Unit</label>
                   <select
-                    className="w-full h-9 px-2 border border-slate-300 rounded text-sm"
+                    className="ui-input"
                     value={editingItem.uom}
                     onChange={(e) => setEditingItem({ ...editingItem, uom: e.target.value as CatalogItem['uom'] })}
                   >
@@ -852,7 +853,7 @@ export function Catalog() {
                   <label className="block text-[11px] font-medium text-slate-600 mb-1">Type (Family/Subcategory)</label>
                   <input
                     type="text"
-                    className="w-full h-9 px-2 border border-slate-300 rounded text-sm"
+                    className="ui-input"
                     value={editingItem.family || editingItem.subcategory || ''}
                     onChange={(e) => setEditingItem({ ...editingItem, family: e.target.value || undefined })}
                   />
@@ -862,7 +863,7 @@ export function Catalog() {
                   <input
                     type="number"
                     step="0.01"
-                    className="w-full h-9 px-2 border border-slate-300 rounded text-sm"
+                    className="ui-input"
                     value={editingItem.baseMaterialCost}
                     onChange={(e) => setEditingItem({ ...editingItem, baseMaterialCost: parseFloat(e.target.value) || 0 })}
                   />
@@ -871,7 +872,7 @@ export function Catalog() {
                   <label className="block text-[11px] font-medium text-slate-600 mb-1">Base Labor Minutes</label>
                   <input
                     type="number"
-                    className="w-full h-9 px-2 border border-slate-300 rounded text-sm"
+                    className="ui-input"
                     value={editingItem.baseLaborMinutes}
                     onChange={(e) => setEditingItem({ ...editingItem, baseLaborMinutes: parseFloat(e.target.value) || 0 })}
                   />
@@ -881,7 +882,7 @@ export function Catalog() {
                     Install Labor Family <span className="text-slate-400 font-normal">(fallback when this item has no labor minutes on a line)</span>
                   </label>
                   <select
-                    className="w-full h-9 px-2 border border-slate-300 rounded text-sm bg-white"
+                    className="ui-input"
                     value={editingItem.installLaborFamily ?? ''}
                     onChange={(e) =>
                       setEditingItem({
