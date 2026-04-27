@@ -6,7 +6,7 @@ import { parseUploadedWithRouter } from './uploadRouter.ts';
 
 export async function parseUploadedIntake(input: IntakeParseRequest): Promise<IntakeParseResult> {
   const base = await parseUploadedWithRouter(input);
-  const catalog = listActiveCatalogItems();
-  const modifiers = listModifiers();
+  const catalog = await listActiveCatalogItems();
+  const modifiers = await listModifiers();
   return enrichParseResultWithDiv10Brain(base, catalog, modifiers);
 }

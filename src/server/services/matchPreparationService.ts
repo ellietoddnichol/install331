@@ -3,7 +3,7 @@ import type { CatalogItem } from '../../types.ts';
 import type { BundleRecord, IntakeCatalogAutoApplyMode } from '../../shared/types/estimator.ts';
 import type { IntakeReviewLine, IntakeRoomCandidate } from '../../shared/types/intake.ts';
 import { computeCatalogAutoApplyTier } from '../../shared/utils/intakeAutomation.ts';
-import { getIntakeCatalogMemoryCatalogId, intakeLineMemoryKeyFromFields } from '../repos/intakeCatalogMemoryRepo.ts';
+import { getIntakeCatalogMemoryBatch, intakeLineMemoryKeyFromFields } from '../repos/intakeCatalogMemoryRepo.ts';
 import { prepareBundleMatch } from './intake/bundleIntakeMatching.ts';
 import { detectBundleCandidates } from './intake/normalizer.ts';
 import { prepareCatalogMatch } from './catalogMatchService.ts';
@@ -54,7 +54,12 @@ export function finalizeIntakeReviewLines(
   }
 }
 
-export function toReviewLines(lines: NormalizedIntakeLine[], catalog: CatalogItem[], matchCatalog: boolean, bundles: BundleRecord[] = []): IntakeReviewLine[] {
+export async function toReviewLines(
+  lines: NormalizedIntakeLine[],
+  catalog: CatalogItem[],
+  matchCatalog: boolean,
+  bundles: BundleRecord[] = []
+): Promise<IntakeReviewLine[]> {
   const useMemory = matchCatalog && catalog.length > 0;
   const catalogById = new Map(catalog.map((item) => [item.id, item] as const));
   const expandedLines = expandBundleLines(
@@ -64,6 +69,14 @@ export function toReviewLines(lines: NormalizedIntakeLine[], catalog: CatalogIte
       quantity: Number.isFinite(line.quantity) && Number(line.quantity) > 0 ? Number(line.quantity) : 1,
     }))
   ) as NormalizedIntakeLine[];
+  const memKeys = useMemory
+    ? expandedLines.map((line) => {
+        const description = line.description || line.itemName;
+        return intakeLineMemoryKeyFromFields({ itemCode: line.itemCode, itemName: line.itemName, description });
+      })
+    : [];
+  const memoryByKey = useMemory ? await getIntakeCatalogMemoryBatch(memKeys) : new Map<string, string>();
+
   return expandedLines.map((line) => {
     const description = line.description || line.itemName;
     const seededMatch = line.catalogMatch || null;
@@ -71,7 +84,7 @@ export function toReviewLines(lines: NormalizedIntakeLine[], catalog: CatalogIte
     const memKey = useMemory
       ? intakeLineMemoryKeyFromFields({ itemCode: line.itemCode, itemName: line.itemName, description })
       : '';
-    const memoryCatalogItemId = useMemory && memKey ? getIntakeCatalogMemoryCatalogId(memKey) : null;
+    const memoryCatalogItemId = useMemory && memKey ? memoryByKey.get(memKey) ?? null : null;
     const { catalogMatch, suggestedMatch } = seededMatch || seededSuggestion
       ? { catalogMatch: seededMatch, suggestedMatch: seededSuggestion }
       : matchCatalog

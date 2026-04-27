@@ -1,5 +1,7 @@
 import { randomUUID } from 'crypto';
-import { getEstimatorDb } from '../db/connection.ts';
+import { isPgDriver } from '../db/driver.ts';
+import { dbAll, dbGet, dbRun } from '../db/query.ts';
+import { getProjectFilesBucket, getServiceSupabase, isSupabaseStorageConfigured } from '../supabase/serviceClient.ts';
 import { ProjectFileRecord } from '../../shared/types/estimator.ts';
 
 type ProjectFileDbRow = {
@@ -8,8 +10,8 @@ type ProjectFileDbRow = {
   file_name: string;
   mime_type: string;
   size_bytes: number;
-  /** Present on rows selected with `data_base64` (single-file fetch). */
-  data_base64?: string;
+  data_base64?: string | null;
+  storage_object_key?: string | null;
   created_at: string;
 };
 
@@ -24,20 +26,21 @@ function mapProjectFileRow(row: ProjectFileDbRow): ProjectFileRecord {
   };
 }
 
-export function listProjectFiles(projectId: string): ProjectFileRecord[] {
-  const rows = getEstimatorDb()
-    .prepare('SELECT id, project_id, file_name, mime_type, size_bytes, created_at FROM project_files_v1 WHERE project_id = ? ORDER BY created_at DESC')
-    .all(projectId);
-  return rows.map(mapProjectFileRow);
+export async function listProjectFiles(projectId: string): Promise<ProjectFileRecord[]> {
+  const rows = await dbAll(
+    'SELECT id, project_id, file_name, mime_type, size_bytes, created_at FROM project_files_v1 WHERE project_id = ? ORDER BY created_at DESC',
+    [projectId]
+  );
+  return (rows as ProjectFileDbRow[]).map(mapProjectFileRow);
 }
 
-export function createProjectFile(input: {
+export async function createProjectFile(input: {
   projectId: string;
   fileName: string;
   mimeType: string;
   sizeBytes: number;
   dataBase64: string;
-}): ProjectFileRecord {
+}): Promise<ProjectFileRecord> {
   const record: ProjectFileRecord = {
     id: randomUUID(),
     projectId: input.projectId,
@@ -47,36 +50,80 @@ export function createProjectFile(input: {
     createdAt: new Date().toISOString(),
   };
 
-  getEstimatorDb()
-    .prepare(
+  const useStorage = isPgDriver() && isSupabaseStorageConfigured();
+  if (useStorage) {
+    const bucket = getProjectFilesBucket();
+    const objectKey = `${input.projectId}/${record.id}`;
+    const bytes = Buffer.from(input.dataBase64, 'base64');
+    const supabase = getServiceSupabase();
+    const { error } = await supabase.storage.from(bucket).upload(objectKey, bytes, {
+      contentType: input.mimeType,
+      upsert: true,
+    });
+    if (error) {
+      throw new Error(`Supabase storage upload failed: ${error.message}`);
+    }
+    await dbRun(
+      `INSERT INTO project_files_v1 (id, project_id, file_name, mime_type, size_bytes, data_base64, storage_object_key, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [record.id, record.projectId, record.fileName, record.mimeType, record.sizeBytes, null, objectKey, record.createdAt]
+    );
+  } else {
+    await dbRun(
       `INSERT INTO project_files_v1 (id, project_id, file_name, mime_type, size_bytes, data_base64, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(record.id, record.projectId, record.fileName, record.mimeType, record.sizeBytes, input.dataBase64, record.createdAt);
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [record.id, record.projectId, record.fileName, record.mimeType, record.sizeBytes, input.dataBase64, record.createdAt]
+    );
+  }
 
   return record;
 }
 
-export function getProjectFile(projectId: string, fileId: string): (ProjectFileRecord & { dataBase64: string }) | null {
-  const row = getEstimatorDb()
-    .prepare(
-      `SELECT id, project_id, file_name, mime_type, size_bytes, data_base64, created_at
+export async function getProjectFile(
+  projectId: string,
+  fileId: string
+): Promise<(ProjectFileRecord & { dataBase64: string }) | null> {
+  const row = (await dbGet(
+    `SELECT id, project_id, file_name, mime_type, size_bytes, data_base64, storage_object_key, created_at
        FROM project_files_v1
-       WHERE project_id = ? AND id = ?`
-    )
-    .get(projectId, fileId) as ProjectFileDbRow | undefined;
+       WHERE project_id = ? AND id = ?`,
+    [projectId, fileId]
+  )) as ProjectFileDbRow | undefined;
 
   if (!row) return null;
 
+  let dataBase64 = String(row.data_base64 ?? '');
+  const storageKey = row.storage_object_key ? String(row.storage_object_key) : '';
+  if (storageKey && isSupabaseStorageConfigured()) {
+    const supabase = getServiceSupabase();
+    const bucket = getProjectFilesBucket();
+    const { data, error } = await supabase.storage.from(bucket).download(storageKey);
+    if (error) {
+      throw new Error(`Supabase storage download failed: ${error.message}`);
+    }
+    const buf = Buffer.from(await data.arrayBuffer());
+    dataBase64 = buf.toString('base64');
+  }
+
   return {
     ...mapProjectFileRow(row),
-    dataBase64: String(row.data_base64 ?? ''),
+    dataBase64,
   };
 }
 
-export function deleteProjectFile(projectId: string, fileId: string): boolean {
-  const result = getEstimatorDb()
-    .prepare('DELETE FROM project_files_v1 WHERE project_id = ? AND id = ?')
-    .run(projectId, fileId);
+export async function deleteProjectFile(projectId: string, fileId: string): Promise<boolean> {
+  const row = (await dbGet(
+    'SELECT storage_object_key FROM project_files_v1 WHERE project_id = ? AND id = ?',
+    [projectId, fileId]
+  )) as { storage_object_key?: string | null } | undefined;
+
+  const storageKey = row?.storage_object_key ? String(row.storage_object_key) : '';
+  if (storageKey && isSupabaseStorageConfigured()) {
+    const supabase = getServiceSupabase();
+    const bucket = getProjectFilesBucket();
+    await supabase.storage.from(bucket).remove([storageKey]);
+  }
+
+  const result = await dbRun('DELETE FROM project_files_v1 WHERE project_id = ? AND id = ?', [projectId, fileId]);
   return result.changes > 0;
 }

@@ -15,21 +15,21 @@ import { getActiveRemoteDurableKind, getRemoteDurableSqliteObjectMetadata } from
 
 export const settingsRouter = Router();
 
-settingsRouter.get('/', (_req, res) => {
-  return res.json({ data: getSettings() });
+settingsRouter.get('/', async (_req, res) => {
+  return res.json({ data: await getSettings() });
 });
 
-settingsRouter.put('/', (req, res) => {
-  const current = getSettings();
-  const next = updateSettings(req.body ?? {});
+settingsRouter.put('/', async (req, res) => {
+  const current = await getSettings();
+  const next = await updateSettings(req.body ?? {});
   if (current.defaultLaborRatePerHour !== next.defaultLaborRatePerHour) {
-    recalculateAllLinePricing();
+    await recalculateAllLinePricing();
   }
   return res.json({ data: next });
 });
 
 /** Remember estimator catalog choice for future intake matching (company-wide). */
-settingsRouter.post('/intake-catalog-memory', (req, res) => {
+settingsRouter.post('/intake-catalog-memory', async (req, res) => {
   const catalogItemId = String(req.body?.catalogItemId || '').trim();
   if (!catalogItemId) {
     return res.status(400).json({ error: 'catalogItemId is required.' });
@@ -39,7 +39,7 @@ settingsRouter.post('/intake-catalog-memory', (req, res) => {
     itemName: req.body?.itemName,
     description: req.body?.description,
   });
-  upsertIntakeCatalogMemory(memoryKey, catalogItemId);
+  await upsertIntakeCatalogMemory(memoryKey, catalogItemId);
   return res.json({ data: { ok: true } });
 });
 
@@ -54,17 +54,17 @@ settingsRouter.post('/proposal-draft', async (req, res) => {
   }
 });
 
-settingsRouter.get('/catalog-sync-status', (_req, res) => {
-  return res.json({ data: getCatalogSyncStatus() });
+settingsRouter.get('/catalog-sync-status', async (_req, res) => {
+  return res.json({ data: await getCatalogSyncStatus() });
 });
 
-settingsRouter.get('/catalog-sync-runs', (req, res) => {
+settingsRouter.get('/catalog-sync-runs', async (req, res) => {
   const limit = Math.max(1, Math.min(50, Number(req.query.limit || 10)));
-  return res.json({ data: listCatalogSyncRuns(limit) });
+  return res.json({ data: await listCatalogSyncRuns(limit) });
 });
 
-settingsRouter.get('/catalog-inventory', (_req, res) => {
-  return res.json({ data: getCatalogInventoryCounts() });
+settingsRouter.get('/catalog-inventory', async (_req, res) => {
+  return res.json({ data: await getCatalogInventoryCounts() });
 });
 
 /** Post–CLEAN_ITEMS cutover: DB forward-facing counts, image gaps, vs last sync (for manual comparison to sheet META audit). */
@@ -75,9 +75,9 @@ settingsRouter.get('/catalog-post-cutover-health', (_req, res) => {
 });
 
 /** Sets every catalog row to active (e.g. after SQLite import). Sheet sync normally deactivates rows not in the sheet. */
-settingsRouter.post('/activate-all-catalog-items', (_req, res) => {
-  const changed = reactivateAllCatalogItems();
-  return res.json({ data: { changed, ...getCatalogInventoryCounts() } });
+settingsRouter.post('/activate-all-catalog-items', async (_req, res) => {
+  const changed = await reactivateAllCatalogItems();
+  return res.json({ data: { changed, ...(await getCatalogInventoryCounts()) } });
 });
 
 settingsRouter.post('/sync-catalog', async (_req, res) => {

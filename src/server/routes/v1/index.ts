@@ -8,12 +8,19 @@ import { bundlesRouter } from './bundlesRoutes.ts';
 import { intakeRouter } from './intakeRoutes.ts';
 import { requireDiv10BrainAdmin } from '../../div10Brain/auth/requireDiv10BrainAdmin.ts';
 import { div10BrainRouter } from './div10BrainRoutes.ts';
+import { readSessionHandler, requireSession } from '../../auth/requireSession.ts';
 
 export const v1Router = Router();
 
 v1Router.get('/health', (_req, res) => {
   res.json({ status: 'ok', version: 'v1' });
 });
+
+v1Router.get('/session', (req, res, next) => {
+  void readSessionHandler(req, res).catch(next);
+});
+
+v1Router.use(requireSession);
 
 v1Router.use('/projects', projectsRouter);
 v1Router.use('/rooms', roomsRouter);

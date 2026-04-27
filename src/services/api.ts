@@ -5,9 +5,9 @@ import { IntakeParseRequest, IntakeParseResult } from '../shared/types/intake';
 
 const API_BASE = '/api';
 
-/** Same-origin API wrapper — use for future auth cookies (`credentials: 'include'`). */
+/** Same-origin API wrapper — sends Supabase auth cookies when configured. */
 export function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  return fetch(input, { ...init, headers: init?.headers });
+  return fetch(input, { credentials: 'same-origin', ...init, headers: init?.headers });
 }
 
 async function handleResponse<T>(res: Response): Promise<T> {

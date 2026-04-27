@@ -1,5 +1,7 @@
 import type { CatalogItem } from '../../../types.ts';
+import { isPgDriver } from '../../db/driver.ts';
 import { getEstimatorDb } from '../../db/connection.ts';
+import { withPgTransaction, withSqliteTransaction, type DbExec } from '../../db/query.ts';
 
 export const TAKEOFF_TOKEN_ALIAS_MAP: Record<string, string[]> = {
   gb: ['grab', 'bar', 'grab bar'],
@@ -1257,21 +1259,90 @@ export const TAKEOFF_CATALOG_SEED_ITEMS: CatalogItem[] = [
   },
 ];
 
-function findExistingItemId(seedItem: CatalogItem): string | null {
-  const existing = getEstimatorDb().prepare(`
+const FIND_EXISTING_SQL = `
     SELECT id
     FROM catalog_items
     WHERE id = ?
       OR lower(COALESCE(sku, '')) = lower(?)
       OR (lower(COALESCE(model, '')) = lower(?) AND lower(COALESCE(description, '')) = lower(?))
     LIMIT 1
-  `).get(seedItem.id, seedItem.sku, seedItem.model || '', seedItem.description) as { id: string } | undefined;
+  `;
 
+async function findExistingItemIdPg(exec: DbExec, seedItem: CatalogItem): Promise<string | null> {
+  const existing = await exec.get<{ id: string }>(FIND_EXISTING_SQL, [
+    seedItem.id,
+    seedItem.sku,
+    seedItem.model || '',
+    seedItem.description,
+  ]);
   return existing?.id || null;
 }
 
-export function ensureTakeoffCatalogSeeded(): void {
-  const upsert = getEstimatorDb().prepare(`
+function findExistingItemIdSqlite(seedItem: CatalogItem): string | null {
+  const existing = getEstimatorDb()
+    .prepare(FIND_EXISTING_SQL)
+    .get(seedItem.id, seedItem.sku, seedItem.model || '', seedItem.description) as { id: string } | undefined;
+  return existing?.id || null;
+}
+
+/** Ensures takeoff shorthand catalog rows exist (idempotent). */
+export async function ensureTakeoffCatalogSeeded(): Promise<void> {
+  if (isPgDriver()) {
+    await withPgTransaction(async (exec) => {
+      for (const item of TAKEOFF_CATALOG_SEED_ITEMS) {
+        const targetId = await findExistingItemIdPg(exec, item);
+        const values = [
+          item.sku,
+          item.category,
+          item.subcategory || null,
+          item.family || null,
+          item.description,
+          item.manufacturer || null,
+          item.brand || null,
+          item.model || null,
+          item.modelNumber || null,
+          item.series || null,
+          item.imageUrl || null,
+          item.uom,
+          item.baseMaterialCost,
+          item.baseLaborMinutes,
+          item.laborUnitType || null,
+          item.taxable ? 1 : 0,
+          item.adaFlag ? 1 : 0,
+          JSON.stringify(item.tags || []),
+          item.notes || null,
+          item.active ? 1 : 0,
+        ] as const;
+
+        if (!targetId) {
+          await exec.run(
+            `
+            INSERT INTO catalog_items (
+              id, sku, category, subcategory, family, description, manufacturer, brand, model, model_number, series, image_url, uom,
+              base_material_cost, base_labor_minutes, labor_unit_type, taxable, ada_flag, tags, notes, active
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+            [item.id, ...values]
+          );
+        } else {
+          await exec.run(
+            `
+            UPDATE catalog_items
+            SET sku = ?, category = ?, subcategory = ?, family = ?, description = ?, manufacturer = ?, brand = ?, model = ?, model_number = ?, series = ?, image_url = ?, uom = ?,
+                base_material_cost = ?, base_labor_minutes = ?, labor_unit_type = ?, taxable = ?, ada_flag = ?, tags = ?, notes = ?, active = ?
+            WHERE id = ?
+          `,
+            [...values, targetId]
+          );
+        }
+      }
+    });
+    return;
+  }
+
+  withSqliteTransaction(() => {
+    const db = getEstimatorDb();
+    const upsert = db.prepare(`
     INSERT INTO catalog_items (
       id, sku, category, subcategory, family, description, manufacturer, brand, model, model_number, series, image_url, uom,
       base_material_cost, base_labor_minutes, labor_unit_type, taxable, ada_flag, tags, notes, active,
@@ -1279,7 +1350,7 @@ export function ensureTakeoffCatalogSeeded(): void {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  const update = getEstimatorDb().prepare(`
+    const update = db.prepare(`
     UPDATE catalog_items
     SET sku = ?, category = ?, subcategory = ?, family = ?, description = ?, manufacturer = ?, brand = ?, model = ?, model_number = ?, series = ?, image_url = ?, uom = ?,
         base_material_cost = ?, base_labor_minutes = ?, labor_unit_type = ?, taxable = ?, ada_flag = ?, tags = ?, notes = ?, active = ?,
@@ -1287,9 +1358,8 @@ export function ensureTakeoffCatalogSeeded(): void {
     WHERE id = ?
   `);
 
-  const transaction = getEstimatorDb().transaction((items: CatalogItem[]) => {
-    items.forEach((item) => {
-      const targetId = findExistingItemId(item);
+    for (const item of TAKEOFF_CATALOG_SEED_ITEMS) {
+      const targetId = findExistingItemIdSqlite(item);
       const values = [
         item.sku,
         item.category,
@@ -1316,12 +1386,9 @@ export function ensureTakeoffCatalogSeeded(): void {
 
       if (!targetId) {
         upsert.run(item.id, ...values);
-        return;
+      } else {
+        update.run(...values, targetId);
       }
-
-      update.run(...values, targetId);
-    });
+    }
   });
-
-  transaction(TAKEOFF_CATALOG_SEED_ITEMS);
 }

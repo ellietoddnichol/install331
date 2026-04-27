@@ -12,6 +12,9 @@ estimator.db
 estimator.db-shm
 estimator.db-wal
 
+# Generated catalog audit outputs (regenerate with npm run catalog:audit)
+reports/catalog-audit/*.csv
+
 # Root-level client uploads / samples (avoid accidental commits)
 /*.docx
 /*.pdf

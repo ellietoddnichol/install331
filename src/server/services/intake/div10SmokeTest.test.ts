@@ -95,10 +95,10 @@ test('Div10 sample: installable-scope flags set even without catalog match', () 
   assert.equal(napkin!.installScopeType, 'sanitary_napkin_disposal');
 });
 
-test('Div10 sample: bundle expansion explodes grab bar set into children', () => {
+test('Div10 sample: bundle expansion explodes grab bar set into children', async () => {
   const result = parseSpreadsheetRows(sampleRows, 'div10-smoke', emptyCatalog);
   assert.ok(result);
-  const reviewLines = toReviewLines(result!.rows, emptyCatalog, false, []);
+  const reviewLines = await toReviewLines(result!.rows, emptyCatalog, false, []);
   const grabBarDescriptions = reviewLines
     .filter((r) => /grab bar/i.test(r.description))
     .map((r) => r.description);
@@ -124,10 +124,10 @@ test('Div10 sample: non-scope noise (totals, bonds, logistics) is filtered out',
   assert.ok(!descriptions.some((d) => d.includes('if labor')), 'Pricing notice should be filtered');
 });
 
-test('Div10 sample: review lines get install-family fallback labor when no catalog match', () => {
+test('Div10 sample: review lines get install-family fallback labor when no catalog match', async () => {
   const result = parseSpreadsheetRows(sampleRows, 'div10-smoke', emptyCatalog);
   assert.ok(result);
-  const reviewLines = toReviewLines(result!.rows, emptyCatalog, false, []);
+  const reviewLines = await toReviewLines(result!.rows, emptyCatalog, false, []);
   const partition = reviewLines.find((r) => /eclipse hdpe/i.test(r.description));
   assert.ok(partition);
   assert.equal(partition!.isInstallableScope, true);
@@ -136,7 +136,7 @@ test('Div10 sample: review lines get install-family fallback labor when no catal
   assert.ok(partition!.installFamilyFallback!.minutes > 0);
 });
 
-test('Phase 0.2: catalog match with zero labor still triggers install-family fallback (zero-labor gap closed)', () => {
+test('Phase 0.2: catalog match with zero labor still triggers install-family fallback (zero-labor gap closed)', async () => {
   // Catalog has a SKU that will match by code, but baseLaborMinutes is 0.
   const zeroLaborCatalog: CatalogItem[] = [
     {
@@ -154,7 +154,7 @@ test('Phase 0.2: catalog match with zero labor still triggers install-family fal
   ];
   const result = parseSpreadsheetRows(sampleRows, 'div10-smoke', zeroLaborCatalog);
   assert.ok(result);
-  const reviewLines = toReviewLines(result!.rows, zeroLaborCatalog, true, []);
+  const reviewLines = await toReviewLines(result!.rows, zeroLaborCatalog, true, []);
   const disposal = reviewLines.find(
     (r) => /sanitary napkin/i.test(r.description) && r.catalogMatch?.catalogItemId === 'zero-labor-item'
   );
@@ -167,7 +167,7 @@ test('Phase 0.2: catalog match with zero labor still triggers install-family fal
   assert.ok(disposal!.installFamilyFallback!.minutes > 0);
 });
 
-test('Phase 0.2: catalog item installLaborFamily overrides the parsed installScopeType', () => {
+test('Phase 0.2: catalog item installLaborFamily overrides the parsed installScopeType', async () => {
   // Catalog declares a specific family key; the in-code registry must prefer it.
   const editorialCatalog: CatalogItem[] = [
     {
@@ -186,7 +186,7 @@ test('Phase 0.2: catalog item installLaborFamily overrides the parsed installSco
   ];
   const result = parseSpreadsheetRows(sampleRows, 'div10-smoke', editorialCatalog);
   assert.ok(result);
-  const reviewLines = toReviewLines(result!.rows, editorialCatalog, true, []);
+  const reviewLines = await toReviewLines(result!.rows, editorialCatalog, true, []);
   const disposal = reviewLines.find(
     (r) => /sanitary napkin/i.test(r.description) && r.catalogMatch?.catalogItemId === 'editorial-item'
   );
@@ -208,10 +208,10 @@ test('Alt. 1 Bid section header parses the bid bucket correctly (regex tolerates
   assert.equal(ctx!.bidBucket, 'Alt 1');
 });
 
-test('Matcher emits install-family pricing preview even when scopeBucket is unknown (no catalog match, no AI classification)', () => {
+test('Matcher emits install-family pricing preview even when scopeBucket is unknown (no catalog match, no AI classification)', async () => {
   const result = parseSpreadsheetRows(sampleRows, 'div10-smoke', emptyCatalog);
   assert.ok(result);
-  const reviewLines = toReviewLines(result!.rows, emptyCatalog, false, []);
+  const reviewLines = await toReviewLines(result!.rows, emptyCatalog, false, []);
   // A minimal dummy catalog so buildIntakeEstimateDraft does not early-return.
   const dummy: CatalogItem[] = [
     {
@@ -275,10 +275,10 @@ test('classifyBidBucketKind + compareBidBucketKeys + isBidBucketIncludedByDefaul
   );
 });
 
-test('computeDraftBasisSummary detects bid splits and excludes alternates from primary totals by default', () => {
+test('computeDraftBasisSummary detects bid splits and excludes alternates from primary totals by default', async () => {
   const result = parseSpreadsheetRows(sampleRows, 'div10-smoke', emptyCatalog);
   assert.ok(result);
-  const reviewLines = toReviewLines(result!.rows, emptyCatalog, false, []);
+  const reviewLines = await toReviewLines(result!.rows, emptyCatalog, false, []);
   const dummy: CatalogItem[] = [
     { id: 'dummy', sku: 'DUMMY', category: 'Toilet Accessories', description: 'dummy', uom: 'EA', baseMaterialCost: 0, baseLaborMinutes: 0, taxable: false, adaFlag: false, active: true } as CatalogItem,
   ];
@@ -319,9 +319,10 @@ test('computeDraftBasisSummary detects bid splits and excludes alternates from p
   );
 });
 
-test('computeDraftBasisSummary honors explicit bidBucketsIncluded filter (toggle alternates on)', () => {
+test('computeDraftBasisSummary honors explicit bidBucketsIncluded filter (toggle alternates on)', async () => {
   const result = parseSpreadsheetRows(sampleRows, 'div10-smoke', emptyCatalog);
-  const reviewLines = toReviewLines(result!.rows, emptyCatalog, false, []);
+  assert.ok(result);
+  const reviewLines = await toReviewLines(result!.rows, emptyCatalog, false, []);
   const dummy: CatalogItem[] = [
     { id: 'dummy', sku: 'DUMMY', category: 'Toilet Accessories', description: 'dummy', uom: 'EA', baseMaterialCost: 0, baseLaborMinutes: 0, taxable: false, adaFlag: false, active: true } as CatalogItem,
   ];
@@ -350,10 +351,10 @@ test('computeDraftBasisSummary honors explicit bidBucketsIncluded filter (toggle
   assert.ok(fullSummary.laborMinutesSubtotalPreview > defaultSummary.laborMinutesSubtotalPreview, 'toggling alt on must strictly increase primary total');
 });
 
-test('computeDraftBasisSummary excludes install-family labor in material_only mode but includes it otherwise', () => {
+test('computeDraftBasisSummary excludes install-family labor in material_only mode but includes it otherwise', async () => {
   const result = parseSpreadsheetRows(sampleRows, 'div10-smoke', emptyCatalog);
   assert.ok(result);
-  const reviewLines = toReviewLines(result!.rows, emptyCatalog, false, []);
+  const reviewLines = await toReviewLines(result!.rows, emptyCatalog, false, []);
   const dummy: CatalogItem[] = [
     {
       id: 'dummy',

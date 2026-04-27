@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ChevronDown,
@@ -52,6 +52,7 @@ import { computeFieldScheduleHint } from '../shared/utils/fieldScheduleHint';
 import type { PartitionLayoutGeneratedLine } from '../shared/utils/partitionLayoutBuilder';
 import { toggleBulkSelectionForVisibleConcrete } from '../shared/utils/estimateBulkSelection';
 import { deriveEstimateLineHealth, type EstimateHealthFocus } from '../shared/utils/estimateLineHealth';
+import { PRICING_ALL_CATEGORIES, TAKEOFF_ALL_ROOMS } from '../shared/constants/workspaceUi';
 import { ProjectHeader } from '../components/workflow/ProjectHeader';
 import { ProjectStepNav } from '../components/workflow/ProjectStepNav.tsx';
 import { WorkflowRightDrawer } from '../components/workflow/WorkflowRightDrawer';
@@ -84,7 +85,7 @@ interface Summary {
   materialSubtotal: number;
   laborSubtotal: number;
   adjustedLaborSubtotal: number;
-  /** Present on newer API; falls back to hours × 60 in UI when missing. */
+  /** Present on newer API; falls back to hours Ã— 60 in UI when missing. */
   totalLaborMinutes?: number;
   totalLaborHours: number;
   durationDays: number;
@@ -294,7 +295,7 @@ export function ProjectWorkspace() {
     });
   }, [id, loading, activeRoomId, takeoffRoomFilter, selectedLineId, pricingOrganizeMode, pricingCategoryFilter]);
 
-  /** Empty scope review is a dead-end — send estimators straight to the estimate with a clear status flag. */
+  /** Empty scope review is a dead-end â€” send estimators straight to the estimate with a clear status flag. */
   useEffect(() => {
     if (loading) return;
     if (activeTab !== 'scope-review') return;
@@ -387,7 +388,7 @@ export function ProjectWorkspace() {
             lastPersistedFingerprintRef.current = serverFp;
             setProject(saved);
             setLastSavedAt(saved.updatedAt);
-            /** Project-only save: refresh summary only so the line grid doesn’t reload from the server. */
+            /** Project-only save: refresh summary only so the line grid doesnâ€™t reload from the server. */
             const summaryData = await api.getV1Summary(saved.id);
             if (gen !== autosaveGenerationRef.current) return;
             setSummary(summaryData as Summary);
@@ -1057,7 +1058,7 @@ export function ProjectWorkspace() {
     };
 
     // `noopener` in the features string makes `window.open` return `null` in Chromium 88+ and
-    // Firefox 79+ even when popups are allowed — do not use it here; we need the Window handle.
+    // Firefox 79+ even when popups are allowed â€” do not use it here; we need the Window handle.
     const printWindow = window.open('about:blank', '_blank', 'popup=yes,width=1100,height=900');
     if (printWindow) {
       printWindow.document.open();
@@ -1331,9 +1332,9 @@ export function ProjectWorkspace() {
     },
   });
   /**
-   * Labor minutes per unit field — lets the estimator adjust the install timer
+   * Labor minutes per unit field â€” lets the estimator adjust the install timer
    * directly rather than only through labor dollars. Clearing this to a new
-   * number re-drives labor cost via the server's labor-rate × minutes rule on
+   * number re-drives labor cost via the server's labor-rate Ã— minutes rule on
    * the next persist (takeoffRepo.updateTakeoffLine re-derives labor cost from
    * minutes when the caller omits a labor-cost override or provides zero).
    */
@@ -1703,7 +1704,7 @@ export function ProjectWorkspace() {
   }
 
   if (loading) {
-    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspace…</div>;
+    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspaceâ€¦</div>;
   }
 
   if (workspaceLoadError) {
@@ -1727,7 +1728,7 @@ export function ProjectWorkspace() {
   }
 
   if (!project) {
-    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspace…</div>;
+    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspaceâ€¦</div>;
   }
 
   return (
@@ -1833,7 +1834,7 @@ export function ProjectWorkspace() {
           /**
            * Line detail (Properties Context + Modifier add-ins) now lives in the
            * modifiersModalOpen popup only. The previous persistent right-rail was
-           * removed per estimator feedback — it crowded the grid; clicking a row
+           * removed per estimator feedback â€” it crowded the grid; clicking a row
            * opens the same editor as a modal on demand.
            */
           const estimateGridClass = 'isolate grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4';
@@ -1852,7 +1853,7 @@ export function ProjectWorkspace() {
                       disabled={rooms.length < 2}
                       aria-label="Target room for bulk move"
                     >
-                      <option value="">Room…</option>
+                      <option value="">Roomâ€¦</option>
                       {rooms.map((r) => (
                         <option key={r.id} value={r.id}>
                           {r.roomName}
@@ -1874,7 +1875,7 @@ export function ProjectWorkspace() {
                   className="rounded-md bg-red-600 px-2.5 py-1 font-semibold text-white shadow-sm hover:bg-red-700"
                   onClick={() => void bulkDeleteSelectedLines()}
                 >
-                  Delete selected…
+                  Delete selectedâ€¦
                 </button>
                 <button
                   type="button"
@@ -2089,7 +2090,7 @@ export function ProjectWorkspace() {
                               key={room.id}
                               type="button"
                               onClick={() => selectWorkspaceRoom(room.id)}
-                              title={`${metric.count} lines · ${formatCurrencySafe(metric.subtotal)}`}
+                              title={`${metric.count} lines Â· ${formatCurrencySafe(metric.subtotal)}`}
                               className={`shrink-0 rounded-lg px-3 py-2 text-left transition-all ${
                                 active
                                   ? 'text-white shadow-md ring-1 ring-blue-900/30'
@@ -2145,7 +2146,7 @@ export function ProjectWorkspace() {
                                   key={cat}
                                   type="button"
                                   onClick={() => setPricingCategoryFilter(cat)}
-                                  title={`${metric.count} lines · ${formatCurrencySafe(metric.subtotal)}`}
+                                  title={`${metric.count} lines Â· ${formatCurrencySafe(metric.subtotal)}`}
                                   className={`shrink-0 rounded-lg px-3 py-2 text-left transition-all ${
                                     active
                                       ? 'text-white shadow-md ring-1 ring-blue-900/30'
@@ -2198,7 +2199,7 @@ export function ProjectWorkspace() {
                   {fieldScheduleHint ? (
                     <span className="inline-flex items-center gap-1 rounded-md border border-blue-200/70 bg-blue-50/60 px-2 py-1 font-medium text-blue-900">
                       <CalendarClock className="h-3 w-3 text-blue-700/80" aria-hidden />
-                      Field hint: {fieldScheduleHint.fieldCrew} crew · ~{formatNumberSafe(fieldScheduleHint.fieldDays, 1)} d (advisory)
+                      Field hint: {fieldScheduleHint.fieldCrew} crew Â· ~{formatNumberSafe(fieldScheduleHint.fieldDays, 1)} d (advisory)
                     </span>
                   ) : null}
                   {(summary?.conditionAssumptions?.length || 0) > 0 ? (
@@ -2286,7 +2287,7 @@ export function ProjectWorkspace() {
                   </div>
                   <h3 className="mt-1.5 text-[22px] font-semibold leading-tight tracking-tight text-slate-950 sm:text-[26px]">Review, edit, export</h3>
                   <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.06em] text-slate-500">
-                    What you see is what prints · Export HTML → Print → Save as PDF
+                    What you see is what prints Â· Export HTML â†’ Print â†’ Save as PDF
                   </p>
                 </div>
                 <div className="flex flex-shrink-0 flex-wrap items-center gap-2 lg:justify-end">
@@ -2307,7 +2308,7 @@ export function ProjectWorkspace() {
                   <button
                     type="button"
                     onClick={exportProposal}
-                    title="Downloads HTML. Open the file in a browser, then Print → Save as PDF if you need a PDF."
+                    title="Downloads HTML. Open the file in a browser, then Print â†’ Save as PDF if you need a PDF."
                     className="ui-btn-cta inline-flex items-center gap-1.5"
                   >
                     <Download className="h-3.5 w-3.5" />
@@ -2328,7 +2329,7 @@ export function ProjectWorkspace() {
                   </span>
                   <div>
                     <p className="text-sm font-semibold text-slate-900">Internal install email</p>
-                    <p className="text-[11px] text-slate-500">Crew-facing draft — not shown on the client proposal</p>
+                    <p className="text-[11px] text-slate-500">Crew-facing draft â€” not shown on the client proposal</p>
                   </div>
                 </div>
                 <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition group-open:rotate-180" />
@@ -2355,7 +2356,7 @@ export function ProjectWorkspace() {
                   </span>
                   <div>
                     <p className="text-sm font-semibold text-slate-900">AI writing assist</p>
-                    <p className="text-[11px] text-slate-500">Optional — confirms before replacing existing text</p>
+                    <p className="text-[11px] text-slate-500">Optional â€” confirms before replacing existing text</p>
                   </div>
                 </div>
                 <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition group-open:rotate-180" />
@@ -2368,7 +2369,7 @@ export function ProjectWorkspace() {
                     disabled={proposalDrafting !== null}
                     className="inline-flex h-9 flex-1 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:min-w-[10rem]"
                   >
-                    {proposalDrafting === 'scope_summary' ? 'Generating…' : 'Scope summary'}
+                    {proposalDrafting === 'scope_summary' ? 'Generatingâ€¦' : 'Scope summary'}
                   </button>
                   <button
                     type="button"
@@ -2376,7 +2377,7 @@ export function ProjectWorkspace() {
                     disabled={proposalDrafting !== null}
                     className="inline-flex h-9 flex-1 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:min-w-[10rem]"
                   >
-                    {proposalDrafting === 'default_short' ? 'Drafting…' : 'Short proposal pack'}
+                    {proposalDrafting === 'default_short' ? 'Draftingâ€¦' : 'Short proposal pack'}
                   </button>
                   <button
                     type="button"
@@ -2384,7 +2385,7 @@ export function ProjectWorkspace() {
                     disabled={proposalDrafting !== null}
                     className="inline-flex h-9 flex-1 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:min-w-[10rem]"
                   >
-                    {proposalDrafting === 'terms_and_conditions' ? 'Working…' : 'Terms & conditions'}
+                    {proposalDrafting === 'terms_and_conditions' ? 'Workingâ€¦' : 'Terms & conditions'}
                   </button>
                 </div>
               </div>
@@ -2414,7 +2415,7 @@ export function ProjectWorkspace() {
                       onResetAll={() => resetProposalDefaults('all')}
                     />
                   ) : (
-                    <p className="text-sm text-slate-500">Loading proposal defaults…</p>
+                    <p className="text-sm text-slate-500">Loading proposal defaultsâ€¦</p>
                   )}
                 </div>
               </section>
@@ -2616,7 +2617,7 @@ export function ProjectWorkspace() {
                               onClick={() => void createCatalogItemFromSelectedLine()}
                               disabled={addToCatalogBusy}
                             >
-                              {addToCatalogBusy ? 'Creating…' : 'Create & Match'}
+                              {addToCatalogBusy ? 'Creatingâ€¦' : 'Create & Match'}
                             </button>
                           </div>
                         </div>
@@ -2703,12 +2704,12 @@ export function ProjectWorkspace() {
                             {Number(selectedLine.qty || 0) !== 1 ? (
                               <span className="text-slate-500">
                                 {' '}
-                                ({formatNumberSafe(selectedLine.qty, 0)} × {formatNumberSafe(selectedLine.laborMinutes, 1)} min)
+                                ({formatNumberSafe(selectedLine.qty, 0)} Ã— {formatNumberSafe(selectedLine.laborMinutes, 1)} min)
                               </span>
                             ) : null}
-                            <span className="ml-1 text-slate-400">·</span>
+                            <span className="ml-1 text-slate-400">Â·</span>
                             <span className="ml-1 text-[10px] text-slate-500">
-                              Saving re-drives labor cost from minutes × subcontractor rate.
+                              Saving re-drives labor cost from minutes Ã— subcontractor rate.
                             </span>
                           </p>
                         </label>

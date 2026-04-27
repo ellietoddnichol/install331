@@ -36,7 +36,7 @@ const mockBundles: BundleRecord[] = [
   },
 ];
 
-function parseFixtureCsv(fileName: string) {
+async function parseFixtureCsv(fileName: string) {
   const dataBase64 = readFixtureBase64(fileName);
   const excel = parseExcelUpload({
     fileName,
@@ -51,7 +51,7 @@ function parseFixtureCsv(fileName: string) {
   });
   const validation = validateNormalizedItems(items);
   const corrected = validation.correctedItems || items;
-  const reviewLines = toReviewLines(
+  const reviewLines = await toReviewLines(
     corrected.map((item) => ({
       roomName: item.roomName || 'General',
       category: item.category || '',
@@ -77,8 +77,8 @@ function parseFixtureCsv(fileName: string) {
   return { excel, items: corrected, reviewLines, validation };
 }
 
-test('fixture: restroom-schedule.csv parses rooms and multiple lines', () => {
-  const { items, reviewLines } = parseFixtureCsv('restroom-schedule.csv');
+test('fixture: restroom-schedule.csv parses rooms and multiple lines', async () => {
+  const { items, reviewLines } = await parseFixtureCsv('restroom-schedule.csv');
   assert.ok(items.length >= 3, `expected at least 3 rows, got ${items.length}`);
   const rooms = new Set(reviewLines.map((l) => l.roomName));
   assert.ok(rooms.size >= 2);
@@ -89,15 +89,15 @@ test('fixture: restroom-schedule.csv parses rooms and multiple lines', () => {
   );
 });
 
-test('fixture: locker-bank.csv captures assembly and locker keywords', () => {
-  const { items, reviewLines } = parseFixtureCsv('locker-bank.csv');
+test('fixture: locker-bank.csv captures assembly and locker keywords', async () => {
+  const { items, reviewLines } = await parseFixtureCsv('locker-bank.csv');
   assert.ok(items.length >= 2);
   const kd = reviewLines.find((l) => /KD|assemble/i.test(l.description));
   assert.ok(kd);
   assert.ok(kd.semanticTags?.includes('field_assembly') || /assembly/i.test(kd.notes));
 });
 
-test('fixture: mixed-trades.csv parses without throwing', () => {
-  const { items } = parseFixtureCsv('mixed-trades.csv');
+test('fixture: mixed-trades.csv parses without throwing', async () => {
+  const { items } = await parseFixtureCsv('mixed-trades.csv');
   assert.ok(items.length >= 1);
 });

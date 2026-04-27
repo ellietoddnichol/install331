@@ -29,20 +29,20 @@ projectsRouter.get('/distance', async (req, res) => {
   return res.json({ data: { miles } });
 });
 
-projectsRouter.get('/', (_req, res) => {
-  res.json({ data: listProjects() });
+projectsRouter.get('/', async (_req, res) => {
+  res.json({ data: await listProjects() });
 });
 
-projectsRouter.get('/peer-intake-defaults', (req, res) => {
+projectsRouter.get('/peer-intake-defaults', async (req, res) => {
   const clientName = String(req.query.clientName || '').trim() || null;
   const generalContractor = String(req.query.generalContractor || '').trim() || null;
   const excludeProjectId = String(req.query.excludeProjectId || '').trim() || null;
-  const data = suggestPeerIntakeDefaults({ clientName, generalContractor, excludeProjectId });
+  const data = await suggestPeerIntakeDefaults({ clientName, generalContractor, excludeProjectId });
   return res.json({ data });
 });
 
-projectsRouter.get('/:projectId', (req, res) => {
-  const project = getProject(req.params.projectId);
+projectsRouter.get('/:projectId', async (req, res) => {
+  const project = await getProject(req.params.projectId);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
   }
@@ -50,13 +50,13 @@ projectsRouter.get('/:projectId', (req, res) => {
   return res.json({ data: project });
 });
 
-projectsRouter.post('/', (req, res) => {
-  const project = createProject(req.body ?? {});
+projectsRouter.post('/', async (req, res) => {
+  const project = await createProject(req.body ?? {});
   return res.status(201).json({ data: project });
 });
 
-projectsRouter.put('/:projectId', (req, res) => {
-  const project = updateProject(req.params.projectId, req.body ?? {});
+projectsRouter.put('/:projectId', async (req, res) => {
+  const project = await updateProject(req.params.projectId, req.body ?? {});
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
   }
@@ -64,9 +64,9 @@ projectsRouter.put('/:projectId', (req, res) => {
   return res.json({ data: project });
 });
 
-projectsRouter.delete('/:projectId', (req, res) => {
+projectsRouter.delete('/:projectId', async (req, res) => {
   if (String(req.query.permanent || '') === 'true') {
-    const deleted = deleteProject(req.params.projectId);
+    const deleted = await deleteProject(req.params.projectId);
     if (!deleted) {
       return res.status(404).json({ error: 'Project not found' });
     }
@@ -74,7 +74,7 @@ projectsRouter.delete('/:projectId', (req, res) => {
     return res.json({ data: { deleted: true } });
   }
 
-  const archived = archiveProject(req.params.projectId);
+  const archived = await archiveProject(req.params.projectId);
   if (!archived) {
     return res.status(404).json({ error: 'Project not found' });
   }
@@ -82,17 +82,17 @@ projectsRouter.delete('/:projectId', (req, res) => {
   return res.json({ data: { archived: true } });
 });
 
-projectsRouter.get('/:projectId/files', (req, res) => {
-  const project = getProject(req.params.projectId);
+projectsRouter.get('/:projectId/files', async (req, res) => {
+  const project = await getProject(req.params.projectId);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
   }
 
-  return res.json({ data: listProjectFiles(req.params.projectId) });
+  return res.json({ data: await listProjectFiles(req.params.projectId) });
 });
 
-projectsRouter.post('/:projectId/files', (req, res) => {
-  const project = getProject(req.params.projectId);
+projectsRouter.post('/:projectId/files', async (req, res) => {
+  const project = await getProject(req.params.projectId);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
   }
@@ -110,31 +110,40 @@ projectsRouter.post('/:projectId/files', (req, res) => {
     return res.status(400).json({ error: 'File too large. Maximum size is 10 MB.' });
   }
 
-  const created = createProjectFile({
-    projectId: req.params.projectId,
-    fileName,
-    mimeType,
-    sizeBytes,
-    dataBase64,
-  });
-
-  return res.status(201).json({ data: created });
-});
-
-projectsRouter.get('/:projectId/files/:fileId/download', (req, res) => {
-  const file = getProjectFile(req.params.projectId, req.params.fileId);
-  if (!file) {
-    return res.status(404).json({ error: 'File not found' });
+  try {
+    const created = await createProjectFile({
+      projectId: req.params.projectId,
+      fileName,
+      mimeType,
+      sizeBytes,
+      dataBase64,
+    });
+    return res.status(201).json({ data: created });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: message });
   }
-
-  const data = Buffer.from(file.dataBase64, 'base64');
-  res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
-  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.fileName)}"`);
-  return res.send(data);
 });
 
-projectsRouter.delete('/:projectId/files/:fileId', (req, res) => {
-  const deleted = deleteProjectFile(req.params.projectId, req.params.fileId);
+projectsRouter.get('/:projectId/files/:fileId/download', async (req, res) => {
+  try {
+    const file = await getProjectFile(req.params.projectId, req.params.fileId);
+    if (!file) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    const data = Buffer.from(file.dataBase64, 'base64');
+    res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.fileName)}"`);
+    return res.send(data);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: message });
+  }
+});
+
+projectsRouter.delete('/:projectId/files/:fileId', async (req, res) => {
+  const deleted = await deleteProjectFile(req.params.projectId, req.params.fileId);
   if (!deleted) {
     return res.status(404).json({ error: 'File not found' });
   }

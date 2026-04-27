@@ -384,6 +384,103 @@ export function initEstimatorSchema(db: Database) {
     CREATE UNIQUE INDEX IF NOT EXISTS uq_catalog_item_attributes_unique ON catalog_item_attributes(catalog_item_id, attribute_type, attribute_value);
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS estimator_catalog_attribute_defs (
+      id TEXT PRIMARY KEY,
+      attribute_key TEXT NOT NULL UNIQUE,
+      label TEXT NOT NULL,
+      value_kind TEXT NOT NULL DEFAULT 'freeform',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS estimator_parametric_modifiers (
+      id TEXT PRIMARY KEY,
+      modifier_key TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      applies_to_categories_json TEXT NOT NULL DEFAULT '[]',
+      add_labor_minutes REAL NOT NULL DEFAULT 0,
+      add_material_cost REAL NOT NULL DEFAULT 0,
+      percent_labor REAL NOT NULL DEFAULT 0,
+      percent_material REAL NOT NULL DEFAULT 0,
+      labor_cost_multiplier REAL NOT NULL DEFAULT 1,
+      active INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS estimator_sku_aliases (
+      id TEXT PRIMARY KEY,
+      alias_text TEXT NOT NULL,
+      alias_kind TEXT NOT NULL,
+      target_catalog_item_id TEXT NOT NULL,
+      notes TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(target_catalog_item_id) REFERENCES catalog_items(id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_estimator_sku_aliases_lower ON estimator_sku_aliases (lower(alias_text));
+
+    CREATE TABLE IF NOT EXISTS estimator_catalog_item_attributes (
+      id TEXT PRIMARY KEY,
+      catalog_item_id TEXT NOT NULL,
+      attribute_id TEXT NOT NULL,
+      value TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(catalog_item_id) REFERENCES catalog_items(id) ON DELETE CASCADE,
+      FOREIGN KEY(attribute_id) REFERENCES estimator_catalog_attribute_defs(id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_estimator_item_attr
+      ON estimator_catalog_item_attributes (catalog_item_id, attribute_id);
+    CREATE INDEX IF NOT EXISTS idx_estimator_item_attr_item ON estimator_catalog_item_attributes (catalog_item_id);
+
+    CREATE TABLE IF NOT EXISTS estimator_norm_bundles_v1 (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      category TEXT,
+      description TEXT,
+      legacy_bundle_id TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS estimator_norm_bundle_items_v1 (
+      id TEXT PRIMARY KEY,
+      norm_bundle_id TEXT NOT NULL,
+      catalog_item_id TEXT NOT NULL,
+      qty REAL NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      notes TEXT,
+      FOREIGN KEY(norm_bundle_id) REFERENCES estimator_norm_bundles_v1(id) ON DELETE CASCADE,
+      FOREIGN KEY(catalog_item_id) REFERENCES catalog_items(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_enbi_norm_bundle ON estimator_norm_bundle_items_v1 (norm_bundle_id);
+
+    CREATE TABLE IF NOT EXISTS estimator_catalog_validation_issues (
+      id TEXT PRIMARY KEY,
+      issue_type TEXT NOT NULL,
+      entity_kind TEXT,
+      entity_id TEXT,
+      source_ref TEXT,
+      message TEXT NOT NULL,
+      detail_json TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      severity TEXT,
+      created_at TEXT NOT NULL,
+      resolved_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_ecvi_status ON estimator_catalog_validation_issues (status, issue_type);
+  `);
+
+  const projectFilesColumns = db.prepare('PRAGMA table_info(project_files_v1)').all() as Array<{ name: string }>;
+  if (projectFilesColumns.length > 0 && !projectFilesColumns.some((c) => c.name === 'storage_object_key')) {
+    db.exec('ALTER TABLE project_files_v1 ADD COLUMN storage_object_key TEXT');
+  }
+
   const settingsExists = db.prepare('SELECT 1 FROM settings_v1 WHERE id = ?').get('global');
 
   const settingsColumns = db.prepare("PRAGMA table_info(settings_v1)").all() as Array<{ name: string }>;
@@ -1446,5 +1543,134 @@ export function initEstimatorSchema(db: Database) {
         id, last_attempt_at, last_success_at, status, message, items_synced, modifiers_synced, bundles_synced, bundle_items_synced, warnings_json
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run('catalog', null, null, 'never', null, 0, 0, 0, 0, '[]');
+  }
+
+  seedEstimatorNormLayerExamples(db);
+}
+
+/** Idempotent example rows for / supabase/migrations/0003_estimator_catalog_normalization_v1.sql (no bulk catalog migration). */
+function seedEstimatorNormLayerExamples(db: Database) {
+  const now = new Date().toISOString();
+  const insCat = db.prepare(`
+    INSERT OR IGNORE INTO catalog_items (
+      id, sku, category, description, uom, base_material_cost, base_labor_minutes, manufacturer, model, taxable, ada_flag, active
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  // Aligns with 0001_v1_baseline.sql so foreign keys resolve before takeoff auto-seed runs
+  insCat.run('c1', 'GA-36', 'Toilet Accessories', 'Grab Bar 36" Stainless Steel', 'EA', 45, 30, 'Bobrick', 'B-6806', 1, 0, 1);
+  insCat.run('c3', 'TP-101', 'Partitions', 'Toilet Partition, Powder Coated', 'EA', 450, 120, 'Hadrian', 'Standard', 1, 0, 1);
+  insCat.run('c5', 'M-1836', 'Toilet Accessories', 'Mirror 18" x 36" Channel Frame', 'EA', 65, 20, 'Bobrick', 'B-165', 1, 0, 1);
+  insCat.run('c6', 'TD-262', 'Toilet Accessories', 'Paper Towel Dispenser, Surface', 'EA', 85, 20, 'Bobrick', 'B-262', 1, 0, 1);
+  const insAttrDef = db.prepare(
+    `INSERT OR IGNORE INTO estimator_catalog_attribute_defs (id, attribute_key, label, value_kind, sort_order, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+  );
+  insAttrDef.run('ead-material', 'material', 'Material / finish family', 'freeform', 10, 1, now);
+  insAttrDef.run('ead-mounting', 'mounting', 'Mounting', 'freeform', 20, 1, now);
+  insAttrDef.run('ead-partition-material', 'partition_material', 'Toilet partition core material', 'freeform', 30, 1, now);
+
+  const insPm = db.prepare(
+    `INSERT OR IGNORE INTO estimator_parametric_modifiers (id, modifier_key, name, description, applies_to_categories_json, add_labor_minutes, add_material_cost, percent_labor, percent_material, labor_cost_multiplier, active, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  insPm.run(
+    'epm-surface',
+    'MOUNT-SURFACE',
+    'Surface mount',
+    'Default surface-mounted accessory install (baseline for mounting comparisons).',
+    JSON.stringify(['Toilet Accessories', 'Washroom Accessories', 'Fire Specialties']),
+    0,
+    0,
+    0,
+    0,
+    1,
+    1,
+    now
+  );
+  insPm.run(
+    'epm-recessed',
+    'MOUNT-RECESSED',
+    'Recessed mount',
+    'Recessed install with extra opening/finish cut labor; slight labor multiplier on install minutes.',
+    JSON.stringify(['Toilet Accessories', 'Partitions', 'Fire Specialties']),
+    10,
+    0,
+    0,
+    0,
+    1.08,
+    1,
+    now
+  );
+  insPm.run(
+    'epm-stainless-uplift',
+    'FINISH-STAINLESS',
+    'Stainless material uplift',
+    'Stainless option material uplift; matches typical stainless premium vs painted.',
+    JSON.stringify(['Toilet Accessories', 'Partitions']),
+    0,
+    40,
+    0,
+    10,
+    1,
+    1,
+    now
+  );
+  insPm.run(
+    'epm-ada',
+    'REG-ADA',
+    'ADA restroom compliance',
+    'ADA-related labor bump for clearances, heights, and coordination in restroom accessories.',
+    JSON.stringify(['Toilet Accessories', 'Partitions', 'Restroom']),
+    5,
+    0,
+    0,
+    0,
+    1,
+    1,
+    now
+  );
+
+  const insAlias = db.prepare(
+    `INSERT OR IGNORE INTO estimator_sku_aliases (id, alias_text, alias_kind, target_catalog_item_id, notes, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  insAlias.run(
+    'alias-bradley-812',
+    'BRADLEY-812',
+    'vendor_sku',
+    'c1',
+    'Example: competitive grab bar as alias to Bobrick B-6806 / GA-36 line',
+    1,
+    now,
+    now
+  );
+
+  const insIa = db.prepare(
+    `INSERT OR IGNORE INTO estimator_catalog_item_attributes (id, catalog_item_id, attribute_id, value, created_at) VALUES (?, ?, ?, ?, ?)`
+  );
+  insIa.run('eiat-c1-mat', 'c1', 'ead-material', 'stainless', now);
+  insIa.run('eiat-c1-mount', 'c1', 'ead-mounting', 'surface', now);
+  if (db.prepare('SELECT 1 FROM catalog_items WHERE id = ?').get('c3')) {
+    insIa.run('eiat-c3-ptn', 'c3', 'ead-partition-material', 'HDPE', now);
+  }
+
+  const insNb = db.prepare(
+    `INSERT OR IGNORE INTO estimator_norm_bundles_v1 (id, name, category, description, legacy_bundle_id, sort_order, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  insNb.run(
+    'norm-bundle-ada-restroom',
+    'ADA restroom bundle (example)',
+    'Restroom',
+    'Seeded example tying grab bar, mirror, towel; compare to bundles_v1 for migration.',
+    'bundle-ada-single-stall',
+    1,
+    1,
+    now,
+    now
+  );
+  const insNbi = db.prepare(
+    `INSERT OR IGNORE INTO estimator_norm_bundle_items_v1 (id, norm_bundle_id, catalog_item_id, qty, sort_order, notes) VALUES (?, ?, ?, ?, ?, ?)`
+  );
+  if (db.prepare('SELECT 1 FROM catalog_items WHERE id = ?').get('c5') && db.prepare('SELECT 1 FROM catalog_items WHERE id = ?').get('c6')) {
+    insNbi.run('enbi-ada-1', 'norm-bundle-ada-restroom', 'c1', 1, 1, 'Bobrick B-6806 / GA-36 line');
+    insNbi.run('enbi-ada-2', 'norm-bundle-ada-restroom', 'c5', 1, 2, 'Mirror line');
+    insNbi.run('enbi-ada-3', 'norm-bundle-ada-restroom', 'c6', 1, 3, 'Towel dispenser line');
   }
 }

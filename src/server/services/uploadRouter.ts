@@ -146,18 +146,18 @@ function toUploadParseResult(input: {
   };
 }
 
-function toLegacyIntakeResult(input: {
+async function toLegacyIntakeResult(input: {
   request: IntakeParseRequest;
   upload: UploadParseResult;
   extractedMetadata: Partial<IntakeProjectMetadata>;
-}): IntakeParseResult {
-  const catalog = listActiveCatalogItems();
-  const modifiers = listModifiers();
-  const bundles = listBundles();
+}): Promise<IntakeParseResult> {
+  const catalog = await listActiveCatalogItems();
+  const modifiers = await listModifiers();
+  const bundles = await listBundles();
   const items = input.upload.validation.correctedItems || input.upload.extractedItems;
   const metadata = buildMetadata({ extractedMetadata: input.extractedMetadata, items, fileName: input.request.fileName });
   const matchCatalog = input.request.matchCatalog !== false;
-  const reviewLines = toReviewLines(toLegacyNormalizedLines(items), catalog, matchCatalog, bundles);
+  const reviewLines = await toReviewLines(toLegacyNormalizedLines(items), catalog, matchCatalog, bundles);
   const warnings = Array.from(new Set([...input.upload.parseWarnings, ...input.upload.validation.warnings]));
   const sourceKind = deriveSourceKind(input.upload.fileType, items);
   const proposalAssist = buildProposalAssist({
@@ -212,7 +212,7 @@ async function parseWithHybridUploadRouter(input: IntakeParseRequest): Promise<{
 
   if ((fileType === 'excel' || fileType === 'csv') && input.dataBase64) {
     const excel = parseExcelUpload({ fileName: input.fileName, mimeType: input.mimeType, dataBase64: input.dataBase64 });
-    const catalog = listActiveCatalogItems();
+    const catalog = await listActiveCatalogItems();
     const items = enrichItemsWithCatalogMatches(
       normalizeSpreadsheetRows({ fileType: excel.fileType, fileName: input.fileName, rows: excel.extractedRows, metadata: excel.metadata }),
       catalog
@@ -288,5 +288,5 @@ export async function parseUploadedWithRouter(input: IntakeParseRequest): Promis
   if (upload.fileType === 'unknown' || (upload.extractedItems.length === 0 && explicitType === 'document')) {
     return parseIntakeRequest(input);
   }
-  return toLegacyIntakeResult({ request: input, upload, extractedMetadata: metadata });
+  return await toLegacyIntakeResult({ request: input, upload, extractedMetadata: metadata });
 }

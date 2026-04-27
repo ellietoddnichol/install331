@@ -1007,7 +1007,7 @@ function deriveSourceKindFromDocument(fileName: string, mimeType: string, text: 
 
 export async function parseIntakeRequest(input: IntakeParseRequest): Promise<IntakeParseResult> {
   const parseStarted = Date.now();
-  const intakeSettings = getSettings();
+  const intakeSettings = await getSettings();
   const intakeAutomation = {
     mode: intakeSettings.intakeCatalogAutoApplyMode,
     tierAMinScore: intakeSettings.intakeCatalogTierAMinScore,
@@ -1017,9 +1017,9 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
   const mimeType = asText(input.mimeType) || 'application/octet-stream';
   const sourceType = classifyIntakeSourceType(fileName, mimeType, input.sourceType);
   const matchCatalog = input.matchCatalog !== false;
-  const catalog = matchCatalog ? listActiveCatalogItems() : [];
-  const modifiers = listModifiers();
-  const bundles = listBundles();
+  const catalog = matchCatalog ? await listActiveCatalogItems() : [];
+  const modifiers = await listModifiers();
+  const bundles = await listBundles();
   const warnings: string[] = [];
 
   if (sourceType === 'spreadsheet') {
@@ -1032,7 +1032,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
       const fallbackText = flattenedText || decodeDocumentText(input.dataBase64, fileName, mimeType);
       const fallbackLines = detectScopeLinesFromText(fallbackText, fileName);
       const metadata = mergeResolvedMetadataFromService(extractMetadataFromTextFromService(fallbackText), structuredMetadata, ['spreadsheet-fallback', 'text-heuristics']);
-      const reviewLines = toReviewLinesFromService(fallbackLines as unknown as NormalizedIntakeLineFromService[], catalog, matchCatalog, bundles);
+      const reviewLines = await toReviewLinesFromService(fallbackLines as unknown as NormalizedIntakeLineFromService[], catalog, matchCatalog, bundles);
       finalizeIntakeReviewLines(reviewLines, intakeAutomation);
       const proposalAssist = buildProposalAssist({
         metadata,
@@ -1199,7 +1199,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
         structuredMetadata,
         [...metadataSources, 'text-heuristics']
       );
-      const reviewLines = toReviewLinesFromService(normalizedLines, catalog, matchCatalog, bundles);
+      const reviewLines = await toReviewLinesFromService(normalizedLines, catalog, matchCatalog, bundles);
       finalizeIntakeReviewLines(reviewLines, intakeAutomation);
       const enrichedMetadata = mergeResolvedMetadataFromService(metadata, extractMetadataFromTextFromService(`${preludeText}\n${flattenedText}`), [...metadata.sources, 'text-heuristics']);
       const proposalAssist = buildProposalAssist({
@@ -1229,7 +1229,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
     } catch (error: unknown) {
       warnings.push(getErrorMessage(error, 'Gemini enrichment failed for spreadsheet parsing.'));
       const metadata = mergeResolvedMetadataFromService(structuredMetadata, extractMetadataFromTextFromService(`${preludeText}\n${flattenedText}`), ['spreadsheet-structure', 'text-heuristics']);
-      const reviewLines = toReviewLinesFromService(normalizedLines, catalog, matchCatalog, bundles);
+      const reviewLines = await toReviewLinesFromService(normalizedLines, catalog, matchCatalog, bundles);
       const proposalAssist = buildProposalAssist({
         metadata,
         assumptions: metadata.assumptions,
@@ -1360,7 +1360,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
       heuristicMetadata,
       ['gemini', 'text-heuristics']
     );
-    const reviewLines = toReviewLinesFromService(normalizedLines as unknown as NormalizedIntakeLineFromService[], catalog, matchCatalog, bundles);
+    const reviewLines = await toReviewLinesFromService(normalizedLines as unknown as NormalizedIntakeLineFromService[], catalog, matchCatalog, bundles);
     finalizeIntakeReviewLines(reviewLines, intakeAutomation);
     const proposalAssist = buildProposalAssist({
       metadata,
@@ -1389,7 +1389,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
   } catch (error: unknown) {
     warnings.push(getErrorMessage(error, 'Gemini extraction failed; fallback text parsing used.'));
     const metadata = mergeResolvedMetadataFromService({ ...heuristicMetadata, sourceFiles: [fileName] }, {}, ['text-heuristics']);
-    const reviewLines = toReviewLinesFromService(fallbackLines as unknown as NormalizedIntakeLineFromService[], catalog, matchCatalog, bundles);
+    const reviewLines = await toReviewLinesFromService(fallbackLines as unknown as NormalizedIntakeLineFromService[], catalog, matchCatalog, bundles);
     finalizeIntakeReviewLines(reviewLines, intakeAutomation);
     const proposalAssist = buildProposalAssist({
       metadata,
