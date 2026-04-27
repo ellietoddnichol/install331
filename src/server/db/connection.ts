@@ -1,9 +1,10 @@
-import Database from 'better-sqlite3';
+﻿import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 import { initLegacyDb } from '../legacyInit.ts';
 import { initEstimatorSchema } from './schema.ts';
 import { resolveEstimatorDbPath } from './resolveEstimatorDbPath.ts';
+import { isPgDriver } from './driver.ts';
 import {
   backupSqliteToRemoteDurableOnce,
   getActiveRemoteDurableKind,
@@ -21,6 +22,11 @@ let prepared = false;
 let resolvedDbPath: string | null = null;
 
 export function getEstimatorDb(): Database {
+  if (isPgDriver()) {
+    throw new Error(
+      'getEstimatorDb() is not available when DB_DRIVER=pg. Use dbAll/dbGet/dbRun from src/server/db/query.ts instead.'
+    );
+  }
   if (!estimatorDb) {
     // Sync-safe fallback for tests/scripts; production should call prepareEstimatorDbForServer() first.
     const dbPath = resolveEstimatorDbPath();
@@ -37,6 +43,11 @@ export function getEstimatorDb(): Database {
 export async function prepareEstimatorDbForServer(): Promise<void> {
   if (prepared) return;
   prepared = true;
+
+  if (isPgDriver()) {
+    // Pooled Postgres path (query.ts, pgPool.ts). Skip local estimator.db + durable SQLite remote backup.
+    return;
+  }
 
   warnIfSupabaseBucketWithoutCredentials();
   const dbPath = resolveEstimatorDbPath();
@@ -126,6 +137,13 @@ export function getDbPersistenceStatusSnapshot() {
 }
 
 export async function runDbBackupNow(): Promise<{ ok: boolean; message: string }> {
+  if (isPgDriver()) {
+    return {
+      ok: false,
+      message:
+        'SQLite snapshot backup is not used when DB_DRIVER=pg. Use your Postgres/Supabase backup process for database backups.',
+    };
+  }
   const db = getEstimatorDb();
   const dbPath = getResolvedEstimatorDbPath();
   const result = await backupSqliteToRemoteDurableOnce(db, dbPath);

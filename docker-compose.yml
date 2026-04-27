@@ -1,0 +1,19 @@
+# Local Postgres for DB_DRIVER=pg development and CI.
+# Usage: docker compose up -d
+# Then: set DATABASE_URL=postgresql://postgres:postgres@localhost:5432/estimator
+# Run migrations from supabase/migrations/*.sql against this URL.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: estimator
+    volumes:
+      - estimator_pg_data:/var/lib/postgresql/data
+
+volumes:
+  estimator_pg_data:
