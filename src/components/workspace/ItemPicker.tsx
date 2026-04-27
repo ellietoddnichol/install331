@@ -152,8 +152,6 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
     [draftItems]
   );
 
-  if (!open) return null;
-
   const canonicalDefaultItems = useMemo(() => {
     return items.filter((i) => !i.deprecated && i.isCanonical !== false);
   }, [items]);
@@ -179,6 +177,8 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
       return next;
     });
   }, [open, search, displayedItems]);
+
+  if (!open) return null;
 
   function stageCatalogItem(item: CatalogItem) {
     const roomId = bulkRoomId || activeRoomId || rooms[0]?.id || '';
