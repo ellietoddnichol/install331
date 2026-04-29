@@ -52,8 +52,29 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.join(__dirname, 'dist')));
-    app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'dist/index.html')));
+    const distDir = path.join(__dirname, 'dist');
+
+    // Serve hashed assets with long-lived caching; avoid caching index.html so
+    // redeploys don't strand clients with stale chunk references.
+    app.use(express.static(distDir, {
+      setHeaders(res, filePath) {
+        const normalized = filePath.replace(/\\/g, '/');
+        if (normalized.endsWith('/index.html')) {
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+          return;
+        }
+        if (normalized.includes('/assets/')) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          return;
+        }
+        res.setHeader('Cache-Control', 'no-cache');
+      },
+    }));
+
+    app.get('*', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+      res.sendFile(path.join(distDir, 'index.html'));
+    });
   }
 
   app.listen(PORT, '0.0.0.0', () => {
