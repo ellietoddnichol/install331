@@ -43,7 +43,7 @@ test('bulk delete removes multiple takeoff lines; summary and proposal items ali
      VALUES (?, ?, 'R', 0, NULL, datetime('now'), datetime('now'))`
   ).run(roomId, projectId);
 
-  const a = createTakeoffLine({
+  const a = await createTakeoffLine({
     projectId,
     roomId,
     description: 'Alpha',
@@ -53,7 +53,7 @@ test('bulk delete removes multiple takeoff lines; summary and proposal items ali
     materialCost: 10,
     laborMinutes: 0,
   });
-  const b = createTakeoffLine({
+  const b = await createTakeoffLine({
     projectId,
     roomId,
     description: 'Beta',
@@ -63,7 +63,7 @@ test('bulk delete removes multiple takeoff lines; summary and proposal items ali
     materialCost: 20,
     laborMinutes: 0,
   });
-  const c = createTakeoffLine({
+  const c = await createTakeoffLine({
     projectId,
     roomId,
     description: 'Gamma',
@@ -74,22 +74,22 @@ test('bulk delete removes multiple takeoff lines; summary and proposal items ali
     laborMinutes: 0,
   });
 
-  const project = getProject(projectId);
+  const project = await getProject(projectId);
   assert.ok(project);
-  const linesBefore = listTakeoffLines(projectId);
+  const linesBefore = await listTakeoffLines(projectId);
   assert.equal(linesBefore.length, 3);
-  const summaryBefore = calculateEstimateSummary(project!, linesBefore);
+  const summaryBefore = await calculateEstimateSummary(project!, linesBefore);
   const proposalBefore = buildProposalLineItems(linesBefore);
   assert.ok(proposalBefore.length >= 3);
 
-  assert.equal(deleteTakeoffLine(a.id), true);
-  assert.equal(deleteTakeoffLine(b.id), true);
+  assert.equal(await deleteTakeoffLine(a.id), true);
+  assert.equal(await deleteTakeoffLine(b.id), true);
 
-  const linesAfter = listTakeoffLines(projectId);
+  const linesAfter = await listTakeoffLines(projectId);
   assert.equal(linesAfter.length, 1);
   assert.equal(linesAfter[0]!.id, c.id);
 
-  const summaryAfter = calculateEstimateSummary(project!, linesAfter);
+  const summaryAfter = await calculateEstimateSummary(project!, linesAfter);
   assert.ok(summaryAfter.baseBidTotal < summaryBefore.baseBidTotal);
 
   const proposalAfter = buildProposalLineItems(linesAfter);

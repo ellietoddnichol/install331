@@ -60,7 +60,7 @@ test('buildIntakeEstimateDraft maps excluded_by_others from line text', async ()
     notes: '',
     reviewLineFingerprint: 'abc',
   });
-  const draft = buildIntakeEstimateDraft({
+  const draft = await buildIntakeEstimateDraft({
     reviewLines: [line],
     catalog: catalogItems,
     modifiers: [],
@@ -81,7 +81,7 @@ test('ignored review override persists for same fingerprint', async () => {
      VALUES (?, 'ignored', datetime('now'))`
   ).run(fp);
 
-  const draft = buildIntakeEstimateDraft({
+  const draft = await buildIntakeEstimateDraft({
     reviewLines: [
       {
         lineId: 'l1',
@@ -146,7 +146,7 @@ test('ignored review override matches by content key when fingerprint changes', 
     description: 'Automatic Hand Sanitizer Dispenser',
     quantity: 4,
   });
-  const draft = buildIntakeEstimateDraft({
+  const draft = await buildIntakeEstimateDraft({
     reviewLines: [line],
     catalog: [{ id: 'c1', sku: 'X', description: 'Item', category: 'Cat', uom: 'EA', baseMaterialCost: 10, baseLaborMinutes: 10, taxable: true, adaFlag: false, active: true, tags: [] }] as any,
     modifiers: [],
@@ -158,7 +158,7 @@ test('ignored review override matches by content key when fingerprint changes', 
 
 test('admin lines (addenda / qty headers / source metadata) are informational_only and do not surface as review items', async () => {
   const { buildIntakeEstimateDraft } = await import('./intakeMatcherService.ts');
-  const draft = buildIntakeEstimateDraft({
+  const draft = await buildIntakeEstimateDraft({
     reviewLines: [
       {
         lineId: 'l1',
@@ -252,7 +252,7 @@ test('admin lines (addenda / qty headers / source metadata) are informational_on
 test('1–2 character scope fragments (OCR/cell noise) are informational_only, not priced review', async () => {
   const { buildIntakeEstimateDraft } = await import('./intakeMatcherService.ts');
   const cat = { id: 'c1', sku: 'X', description: 'Item', category: 'Cat', uom: 'EA', baseMaterialCost: 10, baseLaborMinutes: 10, taxable: true, adaFlag: false, active: true, tags: [] } as any;
-  const draft = buildIntakeEstimateDraft({
+  const draft = await buildIntakeEstimateDraft({
     reviewLines: [
       {
         lineId: 'l-nd',
@@ -348,7 +348,7 @@ test('buildIntakeEstimateDraft applies manufacturer consistency to ranking', asy
     matchStatus: 'needs_match',
   });
 
-  const draft = buildIntakeEstimateDraft({
+  const draft = await buildIntakeEstimateDraft({
     reviewLines: [lineA, lineB, lineC],
     catalog: catalogItems,
     modifiers: [],
@@ -377,7 +377,7 @@ test('modifier phrase maps to suggestedProjectModifierIds', async () => {
       updatedAt: '',
     },
   ];
-  const draft = buildIntakeEstimateDraft({
+  const draft = await buildIntakeEstimateDraft({
     reviewLines: [baseReviewLine({})],
     catalog: [cat('c1', 'X', 'Thing', 'M')],
     modifiers,
@@ -446,7 +446,7 @@ test('alias-driven canonical resolution + explicit attribute inference (strict)'
     category: 'Grab Bars',
   });
 
-  const draft = buildIntakeEstimateDraft({
+  const draft = await buildIntakeEstimateDraft({
     reviewLines: [line],
     catalog: catalogItems,
     modifiers: [],
@@ -471,7 +471,7 @@ test('alias-driven canonical resolution + explicit attribute inference (strict)'
     itemName: 'Grab bar',
     category: 'Grab Bars',
   });
-  const draft2 = buildIntakeEstimateDraft({
+  const draft2 = await buildIntakeEstimateDraft({
     reviewLines: [line2],
     catalog: catalogItems,
     modifiers: [],

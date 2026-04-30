@@ -32,8 +32,8 @@ test('upsertAliases + upsertAttributes ingest Canonical_SKU sheet rows safely', 
     ['GB-36', 'finish', 'MATTE_BLACK', 'absolute', '10', 'percent', '10', 'TRUE', '0', ''],
   ];
 
-  const a = upsertAliases(aliasRows, warnings);
-  const b = upsertAttributes(attributeRows, warnings);
+  const a = await upsertAliases(aliasRows, warnings);
+  const b = await upsertAttributes(attributeRows, warnings);
   assert.equal(a.aliasesSynced, 1);
   assert.equal(b.attributesSynced, 1);
 

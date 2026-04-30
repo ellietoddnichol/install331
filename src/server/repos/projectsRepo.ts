@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { getEstimatorDb } from '../db/connection.ts';
+import { dbAll, dbGet, dbRun } from '../db/query.ts';
 import { PeerIntakeDefaultsResponse, ProjectRecord, ProjectStructuredAssumption } from '../../shared/types/estimator.ts';
 import { coerceSafeProjectName } from '../../shared/utils/intakeTextGuards.ts';
 import { createDefaultProjectJobConditions, normalizeProjectJobConditions } from '../../shared/utils/jobConditions.ts';
@@ -120,62 +120,57 @@ function mapProjectRow(row: any): ProjectRecord {
   };
 }
 
-export function listProjects(): ProjectRecord[] {
-  const rows = getEstimatorDb().prepare('SELECT * FROM projects_v1 ORDER BY updated_at DESC').all();
+export async function listProjects(): Promise<ProjectRecord[]> {
+  const rows = await dbAll('SELECT * FROM projects_v1 ORDER BY updated_at DESC');
   return rows.map(mapProjectRow);
 }
 
-export function getProject(projectId: string): ProjectRecord | null {
-  const row = getEstimatorDb().prepare('SELECT * FROM projects_v1 WHERE id = ?').get(projectId);
+export async function getProject(projectId: string): Promise<ProjectRecord | null> {
+  const row = await dbGet('SELECT * FROM projects_v1 WHERE id = ?', [projectId]);
   return row ? mapProjectRow(row) : null;
 }
 
 /**
  * Best-effort defaults from the most recently updated non-archived project with the same client (preferred) or GC.
  */
-export function suggestPeerIntakeDefaults(input: {
+export async function suggestPeerIntakeDefaults(input: {
   clientName?: string | null;
   generalContractor?: string | null;
   excludeProjectId?: string | null;
-}): PeerIntakeDefaultsResponse | null {
+}): Promise<PeerIntakeDefaultsResponse | null> {
   const client = String(input.clientName || '').trim().toLowerCase();
   const gc = String(input.generalContractor || '').trim().toLowerCase();
   if (!client && !gc) return null;
 
-  const db = getEstimatorDb();
   let row: any = null;
   let matchedBy: PeerIntakeDefaultsResponse['matchedBy'] = null;
 
   if (client) {
     if (input.excludeProjectId) {
-      row = db
-        .prepare(
-          `SELECT * FROM projects_v1 WHERE status != 'Archived' AND id != ? AND LOWER(TRIM(COALESCE(client_name,''))) = ? ORDER BY updated_at DESC LIMIT 1`
-        )
-        .get(input.excludeProjectId, client);
+      row = await dbGet(
+        `SELECT * FROM projects_v1 WHERE status != 'Archived' AND id != ? AND LOWER(TRIM(COALESCE(client_name,''))) = ? ORDER BY updated_at DESC LIMIT 1`,
+        [input.excludeProjectId, client]
+      );
     } else {
-      row = db
-        .prepare(
-          `SELECT * FROM projects_v1 WHERE status != 'Archived' AND LOWER(TRIM(COALESCE(client_name,''))) = ? ORDER BY updated_at DESC LIMIT 1`
-        )
-        .get(client);
+      row = await dbGet(
+        `SELECT * FROM projects_v1 WHERE status != 'Archived' AND LOWER(TRIM(COALESCE(client_name,''))) = ? ORDER BY updated_at DESC LIMIT 1`,
+        [client]
+      );
     }
     if (row) matchedBy = 'client';
   }
 
   if (!row && gc) {
     if (input.excludeProjectId) {
-      row = db
-        .prepare(
-          `SELECT * FROM projects_v1 WHERE status != 'Archived' AND id != ? AND LOWER(TRIM(COALESCE(general_contractor,''))) = ? ORDER BY updated_at DESC LIMIT 1`
-        )
-        .get(input.excludeProjectId, gc);
+      row = await dbGet(
+        `SELECT * FROM projects_v1 WHERE status != 'Archived' AND id != ? AND LOWER(TRIM(COALESCE(general_contractor,''))) = ? ORDER BY updated_at DESC LIMIT 1`,
+        [input.excludeProjectId, gc]
+      );
     } else {
-      row = db
-        .prepare(
-          `SELECT * FROM projects_v1 WHERE status != 'Archived' AND LOWER(TRIM(COALESCE(general_contractor,''))) = ? ORDER BY updated_at DESC LIMIT 1`
-        )
-        .get(gc);
+      row = await dbGet(
+        `SELECT * FROM projects_v1 WHERE status != 'Archived' AND LOWER(TRIM(COALESCE(general_contractor,''))) = ? ORDER BY updated_at DESC LIMIT 1`,
+        [gc]
+      );
     }
     if (row) matchedBy = 'general_contractor';
   }
@@ -193,7 +188,7 @@ export function suggestPeerIntakeDefaults(input: {
   };
 }
 
-export function createProject(input: Partial<ProjectRecord>): ProjectRecord {
+export async function createProject(input: Partial<ProjectRecord>): Promise<ProjectRecord> {
   const now = new Date().toISOString();
   const structuredAssumptions = normalizeStructuredAssumptionsInput(input.structuredAssumptions ?? []);
   const rawTitle = titleStringForInference(String(input.projectName ?? ''));
@@ -273,7 +268,8 @@ export function createProject(input: Partial<ProjectRecord>): ProjectRecord {
     updatedAt: now,
   };
 
-  getEstimatorDb().prepare(`
+  await dbRun(
+    `
     INSERT INTO projects_v1 (
       id, project_number, project_number_source, project_name, client_name, client_name_source, general_contractor, estimator, bid_date, proposal_date, due_date,
       address, address_source, location_label_source,
@@ -284,55 +280,57 @@ export function createProject(input: Partial<ProjectRecord>): ProjectRecord {
       tax_percent, pricing_mode, scope_categories_json, job_conditions_json, status, notes, special_notes, proposal_include_special_notes, proposal_include_catalog_images, proposal_format,
       structured_assumptions_json, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    project.id,
-    project.projectNumber,
-    project.projectNumberSource || 'manual',
-    project.projectName,
-    project.clientName,
-    project.clientNameSource || 'manual',
-    project.generalContractor,
-    project.estimator,
-    project.bidDate,
-    project.proposalDate,
-    project.dueDate,
-    project.address,
-    project.addressSource || 'manual',
-    project.jobConditions.locationLabelSource || (locationAuto ? 'auto' : 'manual'),
-    project.projectType,
-    project.projectSize,
-    project.floorLevel,
-    project.accessDifficulty,
-    project.installHeight,
-    project.materialHandling,
-    project.wallSubstrate,
-    project.laborBurdenPercent,
-    project.overheadPercent,
-    project.profitPercent,
-    project.laborOverheadPercent,
-    project.laborProfitPercent,
-    project.subLaborManagementFeeEnabled ? 1 : 0,
-    project.subLaborManagementFeePercent,
-    project.taxPercent,
-    project.pricingMode,
-    JSON.stringify(project.selectedScopeCategories),
-    JSON.stringify(project.jobConditions),
-    project.status,
-    project.notes,
-    project.specialNotes,
-    project.proposalIncludeSpecialNotes ? 1 : 0,
-    project.proposalIncludeCatalogImages ? 1 : 0,
-    project.proposalFormat,
-    JSON.stringify(project.structuredAssumptions),
-    project.createdAt,
-    project.updatedAt
+  `,
+    [
+      project.id,
+      project.projectNumber,
+      project.projectNumberSource || 'manual',
+      project.projectName,
+      project.clientName,
+      project.clientNameSource || 'manual',
+      project.generalContractor,
+      project.estimator,
+      project.bidDate,
+      project.proposalDate,
+      project.dueDate,
+      project.address,
+      project.addressSource || 'manual',
+      project.jobConditions.locationLabelSource || (locationAuto ? 'auto' : 'manual'),
+      project.projectType,
+      project.projectSize,
+      project.floorLevel,
+      project.accessDifficulty,
+      project.installHeight,
+      project.materialHandling,
+      project.wallSubstrate,
+      project.laborBurdenPercent,
+      project.overheadPercent,
+      project.profitPercent,
+      project.laborOverheadPercent,
+      project.laborProfitPercent,
+      project.subLaborManagementFeeEnabled ? 1 : 0,
+      project.subLaborManagementFeePercent,
+      project.taxPercent,
+      project.pricingMode,
+      JSON.stringify(project.selectedScopeCategories),
+      JSON.stringify(project.jobConditions),
+      project.status,
+      project.notes,
+      project.specialNotes,
+      project.proposalIncludeSpecialNotes ? 1 : 0,
+      project.proposalIncludeCatalogImages ? 1 : 0,
+      project.proposalFormat,
+      JSON.stringify(project.structuredAssumptions),
+      project.createdAt,
+      project.updatedAt,
+    ]
   );
 
   return project;
 }
 
-export function updateProject(projectId: string, input: Partial<ProjectRecord>): ProjectRecord | null {
-  const existing = getProject(projectId);
+export async function updateProject(projectId: string, input: Partial<ProjectRecord>): Promise<ProjectRecord | null> {
+  const existing = await getProject(projectId);
   if (!existing) return null;
 
   const hasIncomingProjectNumber = Object.prototype.hasOwnProperty.call(input, 'projectNumber');
@@ -477,7 +475,8 @@ export function updateProject(projectId: string, input: Partial<ProjectRecord>):
     }
   }
 
-  getEstimatorDb().prepare(`
+  await dbRun(
+    `
     UPDATE projects_v1 SET
       project_number = ?, project_number_source = ?, project_name = ?, client_name = ?, client_name_source = ?, general_contractor = ?, estimator = ?, bid_date = ?, proposal_date = ?, due_date = ?,
       address = ?, address_source = ?, location_label_source = ?, project_type = ?, project_size = ?, floor_level = ?, access_difficulty = ?, install_height = ?,
@@ -487,60 +486,63 @@ export function updateProject(projectId: string, input: Partial<ProjectRecord>):
       tax_percent = ?, pricing_mode = ?, scope_categories_json = ?, job_conditions_json = ?, status = ?, notes = ?, special_notes = ?, proposal_include_special_notes = ?, proposal_include_catalog_images = ?, proposal_format = ?,
       structured_assumptions_json = ?, updated_at = ?
     WHERE id = ?
-  `).run(
-    next.projectNumber,
-    next.projectNumberSource || 'manual',
-    next.projectName,
-    next.clientName,
-    next.clientNameSource || 'manual',
-    next.generalContractor,
-    next.estimator,
-    next.bidDate,
-    next.proposalDate,
-    next.dueDate,
-    next.address,
-    next.addressSource || 'manual',
-    (next.jobConditions as any)?.locationLabelSource || 'manual',
-    next.projectType,
-    next.projectSize,
-    next.floorLevel,
-    next.accessDifficulty,
-    next.installHeight,
-    next.materialHandling,
-    next.wallSubstrate,
-    next.laborBurdenPercent,
-    next.overheadPercent,
-    next.profitPercent,
-    next.laborOverheadPercent,
-    next.laborProfitPercent,
-    next.subLaborManagementFeeEnabled ? 1 : 0,
-    next.subLaborManagementFeePercent,
-    next.taxPercent,
-    next.pricingMode,
-    JSON.stringify(next.selectedScopeCategories),
-    JSON.stringify(next.jobConditions),
-    next.status,
-    next.notes,
-    next.specialNotes,
-    next.proposalIncludeSpecialNotes ? 1 : 0,
-    next.proposalIncludeCatalogImages ? 1 : 0,
-    next.proposalFormat,
-    JSON.stringify(next.structuredAssumptions),
-    next.updatedAt,
-    projectId
+  `,
+    [
+      next.projectNumber,
+      next.projectNumberSource || 'manual',
+      next.projectName,
+      next.clientName,
+      next.clientNameSource || 'manual',
+      next.generalContractor,
+      next.estimator,
+      next.bidDate,
+      next.proposalDate,
+      next.dueDate,
+      next.address,
+      next.addressSource || 'manual',
+      (next.jobConditions as any)?.locationLabelSource || 'manual',
+      next.projectType,
+      next.projectSize,
+      next.floorLevel,
+      next.accessDifficulty,
+      next.installHeight,
+      next.materialHandling,
+      next.wallSubstrate,
+      next.laborBurdenPercent,
+      next.overheadPercent,
+      next.profitPercent,
+      next.laborOverheadPercent,
+      next.laborProfitPercent,
+      next.subLaborManagementFeeEnabled ? 1 : 0,
+      next.subLaborManagementFeePercent,
+      next.taxPercent,
+      next.pricingMode,
+      JSON.stringify(next.selectedScopeCategories),
+      JSON.stringify(next.jobConditions),
+      next.status,
+      next.notes,
+      next.specialNotes,
+      next.proposalIncludeSpecialNotes ? 1 : 0,
+      next.proposalIncludeCatalogImages ? 1 : 0,
+      next.proposalFormat,
+      JSON.stringify(next.structuredAssumptions),
+      next.updatedAt,
+      projectId,
+    ]
   );
 
   return next;
 }
 
-export function archiveProject(projectId: string): boolean {
-  const result = getEstimatorDb().prepare(`
-    UPDATE projects_v1 SET status = 'Archived', updated_at = ? WHERE id = ?
-  `).run(new Date().toISOString(), projectId);
+export async function archiveProject(projectId: string): Promise<boolean> {
+  const result = await dbRun(`UPDATE projects_v1 SET status = 'Archived', updated_at = ? WHERE id = ?`, [
+    new Date().toISOString(),
+    projectId,
+  ]);
   return result.changes > 0;
 }
 
-export function deleteProject(projectId: string): boolean {
-  const result = getEstimatorDb().prepare('DELETE FROM projects_v1 WHERE id = ?').run(projectId);
+export async function deleteProject(projectId: string): Promise<boolean> {
+  const result = await dbRun('DELETE FROM projects_v1 WHERE id = ?', [projectId]);
   return result.changes > 0;
 }

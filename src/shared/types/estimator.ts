@@ -481,6 +481,19 @@ export interface CatalogPostCutoverHealthRecord {
   lastCatalogSync: CatalogSyncStatusRecord;
 }
 
+/** Effective catalog wiring for operators (sheet tabs + estimator DB surface). */
+export interface CatalogSourceRecord {
+  dbDriver: 'sqlite' | 'pg';
+  catalogItemsTable: 'catalog_items' | 'catalog_items_clean';
+  sheetsItemsTab: string;
+  sheetsModifiersTab: string;
+  sheetsBundlesTab: string;
+  sheetsAliasesTab: string;
+  sheetsAttributesTab: string;
+  spreadsheetIdConfigured: boolean;
+  notes: string[];
+}
+
 export interface ProjectFileRecord {
   id: string;
   projectId: string;

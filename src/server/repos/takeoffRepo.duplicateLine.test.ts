@@ -74,7 +74,7 @@ test('duplicateTakeoffLine creates new id, preserves governed fields and modifie
     ) VALUES (?, ?, 'finish', 'X','absolute',5,NULL,NULL,1,0,datetime('now'),datetime('now'))`
   ).run(`attr-${randomUUID()}`, catalogItemId.id);
 
-  const source = createTakeoffLine({
+  const source = await createTakeoffLine({
     projectId,
     roomId: roomA,
     description: 'Line to clone',
@@ -89,22 +89,22 @@ test('duplicateTakeoffLine creates new id, preserves governed fields and modifie
     catalogAttributeSnapshot: [{ attributeType: 'finish', attributeValue: 'X', source: 'user' }],
   });
 
-  const modApply = applyModifierToLine(source.id, 'mod-recessed');
+  const modApply = await applyModifierToLine(source.id, 'mod-recessed');
   assert.ok(modApply?.line, 'expected modifier apply to succeed (seeded mod-recessed)');
 
-  const sourceAfterMod = getTakeoffLineCore(source.id)!;
-  const modsBefore = listLineModifiers(source.id);
+  const sourceAfterMod = (await getTakeoffLineCore(source.id))!;
+  const modsBefore = await listLineModifiers(source.id);
   assert.equal(modsBefore.length, 1);
 
-  const snapBefore = JSON.stringify(getTakeoffLineCore(source.id));
+  const snapBefore = JSON.stringify(await getTakeoffLineCore(source.id));
 
-  const dup = duplicateTakeoffLine(source.id, roomB);
+  const dup = await duplicateTakeoffLine(source.id, roomB);
   assert.ok(dup);
   assert.notEqual(dup!.id, source.id);
   assert.equal(dup!.roomId, roomB);
   assert.equal(dup!.projectId, projectId);
 
-  assert.equal(JSON.stringify(getTakeoffLineCore(source.id)), snapBefore, 'source row bytes unchanged after duplicate');
+  assert.equal(JSON.stringify(await getTakeoffLineCore(source.id)), snapBefore, 'source row bytes unchanged after duplicate');
 
   assert.equal(dup!.description, sourceAfterMod.description);
   assert.equal(dup!.catalogItemId, sourceAfterMod.catalogItemId);
@@ -123,18 +123,18 @@ test('duplicateTakeoffLine creates new id, preserves governed fields and modifie
   assert.ok(dup!.catalogAttributeSnapshot?.length);
   assert.ok(dup!.attributeDeltaMaterialSnapshot?.length);
 
-  const dupMods = listLineModifiers(dup!.id);
+  const dupMods = await listLineModifiers(dup!.id);
   assert.equal(dupMods.length, 1);
   assert.equal(dupMods[0]!.modifierId, modsBefore[0]!.modifierId);
   assert.equal(dupMods[0]!.addMaterialCost, modsBefore[0]!.addMaterialCost);
 
-  const lines = listTakeoffLines(projectId);
+  const lines = await listTakeoffLines(projectId);
   assert.equal(lines.length, 2);
 
-  const project = getProject(projectId);
+  const project = await getProject(projectId);
   assert.ok(project);
-  const summaryBefore = calculateEstimateSummary(project!, [sourceAfterMod]);
-  const summaryAfter = calculateEstimateSummary(project!, lines);
+  const summaryBefore = await calculateEstimateSummary(project!, [sourceAfterMod]);
+  const summaryAfter = await calculateEstimateSummary(project!, lines);
   assert.ok(Math.abs(summaryAfter.baseBidTotal - 2 * summaryBefore.baseBidTotal) < 0.02);
 
   const proposalItems = buildProposalLineItems(lines);
@@ -192,7 +192,7 @@ test('duplicateTakeoffLine returns null for room in another project', async () =
      VALUES (?, ?, 'Other', 0, NULL, datetime('now'), datetime('now'))`
   ).run(rOther, p2);
 
-  const line = createTakeoffLine({
+  const line = await createTakeoffLine({
     projectId: p1,
     roomId: r1,
     description: 'Only in p1',
@@ -203,5 +203,5 @@ test('duplicateTakeoffLine returns null for room in another project', async () =
     laborMinutes: 0,
   });
 
-  assert.equal(duplicateTakeoffLine(line.id, rOther), null);
+  assert.equal(await duplicateTakeoffLine(line.id, rOther), null);
 });

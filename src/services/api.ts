@@ -1,6 +1,6 @@
 
 import { CatalogAliasType, CatalogAttributeType, CatalogDeltaType, CatalogItem, CatalogItemAlias, CatalogItemAttribute } from '../types';
-import { BundleRecord, CatalogPostCutoverHealthRecord, CatalogSyncStatusRecord, DbPersistenceStatusRecord, EstimateSummary, InstallReviewEmailDraft, ModifierRecord, PeerIntakeDefaultsResponse, ProjectFileRecord, ProjectRecord, RoomRecord, SettingsRecord, TakeoffLineRecord } from '../shared/types/estimator';
+import { BundleRecord, CatalogPostCutoverHealthRecord, CatalogSourceRecord, CatalogSyncStatusRecord, DbPersistenceStatusRecord, EstimateSummary, InstallReviewEmailDraft, ModifierRecord, PeerIntakeDefaultsResponse, ProjectFileRecord, ProjectRecord, RoomRecord, SettingsRecord, TakeoffLineRecord } from '../shared/types/estimator';
 import { IntakeParseRequest, IntakeParseResult } from '../shared/types/intake';
 
 const API_BASE = '/api';
@@ -366,6 +366,11 @@ export const api = {
   async getV1CatalogPostCutoverHealth(): Promise<CatalogPostCutoverHealthRecord> {
     const res = await apiFetch(`${API_BASE}/v1/settings/catalog-post-cutover-health`);
     const payload = await handleResponse<{ data: CatalogPostCutoverHealthRecord }>(res);
+    return payload.data;
+  },
+  async getV1CatalogSource(): Promise<CatalogSourceRecord> {
+    const res = await apiFetch(`${API_BASE}/v1/settings/catalog-source`);
+    const payload = await handleResponse<{ data: CatalogSourceRecord }>(res);
     return payload.data;
   },
   async getCatalogSyncRuns(limit = 10): Promise<Array<{

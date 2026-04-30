@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { getEstimatorDb } from '../db/connection.ts';
+import { dbAll, dbGet, dbRun } from '../db/query.ts';
 import type { IntakeMatchConfidence, IntakeScopeBucket } from '../../shared/types/intake.ts';
 import { TakeoffLineModifierRollup, TakeoffLineRecord, TakeoffPricingSource } from '../../shared/types/estimator.ts';
 import { recordIntakeCatalogMemoryFromAcceptedMatch } from './intakeCatalogMemoryRepo.ts';
@@ -8,8 +8,10 @@ import { getCatalogItemsTableName } from '../db/catalogTable.ts';
 
 const DEFAULT_LABOR_RATE_PER_HOUR = Number(process.env.DEFAULT_LABOR_RATE_PER_HOUR || 100);
 
-export function getConfiguredLaborRatePerHour(): number {
-  const row = getEstimatorDb().prepare('SELECT default_labor_rate_per_hour FROM settings_v1 WHERE id = ?').get('global') as { default_labor_rate_per_hour?: number } | undefined;
+export async function getConfiguredLaborRatePerHour(): Promise<number> {
+  const row = (await dbGet('SELECT default_labor_rate_per_hour FROM settings_v1 WHERE id = ?', [
+    'global',
+  ])) as { default_labor_rate_per_hour?: number } | undefined;
   const rate = Number(row?.default_labor_rate_per_hour);
   return Number.isFinite(rate) && rate > 0 ? rate : DEFAULT_LABOR_RATE_PER_HOUR;
 }
@@ -21,11 +23,15 @@ export function resolveUnitLaborCostFromMinutes(laborMinutes: number, laborRateP
   return Number(((minutes / 60) * rate).toFixed(2));
 }
 
-function resolveLaborCostFromInput(laborMinutes: number, laborCost: number | undefined, fallbackLaborCost: number | undefined, laborRatePerHour: number): number {
+function resolveLaborCostFromInput(
+  laborMinutes: number,
+  laborCost: number | undefined,
+  fallbackLaborCost: number | undefined,
+  laborRatePerHour: number
+): number {
   const derivedLaborCost = resolveUnitLaborCostFromMinutes(laborMinutes, laborRatePerHour);
   const providedLaborCost = laborCost ?? fallbackLaborCost;
 
-  // Treat zero/negative provided values as unset when labor minutes indicate real labor.
   if (laborMinutes > 0 && (!Number.isFinite(Number(providedLaborCost)) || Number(providedLaborCost) <= 0)) {
     return derivedLaborCost;
   }
@@ -89,7 +95,6 @@ function normalizeNullableNumber(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Record catalog learning when the link or identifying text changed (skip pure pricing/qty edits). */
 function shouldRecordCatalogMemoryForLineChange(previous: TakeoffLineRecord | null, next: TakeoffLineRecord): boolean {
   if (!next.catalogItemId) return false;
   if (!previous) return true;
@@ -170,24 +175,24 @@ function mapTakeoffRow(row: any): TakeoffLineRecord {
       }
     })(),
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
   };
 }
 
 /** Takeoff row from DB only (no line_modifiers). Use for pricing math and internal joins. */
-export function getTakeoffLineCore(lineId: string): TakeoffLineRecord | null {
-  const row = getEstimatorDb().prepare('SELECT * FROM takeoff_lines_v1 WHERE id = ?').get(lineId);
+export async function getTakeoffLineCore(lineId: string): Promise<TakeoffLineRecord | null> {
+  const row = await dbGet('SELECT * FROM takeoff_lines_v1 WHERE id = ?', [lineId]);
   return row ? mapTakeoffRow(row) : null;
 }
 
-function batchModifierNamesByLineIds(lineIds: string[]): Map<string, string[]> {
+async function batchModifierNamesByLineIds(lineIds: string[]): Promise<Map<string, string[]>> {
   const map = new Map<string, string[]>();
   if (lineIds.length === 0) return map;
-  const db = getEstimatorDb();
   const placeholders = lineIds.map(() => '?').join(',');
-  const rows = db
-    .prepare(`SELECT line_id, name FROM line_modifiers_v1 WHERE line_id IN (${placeholders}) ORDER BY created_at`)
-    .all(...lineIds) as Array<{ line_id: string; name: string }>;
+  const rows = (await dbAll(
+    `SELECT line_id, name FROM line_modifiers_v1 WHERE line_id IN (${placeholders}) ORDER BY created_at`,
+    lineIds
+  )) as Array<{ line_id: string; name: string }>;
   for (const row of rows) {
     const list = map.get(row.line_id) || [];
     const n = String(row.name || '').trim();
@@ -197,26 +202,25 @@ function batchModifierNamesByLineIds(lineIds: string[]): Map<string, string[]> {
   return map;
 }
 
-function batchLineModifierRollups(lineIds: string[]): Map<string, TakeoffLineModifierRollup> {
+async function batchLineModifierRollups(lineIds: string[]): Promise<Map<string, TakeoffLineModifierRollup>> {
   const out = new Map<string, TakeoffLineModifierRollup>();
   if (lineIds.length === 0) return out;
   const placeholders = lineIds.map(() => '?').join(',');
-  const rows = getEstimatorDb()
-    .prepare(
-      `SELECT line_id,
+  const rows = (await dbAll(
+    `SELECT line_id,
         COUNT(*) AS modifier_count,
         COALESCE(SUM(add_material_cost), 0) AS sum_add_material,
         COALESCE(SUM(add_labor_minutes), 0) AS sum_add_labor_minutes,
         MAX(CASE WHEN COALESCE(percent_material, 0) > 0 OR COALESCE(percent_labor, 0) > 0 THEN 1 ELSE 0 END) AS has_percent
-       FROM line_modifiers_v1 WHERE line_id IN (${placeholders}) GROUP BY line_id`
-    )
-    .all(...lineIds) as Array<{
-      line_id: string;
-      modifier_count: number;
-      sum_add_material: number;
-      sum_add_labor_minutes: number;
-      has_percent: number;
-    }>;
+       FROM line_modifiers_v1 WHERE line_id IN (${placeholders}) GROUP BY line_id`,
+    lineIds
+  )) as Array<{
+    line_id: string;
+    modifier_count: number;
+    sum_add_material: number;
+    sum_add_labor_minutes: number;
+    has_percent: number;
+  }>;
   for (const row of rows) {
     out.set(row.line_id, {
       count: Number(row.modifier_count) || 0,
@@ -228,9 +232,9 @@ function batchLineModifierRollups(lineIds: string[]): Map<string, TakeoffLineMod
   return out;
 }
 
-export function enrichLineWithModifierNames(line: TakeoffLineRecord): TakeoffLineRecord {
-  const names = batchModifierNamesByLineIds([line.id]).get(line.id);
-  const rollup = batchLineModifierRollups([line.id]).get(line.id);
+export async function enrichLineWithModifierNames(line: TakeoffLineRecord): Promise<TakeoffLineRecord> {
+  const names = (await batchModifierNamesByLineIds([line.id])).get(line.id);
+  const rollup = (await batchLineModifierRollups([line.id])).get(line.id);
   return {
     ...line,
     modifierNames: names && names.length > 0 ? names : undefined,
@@ -238,14 +242,17 @@ export function enrichLineWithModifierNames(line: TakeoffLineRecord): TakeoffLin
   };
 }
 
-export function listTakeoffLines(projectId: string, roomId?: string): TakeoffLineRecord[] {
+export async function listTakeoffLines(projectId: string, roomId?: string): Promise<TakeoffLineRecord[]> {
   const rows = roomId
-    ? getEstimatorDb().prepare('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? AND room_id = ? ORDER BY created_at').all(projectId, roomId)
-    : getEstimatorDb().prepare('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? ORDER BY created_at').all(projectId);
+    ? await dbAll('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? AND room_id = ? ORDER BY created_at', [
+        projectId,
+        roomId,
+      ])
+    : await dbAll('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? ORDER BY created_at', [projectId]);
   const lines = rows.map(mapTakeoffRow);
   const ids = lines.map((l) => l.id);
-  const byLine = batchModifierNamesByLineIds(ids);
-  const rollups = batchLineModifierRollups(ids);
+  const byLine = await batchModifierNamesByLineIds(ids);
+  const rollups = await batchLineModifierRollups(ids);
   return lines.map((line) => ({
     ...line,
     modifierNames: byLine.get(line.id)?.length ? byLine.get(line.id) : undefined,
@@ -253,9 +260,9 @@ export function listTakeoffLines(projectId: string, roomId?: string): TakeoffLin
   }));
 }
 
-export function getTakeoffLine(lineId: string): TakeoffLineRecord | null {
-  const line = getTakeoffLineCore(lineId);
-  return line ? enrichLineWithModifierNames(line) : null;
+export async function getTakeoffLine(lineId: string): Promise<TakeoffLineRecord | null> {
+  const line = await getTakeoffLineCore(lineId);
+  return line ? await enrichLineWithModifierNames(line) : null;
 }
 
 function computeLineTotal(
@@ -266,16 +273,19 @@ function computeLineTotal(
   pricingSource: TakeoffPricingSource
 ): { unitSell: number; lineTotal: number } {
   const calculatedUnitSell = calculateUnitSell(materialCost, laborCost);
-  const resolvedUnitSell = pricingSource === 'manual'
-    ? (Number.isFinite(Number(unitSell)) ? Number(unitSell) : calculatedUnitSell)
-    : calculatedUnitSell;
+  const resolvedUnitSell =
+    pricingSource === 'manual'
+      ? Number.isFinite(Number(unitSell))
+        ? Number(unitSell)
+        : calculatedUnitSell
+      : calculatedUnitSell;
   return {
     unitSell: Number(resolvedUnitSell.toFixed(2)),
-    lineTotal: Number((resolvedUnitSell * qty).toFixed(2))
+    lineTotal: Number((resolvedUnitSell * qty).toFixed(2)),
   };
 }
 
-function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): {
+async function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): Promise<{
   baseMaterialCost?: number;
   baseLaborMinutes?: number;
   materialCost?: number;
@@ -284,14 +294,13 @@ function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): {
   baseLaborMinutesSnapshot?: number | null;
   attributeDeltaMaterialSnapshot?: TakeoffLineRecord['attributeDeltaMaterialSnapshot'] | null;
   attributeDeltaLaborSnapshot?: TakeoffLineRecord['attributeDeltaLaborSnapshot'] | null;
-} {
+}> {
   const percentFactor = (value: number) => {
     if (!Number.isFinite(value)) return 0;
-    // Accept either 10 (=10%) or 0.10 (=10%). Keeps authoring flexible.
     return Math.abs(value) > 1 ? value / 100 : value;
   };
 
-  const applyAttributeDeltas = (baseMaterialCost: number, baseLaborMinutes: number) => {
+  const applyAttributeDeltas = async (baseMaterialCost: number, baseLaborMinutes: number) => {
     const catalogItemId = input.catalogItemId;
     const snapshot = input.catalogAttributeSnapshot;
     if (!catalogItemId || !snapshot || !Array.isArray(snapshot) || snapshot.length === 0) {
@@ -306,13 +315,12 @@ function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): {
     }
 
     const selected = new Set(snapshot.map((a) => `${a.attributeType}:${a.attributeValue}`));
-    const rows = getEstimatorDb()
-      .prepare(
-        `SELECT attribute_type, attribute_value, material_delta_type, material_delta_value, labor_delta_type, labor_delta_value
+    const rows = (await dbAll(
+      `SELECT attribute_type, attribute_value, material_delta_type, material_delta_value, labor_delta_type, labor_delta_value
          FROM catalog_item_attributes
-         WHERE catalog_item_id = ? AND active = 1`
-      )
-      .all(catalogItemId) as Array<{
+         WHERE catalog_item_id = ? AND active = 1`,
+      [catalogItemId]
+    )) as Array<{
       attribute_type: string;
       attribute_value: string;
       material_delta_type: string | null;
@@ -399,15 +407,13 @@ function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): {
 
   const table = getCatalogItemsTableName();
   if (input.catalogItemId) {
-    const row = getEstimatorDb()
-      .prepare(`SELECT base_material_cost, base_labor_minutes FROM ${table} WHERE id = ? LIMIT 1`)
-      .get(input.catalogItemId) as
-      | { base_material_cost: number; base_labor_minutes: number }
-      | undefined;
+    const row = (await dbGet(`SELECT base_material_cost, base_labor_minutes FROM ${table} WHERE id = ? LIMIT 1`, [
+      input.catalogItemId,
+    ])) as { base_material_cost: number; base_labor_minutes: number } | undefined;
     if (row) {
       const baseMaterialCost = Number(row.base_material_cost || 0);
       const baseLaborMinutes = Number(row.base_labor_minutes || 0);
-      const adjusted = applyAttributeDeltas(baseMaterialCost, baseLaborMinutes);
+      const adjusted = await applyAttributeDeltas(baseMaterialCost, baseLaborMinutes);
       return {
         baseMaterialCost,
         baseLaborMinutes,
@@ -422,11 +428,10 @@ function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): {
   }
 
   if (input.sku) {
-    const row = getEstimatorDb()
-      .prepare(`SELECT base_material_cost, base_labor_minutes FROM ${table} WHERE lower(sku) = lower(?) LIMIT 1`)
-      .get(input.sku) as
-      | { base_material_cost: number; base_labor_minutes: number }
-      | undefined;
+    const row = (await dbGet(
+      `SELECT base_material_cost, base_labor_minutes FROM ${table} WHERE lower(sku) = lower(?) LIMIT 1`,
+      [input.sku]
+    )) as { base_material_cost: number; base_labor_minutes: number } | undefined;
     if (row) {
       const baseMaterialCost = Number(row.base_material_cost || 0);
       const baseLaborMinutes = Number(row.base_labor_minutes || 0);
@@ -442,33 +447,38 @@ function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): {
   return {};
 }
 
-export function createTakeoffLine(input: Partial<TakeoffLineRecord> & { projectId: string; roomId: string; description: string }): TakeoffLineRecord {
+export async function createTakeoffLine(
+  input: Partial<TakeoffLineRecord> & { projectId: string; roomId: string; description: string }
+): Promise<TakeoffLineRecord> {
   const now = new Date().toISOString();
-  const catalogDefaults = resolveCatalogDefaults(input);
-  const laborRatePerHour = getConfiguredLaborRatePerHour();
+  const catalogDefaults = await resolveCatalogDefaults(input);
+  const laborRatePerHour = await getConfiguredLaborRatePerHour();
   const qty = input.qty ?? 1;
   const sourceMaterialCost = normalizeNullableNumber(input.sourceMaterialCost);
   const materialCost = input.materialCost ?? catalogDefaults.materialCost ?? sourceMaterialCost ?? 0;
   const generatedLaborMinutes = normalizeNullableNumber(input.generatedLaborMinutes);
   const hasCatalogLabor = catalogDefaults.laborMinutes !== undefined && catalogDefaults.laborMinutes > 0;
-  const laborMinutes = input.laborMinutes
-    ?? (hasCatalogLabor ? catalogDefaults.laborMinutes : undefined)
-    ?? generatedLaborMinutes
-    ?? 0;
-  const laborOrigin: TakeoffLineRecord['laborOrigin'] = input.laborOrigin !== undefined
-    ? parseLaborOrigin(input.laborOrigin)
-    : input.laborMinutes !== undefined && input.laborMinutes !== null
-      ? 'source'
-      : hasCatalogLabor
-        ? 'catalog'
-        : generatedLaborMinutes !== null && generatedLaborMinutes > 0
-          ? 'install_family'
-          : null;
+  const laborMinutes =
+    input.laborMinutes ??
+    (hasCatalogLabor ? catalogDefaults.laborMinutes : undefined) ??
+    generatedLaborMinutes ??
+    0;
+  const laborOrigin: TakeoffLineRecord['laborOrigin'] =
+    input.laborOrigin !== undefined
+      ? parseLaborOrigin(input.laborOrigin)
+      : input.laborMinutes !== undefined && input.laborMinutes !== null
+        ? 'source'
+        : hasCatalogLabor
+          ? 'catalog'
+          : generatedLaborMinutes !== null && generatedLaborMinutes > 0
+            ? 'install_family'
+            : null;
   const baseMaterialCost =
     input.baseMaterialCost ?? (catalogDefaults.baseMaterialCost !== undefined ? catalogDefaults.baseMaterialCost : materialCost);
-  const baseLaborCost = input.baseLaborCost !== undefined
-    ? Number(input.baseLaborCost) || 0
-    : resolveUnitLaborCostFromMinutes(laborMinutes, laborRatePerHour);
+  const baseLaborCost =
+    input.baseLaborCost !== undefined
+      ? Number(input.baseLaborCost) || 0
+      : resolveUnitLaborCostFromMinutes(laborMinutes, laborRatePerHour);
   const laborCost = resolveLaborCostFromInput(laborMinutes, input.laborCost, input.baseLaborCost ?? baseLaborCost, laborRatePerHour);
   const calculatedUnitSell = calculateUnitSell(materialCost, laborCost);
   const pricingSource = normalizePricingSource(
@@ -549,10 +559,11 @@ export function createTakeoffLine(input: Partial<TakeoffLineRecord> & { projectI
     generatedLaborMinutes,
     laborOrigin,
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
   };
 
-  getEstimatorDb().prepare(`
+  await dbRun(
+    `
     INSERT INTO takeoff_lines_v1 (
       id, project_id, room_id, source_type, source_ref, description, sku, category, subcategory, base_type,
       qty, unit, material_cost, base_material_cost, labor_minutes, labor_cost, base_labor_cost, pricing_source, unit_sell, line_total, notes, bundle_id, catalog_item_id,
@@ -564,68 +575,70 @@ export function createTakeoffLine(input: Partial<TakeoffLineRecord> & { projectI
       attribute_delta_material_snapshot_json, attribute_delta_labor_snapshot_json,
       created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    line.id,
-    line.projectId,
-    line.roomId,
-    line.sourceType,
-    line.sourceRef,
-    line.description,
-    line.sku,
-    line.category,
-    line.subcategory,
-    line.baseType,
-    line.qty,
-    line.unit,
-    line.materialCost,
-    line.baseMaterialCost,
-    line.laborMinutes,
-    line.laborCost,
-    line.baseLaborCost,
-    line.pricingSource,
-    line.unitSell,
-    line.lineTotal,
-    line.notes,
-    line.bundleId,
-    line.catalogItemId,
-    line.variantId,
-    line.intakeScopeBucket,
-    line.intakeMatchConfidence,
-    line.sourceManufacturer,
-    line.sourceBidBucket,
-    line.sourceSectionHeader,
-    line.isInstallableScope === null ? null : line.isInstallableScope ? 1 : 0,
-    line.installScopeType,
-    line.installLaborFamily,
-    line.sourceMaterialCost,
-    line.generatedLaborMinutes,
-    line.laborOrigin,
-    catalogAttributeSnapshotJson,
-    line.baseMaterialCostSnapshot,
-    line.baseLaborMinutesSnapshot,
-    attributeDeltaMaterialSnapshotJson,
-    attributeDeltaLaborSnapshotJson,
-    line.createdAt,
-    line.updatedAt
+  `,
+    [
+      line.id,
+      line.projectId,
+      line.roomId,
+      line.sourceType,
+      line.sourceRef,
+      line.description,
+      line.sku,
+      line.category,
+      line.subcategory,
+      line.baseType,
+      line.qty,
+      line.unit,
+      line.materialCost,
+      line.baseMaterialCost,
+      line.laborMinutes,
+      line.laborCost,
+      line.baseLaborCost,
+      line.pricingSource,
+      line.unitSell,
+      line.lineTotal,
+      line.notes,
+      line.bundleId,
+      line.catalogItemId,
+      line.variantId,
+      line.intakeScopeBucket,
+      line.intakeMatchConfidence,
+      line.sourceManufacturer,
+      line.sourceBidBucket,
+      line.sourceSectionHeader,
+      line.isInstallableScope === null ? null : line.isInstallableScope ? 1 : 0,
+      line.installScopeType,
+      line.installLaborFamily,
+      line.sourceMaterialCost,
+      line.generatedLaborMinutes,
+      line.laborOrigin,
+      catalogAttributeSnapshotJson,
+      line.baseMaterialCostSnapshot,
+      line.baseLaborMinutesSnapshot,
+      attributeDeltaMaterialSnapshotJson,
+      attributeDeltaLaborSnapshotJson,
+      line.createdAt,
+      line.updatedAt,
+    ]
   );
 
   if (shouldRecordCatalogMemoryForLineChange(null, line)) {
-    recordIntakeCatalogMemoryFromAcceptedMatch({
+    await recordIntakeCatalogMemoryFromAcceptedMatch({
       sku: line.sku,
       description: line.description,
       catalogItemId: line.catalogItemId,
     });
   }
 
-  return enrichLineWithModifierNames(line);
+  return await enrichLineWithModifierNames(line);
 }
 
-export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineRecord>): TakeoffLineRecord | null {
-  const existing = getTakeoffLineCore(lineId);
+export async function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineRecord>): Promise<TakeoffLineRecord | null> {
+  const existing = await getTakeoffLineCore(lineId);
   if (!existing) return null;
 
   if (input.roomId !== undefined && input.roomId !== existing.roomId) {
-    const targetRoom = getRoom(String(input.roomId));
+    const targetRoom = await getRoom(String(input.roomId));
     if (!targetRoom || targetRoom.projectId !== existing.projectId) {
       return null;
     }
@@ -635,17 +648,23 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
   delete (sanitizedInput as Partial<{ modifierNames?: unknown }>).modifierNames;
   delete (sanitizedInput as Partial<{ lineModifierRollup?: unknown }>).lineModifierRollup;
 
-  const laborRatePerHour = getConfiguredLaborRatePerHour();
+  const laborRatePerHour = await getConfiguredLaborRatePerHour();
   const qty = input.qty ?? existing.qty;
   const materialCost = input.materialCost ?? existing.materialCost;
   const laborMinutes = input.laborMinutes ?? existing.laborMinutes;
   const baseMaterialCost = input.baseMaterialCost ?? (input.materialCost !== undefined ? materialCost : existing.baseMaterialCost);
-  const baseLaborCost = input.baseLaborCost !== undefined
-    ? Number(input.baseLaborCost) || 0
-    : input.laborMinutes !== undefined
-      ? resolveUnitLaborCostFromMinutes(laborMinutes, laborRatePerHour)
-      : existing.baseLaborCost;
-  const laborCost = resolveLaborCostFromInput(laborMinutes, input.laborCost, input.baseLaborCost ?? (input.laborMinutes !== undefined ? baseLaborCost : existing.laborCost), laborRatePerHour);
+  const baseLaborCost =
+    input.baseLaborCost !== undefined
+      ? Number(input.baseLaborCost) || 0
+      : input.laborMinutes !== undefined
+        ? resolveUnitLaborCostFromMinutes(laborMinutes, laborRatePerHour)
+        : existing.baseLaborCost;
+  const laborCost = resolveLaborCostFromInput(
+    laborMinutes,
+    input.laborCost,
+    input.baseLaborCost ?? (input.laborMinutes !== undefined ? baseLaborCost : existing.laborCost),
+    laborRatePerHour
+  );
   const pricingSource = normalizePricingSource(input.pricingSource ?? (input.unitSell !== undefined ? 'manual' : existing.pricingSource));
   const totals = computeLineTotal(
     qty,
@@ -667,45 +686,37 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
         ? null
         : parseIntakeMatchConfidence(input.intakeMatchConfidence)
       : existing.intakeMatchConfidence ?? null;
-  const nextSourceManufacturer = input.sourceManufacturer !== undefined
-    ? normalizeNullableString(input.sourceManufacturer)
-    : existing.sourceManufacturer ?? null;
-  const nextSourceBidBucket = input.sourceBidBucket !== undefined
-    ? normalizeNullableString(input.sourceBidBucket)
-    : existing.sourceBidBucket ?? null;
-  const nextSourceSectionHeader = input.sourceSectionHeader !== undefined
-    ? normalizeNullableString(input.sourceSectionHeader)
-    : existing.sourceSectionHeader ?? null;
-  const nextIsInstallable = input.isInstallableScope !== undefined
-    ? normalizeNullableBool(input.isInstallableScope)
-    : existing.isInstallableScope ?? null;
-  const nextInstallScopeType = input.installScopeType !== undefined
-    ? normalizeNullableString(input.installScopeType)
-    : existing.installScopeType ?? null;
-  const nextInstallLaborFamily = input.installLaborFamily !== undefined
-    ? normalizeNullableString(input.installLaborFamily)
-    : existing.installLaborFamily ?? null;
-  const nextSourceMaterialCost = input.sourceMaterialCost !== undefined
-    ? normalizeNullableNumber(input.sourceMaterialCost)
-    : existing.sourceMaterialCost ?? null;
-  const nextGeneratedLaborMinutes = input.generatedLaborMinutes !== undefined
-    ? normalizeNullableNumber(input.generatedLaborMinutes)
-    : existing.generatedLaborMinutes ?? null;
-  const nextLaborOrigin = input.laborOrigin !== undefined
-    ? parseLaborOrigin(input.laborOrigin)
-    : existing.laborOrigin ?? null;
+  const nextSourceManufacturer =
+    input.sourceManufacturer !== undefined ? normalizeNullableString(input.sourceManufacturer) : existing.sourceManufacturer ?? null;
+  const nextSourceBidBucket =
+    input.sourceBidBucket !== undefined ? normalizeNullableString(input.sourceBidBucket) : existing.sourceBidBucket ?? null;
+  const nextSourceSectionHeader =
+    input.sourceSectionHeader !== undefined ? normalizeNullableString(input.sourceSectionHeader) : existing.sourceSectionHeader ?? null;
+  const nextIsInstallable =
+    input.isInstallableScope !== undefined ? normalizeNullableBool(input.isInstallableScope) : existing.isInstallableScope ?? null;
+  const nextInstallScopeType =
+    input.installScopeType !== undefined ? normalizeNullableString(input.installScopeType) : existing.installScopeType ?? null;
+  const nextInstallLaborFamily =
+    input.installLaborFamily !== undefined ? normalizeNullableString(input.installLaborFamily) : existing.installLaborFamily ?? null;
+  const nextSourceMaterialCost =
+    input.sourceMaterialCost !== undefined ? normalizeNullableNumber(input.sourceMaterialCost) : existing.sourceMaterialCost ?? null;
+  const nextGeneratedLaborMinutes =
+    input.generatedLaborMinutes !== undefined ? normalizeNullableNumber(input.generatedLaborMinutes) : existing.generatedLaborMinutes ?? null;
+  const nextLaborOrigin = input.laborOrigin !== undefined ? parseLaborOrigin(input.laborOrigin) : existing.laborOrigin ?? null;
   const nextCatalogAttributeSnapshot =
-    input.catalogAttributeSnapshot !== undefined
-      ? input.catalogAttributeSnapshot
-      : existing.catalogAttributeSnapshot ?? null;
+    input.catalogAttributeSnapshot !== undefined ? input.catalogAttributeSnapshot : existing.catalogAttributeSnapshot ?? null;
   const nextCatalogAttributeSnapshotJson =
     nextCatalogAttributeSnapshot && Array.isArray(nextCatalogAttributeSnapshot) && nextCatalogAttributeSnapshot.length > 0
       ? JSON.stringify(nextCatalogAttributeSnapshot)
       : null;
   const nextBaseMaterialCostSnapshot =
-    input.baseMaterialCostSnapshot !== undefined ? normalizeNullableNumber(input.baseMaterialCostSnapshot) : existing.baseMaterialCostSnapshot ?? null;
+    input.baseMaterialCostSnapshot !== undefined
+      ? normalizeNullableNumber(input.baseMaterialCostSnapshot)
+      : existing.baseMaterialCostSnapshot ?? null;
   const nextBaseLaborMinutesSnapshot =
-    input.baseLaborMinutesSnapshot !== undefined ? normalizeNullableNumber(input.baseLaborMinutesSnapshot) : existing.baseLaborMinutesSnapshot ?? null;
+    input.baseLaborMinutesSnapshot !== undefined
+      ? normalizeNullableNumber(input.baseLaborMinutesSnapshot)
+      : existing.baseLaborMinutesSnapshot ?? null;
   const nextAttributeDeltaMaterialSnapshot =
     input.attributeDeltaMaterialSnapshot !== undefined ? input.attributeDeltaMaterialSnapshot : existing.attributeDeltaMaterialSnapshot ?? null;
   const nextAttributeDeltaLaborSnapshot =
@@ -748,10 +759,11 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
     baseLaborMinutesSnapshot: nextBaseLaborMinutesSnapshot,
     attributeDeltaMaterialSnapshot: nextAttributeDeltaMaterialSnapshot,
     attributeDeltaLaborSnapshot: nextAttributeDeltaLaborSnapshot,
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
   };
 
-  getEstimatorDb().prepare(`
+  await dbRun(
+    `
     UPDATE takeoff_lines_v1 SET
       room_id = ?, source_type = ?, source_ref = ?, description = ?, sku = ?, category = ?, subcategory = ?, base_type = ?,
       qty = ?, unit = ?, material_cost = ?, base_material_cost = ?, labor_minutes = ?, labor_cost = ?, base_labor_cost = ?, pricing_source = ?, unit_sell = ?, line_total = ?, notes = ?,
@@ -763,99 +775,97 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
       attribute_delta_material_snapshot_json = ?, attribute_delta_labor_snapshot_json = ?,
       updated_at = ?
     WHERE id = ?
-  `).run(
-    next.roomId,
-    next.sourceType,
-    next.sourceRef,
-    next.description,
-    next.sku,
-    next.category,
-    next.subcategory,
-    next.baseType,
-    next.qty,
-    next.unit,
-    next.materialCost,
-    next.baseMaterialCost,
-    next.laborMinutes,
-    next.laborCost,
-    next.baseLaborCost,
-    next.pricingSource,
-    next.unitSell,
-    next.lineTotal,
-    next.notes,
-    next.bundleId,
-    next.catalogItemId,
-    next.variantId,
-    next.intakeScopeBucket,
-    next.intakeMatchConfidence,
-    next.sourceManufacturer,
-    next.sourceBidBucket,
-    next.sourceSectionHeader,
-    next.isInstallableScope === null ? null : next.isInstallableScope ? 1 : 0,
-    next.installScopeType,
-    next.installLaborFamily,
-    next.sourceMaterialCost,
-    next.generatedLaborMinutes,
-    next.laborOrigin,
-    nextCatalogAttributeSnapshotJson,
-    next.baseMaterialCostSnapshot,
-    next.baseLaborMinutesSnapshot,
-    nextAttributeDeltaMaterialSnapshotJson,
-    nextAttributeDeltaLaborSnapshotJson,
-    next.updatedAt,
-    lineId
+  `,
+    [
+      next.roomId,
+      next.sourceType,
+      next.sourceRef,
+      next.description,
+      next.sku,
+      next.category,
+      next.subcategory,
+      next.baseType,
+      next.qty,
+      next.unit,
+      next.materialCost,
+      next.baseMaterialCost,
+      next.laborMinutes,
+      next.laborCost,
+      next.baseLaborCost,
+      next.pricingSource,
+      next.unitSell,
+      next.lineTotal,
+      next.notes,
+      next.bundleId,
+      next.catalogItemId,
+      next.variantId,
+      next.intakeScopeBucket,
+      next.intakeMatchConfidence,
+      next.sourceManufacturer,
+      next.sourceBidBucket,
+      next.sourceSectionHeader,
+      next.isInstallableScope === null ? null : next.isInstallableScope ? 1 : 0,
+      next.installScopeType,
+      next.installLaborFamily,
+      next.sourceMaterialCost,
+      next.generatedLaborMinutes,
+      next.laborOrigin,
+      nextCatalogAttributeSnapshotJson,
+      next.baseMaterialCostSnapshot,
+      next.baseLaborMinutesSnapshot,
+      nextAttributeDeltaMaterialSnapshotJson,
+      nextAttributeDeltaLaborSnapshotJson,
+      next.updatedAt,
+      lineId,
+    ]
   );
 
   if (shouldRecordCatalogMemoryForLineChange(existing, next)) {
-    recordIntakeCatalogMemoryFromAcceptedMatch({
+    await recordIntakeCatalogMemoryFromAcceptedMatch({
       sku: next.sku,
       description: next.description,
       catalogItemId: next.catalogItemId,
     });
   }
 
-  return enrichLineWithModifierNames(next);
+  return await enrichLineWithModifierNames(next);
 }
 
-export function deleteTakeoffLine(lineId: string): boolean {
-  const result = getEstimatorDb().prepare('DELETE FROM takeoff_lines_v1 WHERE id = ?').run(lineId);
+export async function deleteTakeoffLine(lineId: string): Promise<boolean> {
+  const result = await dbRun('DELETE FROM takeoff_lines_v1 WHERE id = ?', [lineId]);
   return result.changes > 0;
 }
 
 /** Move lines to a room in the same project. Validates all ids before updating any. */
-export function bulkMoveTakeoffLinesToRoom(
+export async function bulkMoveTakeoffLinesToRoom(
   lineIds: string[],
   targetRoomId: string
-): { lines: TakeoffLineRecord[] } | { error: string } {
+): Promise<{ lines: TakeoffLineRecord[] } | { error: string }> {
   const trimmedRoom = String(targetRoomId || '').trim();
   if (!trimmedRoom) return { error: 'roomId is required' };
 
-  const room = getRoom(trimmedRoom);
+  const room = await getRoom(trimmedRoom);
   if (!room) return { error: 'Room not found' };
 
   const uniqueIds = Array.from(new Set(lineIds.map((id) => String(id || '').trim()).filter(Boolean)));
   if (uniqueIds.length === 0) return { error: 'lineIds must include at least one line id' };
 
   for (const id of uniqueIds) {
-    const core = getTakeoffLineCore(id);
+    const core = await getTakeoffLineCore(id);
     if (!core) return { error: `Takeoff line not found: ${id}` };
     if (core.projectId !== room.projectId) {
       return { error: 'All lines must belong to the same project as the target room' };
     }
   }
 
-  const db = getEstimatorDb();
   try {
-    const lines = db.transaction(() => {
-      const out: TakeoffLineRecord[] = [];
-      for (const id of uniqueIds) {
-        const updated = updateTakeoffLine(id, { roomId: trimmedRoom });
-        if (!updated) throw new Error(`update_failed:${id}`);
-        out.push(updated);
-      }
-      return out;
-    })();
-    return { lines };
+    const out: TakeoffLineRecord[] = [];
+    for (const id of uniqueIds) {
+      const updated = await updateTakeoffLine(id, { roomId: trimmedRoom });
+      if (!updated) return { error: 'Failed to move one or more lines' };
+      out.push(updated);
+    }
+    return { lines: out };
   } catch {
     return { error: 'Failed to move one or more lines' };
   }
@@ -866,19 +876,17 @@ export function bulkMoveTakeoffLinesToRoom(
  * Copies stored pricing, catalog link, attribute/delta snapshots, and line_modifiers rows.
  * Does not write intake catalog memory (duplicate is not a new match event).
  */
-export function duplicateTakeoffLine(sourceLineId: string, targetRoomId: string): TakeoffLineRecord | null {
-  const source = getTakeoffLineCore(sourceLineId);
+export async function duplicateTakeoffLine(sourceLineId: string, targetRoomId: string): Promise<TakeoffLineRecord | null> {
+  const source = await getTakeoffLineCore(sourceLineId);
   if (!source) return null;
-  const room = getRoom(targetRoomId);
+  const room = await getRoom(targetRoomId);
   if (!room || room.projectId !== source.projectId) return null;
 
   const newId = randomUUID();
   const now = new Date().toISOString();
-  const db = getEstimatorDb();
 
-  const inserted = db
-    .prepare(
-      `
+  const inserted = await dbRun(
+    `
     INSERT INTO takeoff_lines_v1 (
       id, project_id, room_id, source_type, source_ref, description, sku, category, subcategory, base_type,
       qty, unit, material_cost, base_material_cost, labor_minutes, labor_cost, base_labor_cost, pricing_source, unit_sell, line_total, notes, bundle_id, catalog_item_id,
@@ -901,44 +909,43 @@ export function duplicateTakeoffLine(sourceLineId: string, targetRoomId: string)
       attribute_delta_material_snapshot_json, attribute_delta_labor_snapshot_json,
       ?, ?
     FROM takeoff_lines_v1 WHERE id = ?
-  `
-    )
-    .run(newId, targetRoomId, now, now, sourceLineId);
+  `,
+    [newId, targetRoomId, now, now, sourceLineId]
+  );
 
   if (!inserted.changes) return null;
 
-  const modRows = db
-    .prepare(
-      `SELECT modifier_id, name, add_material_cost, add_labor_minutes, percent_material, percent_labor, created_at
-       FROM line_modifiers_v1 WHERE line_id = ? ORDER BY created_at`
-    )
-    .all(sourceLineId) as Array<{
-      modifier_id: string;
-      name: string;
-      add_material_cost: number;
-      add_labor_minutes: number;
-      percent_material: number;
-      percent_labor: number;
-      created_at: string;
-    }>;
+  const modRows = (await dbAll(
+    `SELECT modifier_id, name, add_material_cost, add_labor_minutes, percent_material, percent_labor, created_at
+       FROM line_modifiers_v1 WHERE line_id = ? ORDER BY created_at`,
+    [sourceLineId]
+  )) as Array<{
+    modifier_id: string;
+    name: string;
+    add_material_cost: number;
+    add_labor_minutes: number;
+    percent_material: number;
+    percent_labor: number;
+    created_at: string;
+  }>;
 
-  const insMod = db.prepare(
-    `INSERT INTO line_modifiers_v1 (id, line_id, modifier_id, name, add_material_cost, add_labor_minutes, percent_material, percent_labor, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  );
   for (const m of modRows) {
-    insMod.run(
-      randomUUID(),
-      newId,
-      m.modifier_id,
-      m.name,
-      m.add_material_cost,
-      m.add_labor_minutes,
-      m.percent_material,
-      m.percent_labor,
-      m.created_at
+    await dbRun(
+      `INSERT INTO line_modifiers_v1 (id, line_id, modifier_id, name, add_material_cost, add_labor_minutes, percent_material, percent_labor, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        randomUUID(),
+        newId,
+        m.modifier_id,
+        m.name,
+        m.add_material_cost,
+        m.add_labor_minutes,
+        m.percent_material,
+        m.percent_labor,
+        m.created_at,
+      ]
     );
   }
 
-  return getTakeoffLine(newId);
+  return await getTakeoffLine(newId);
 }

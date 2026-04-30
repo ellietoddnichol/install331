@@ -1,4 +1,4 @@
-import { getEstimatorDb } from '../db/connection.ts';
+import { dbAll, dbRun } from '../db/query.ts';
 
 export type CatalogAliasType = 'legacy_sku' | 'vendor_sku' | 'parser_phrase' | 'generic_name' | 'search_key';
 
@@ -9,46 +9,39 @@ export type CatalogItemAliasRow = {
   aliasValue: string;
 };
 
-function mapRow(row: any): CatalogItemAliasRow {
+function mapRow(row: unknown): CatalogItemAliasRow {
+  const r = row as Record<string, unknown>;
   return {
-    id: String(row.id),
-    catalogItemId: String(row.catalog_item_id),
-    aliasType: String(row.alias_type) as CatalogAliasType,
-    aliasValue: String(row.alias_value),
+    id: String(r.id),
+    catalogItemId: String(r.catalog_item_id),
+    aliasType: String(r.alias_type) as CatalogAliasType,
+    aliasValue: String(r.alias_value),
   };
 }
 
-export function listCatalogAliasesForItem(catalogItemId: string): CatalogItemAliasRow[] {
-  const rows = getEstimatorDb()
-    .prepare(
-      `SELECT id, catalog_item_id, alias_type, alias_value
+export async function listCatalogAliasesForItem(catalogItemId: string): Promise<CatalogItemAliasRow[]> {
+  const rows = await dbAll(
+    `SELECT id, catalog_item_id, alias_type, alias_value
        FROM catalog_item_aliases
        WHERE catalog_item_id = ?
-       ORDER BY alias_type, alias_value`
-    )
-    .all(catalogItemId);
-  return (rows as any[]).map(mapRow);
+       ORDER BY alias_type, alias_value`,
+    [catalogItemId]
+  );
+  return rows.map(mapRow);
 }
 
-export function createCatalogAlias(input: {
+export async function createCatalogAlias(input: {
   id: string;
   catalogItemId: string;
   aliasType: CatalogAliasType;
   aliasValue: string;
-}): CatalogItemAliasRow {
-  getEstimatorDb()
-    .prepare(
-      `INSERT INTO catalog_item_aliases (id, catalog_item_id, alias_type, alias_value, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      input.id,
-      input.catalogItemId,
-      input.aliasType,
-      input.aliasValue,
-      new Date().toISOString(),
-      new Date().toISOString()
-    );
+}): Promise<CatalogItemAliasRow> {
+  const now = new Date().toISOString();
+  await dbRun(
+    `INSERT INTO catalog_item_aliases (id, catalog_item_id, alias_type, alias_value, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    [input.id, input.catalogItemId, input.aliasType, input.aliasValue, now, now]
+  );
   return {
     id: input.id,
     catalogItemId: input.catalogItemId,
@@ -57,7 +50,6 @@ export function createCatalogAlias(input: {
   };
 }
 
-export function deleteCatalogAlias(aliasId: string): void {
-  getEstimatorDb().prepare('DELETE FROM catalog_item_aliases WHERE id = ?').run(aliasId);
+export async function deleteCatalogAlias(aliasId: string): Promise<void> {
+  await dbRun('DELETE FROM catalog_item_aliases WHERE id = ?', [aliasId]);
 }
-

@@ -4,7 +4,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
 import { JWT } from 'google-auth-library';
-import { getEstimatorDb } from '../db/connection.ts';
+import { isPgDriver } from '../db/driver.ts';
+import { dbAll, dbGet, dbRun, withPgTransaction } from '../db/query.ts';
+import { getCatalogItemsTableName } from '../db/catalogTable.ts';
 import { TAKEOFF_CATALOG_SEED_ITEMS } from './intake/takeoffCatalogRegistry.ts';
 
 /** Repo root: …/src/server/services → ../../../ */
@@ -153,6 +155,15 @@ function getCell(row: string[], index: number | null): string {
   return String(row[index] ?? '').trim();
 }
 
+function catalogItemsRelation(): string {
+  return getCatalogItemsTableName();
+}
+
+/** SQLite allows double-quoted empty string literals; Postgres requires single quotes. */
+function emptyTextLiteralSql(): string {
+  return isPgDriver() ? "''" : '""';
+}
+
 function keyFromParts(...parts: string[]): string {
   const joined = parts.map((part) => part.trim().toLowerCase()).filter(Boolean).join('|');
   return createHash('sha1').update(joined || randomUUID()).digest('hex').slice(0, 20);
@@ -171,22 +182,22 @@ async function fetchTabOrNull(params: { sheets: ReturnType<typeof google.sheets>
   }
 }
 
-function resolveCatalogItemIdFromCanonicalSku(canonicalSku: string): string | null {
+async function resolveCatalogItemIdFromCanonicalSku(canonicalSku: string): Promise<string | null> {
   const sku = canonicalSku.trim();
   if (!sku) return null;
-  const row = getEstimatorDb()
-    .prepare(
-      `SELECT id
-       FROM catalog_items
-       WHERE lower(sku) = lower(?)
-          OR lower(canonical_sku) = lower(?)
-       LIMIT 1`
-    )
-    .get(sku, sku) as { id: string } | undefined;
+  const items = catalogItemsRelation();
+  const row = await dbGet<{ id: string }>(
+    `SELECT id
+     FROM ${items}
+     WHERE lower(sku) = lower(?)
+        OR lower(canonical_sku) = lower(?)
+     LIMIT 1`,
+    [sku, sku]
+  );
   return row?.id || null;
 }
 
-export function upsertAliases(rows: string[][], warnings: string[]): { aliasesSynced: number } {
+export async function upsertAliases(rows: string[][], warnings: string[]): Promise<{ aliasesSynced: number }> {
   if (!rows || rows.length < 2) return { aliasesSynced: 0 };
   const headersRaw = rows[0].map((v) => String(v ?? '').trim());
   const headers = headersRaw.map(normalizeHeader);
@@ -201,14 +212,7 @@ export function upsertAliases(rows: string[][], warnings: string[]): { aliasesSy
     return { aliasesSynced: 0 };
   }
 
-  const db = getEstimatorDb();
   const now = new Date().toISOString();
-  const upsert = db.prepare(`
-    INSERT INTO catalog_item_aliases (id, catalog_item_id, alias_type, alias_value, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(catalog_item_id, alias_type, alias_value)
-    DO UPDATE SET updated_at = excluded.updated_at
-  `);
 
   let aliasesSynced = 0;
   for (let i = 1; i < rows.length; i += 1) {
@@ -221,21 +225,29 @@ export function upsertAliases(rows: string[][], warnings: string[]): { aliasesSy
     if (!canonicalSku || !aliasType || !aliasValue) continue;
     if (!active) continue; // non-destructive: skip inactive rows; do not delete existing DB rows.
 
-    const catalogItemId = resolveCatalogItemIdFromCanonicalSku(canonicalSku);
+    const catalogItemId = await resolveCatalogItemIdFromCanonicalSku(canonicalSku);
     if (!catalogItemId) {
       warnings.push(`ALIASES: could not resolve Canonical_SKU "${canonicalSku}" to a catalog item id; row skipped.`);
       continue;
     }
 
     const id = `sheet-alias-${keyFromParts(catalogItemId, aliasType, aliasValue)}`;
-    upsert.run(id, catalogItemId, aliasType, aliasValue, now, now);
+    await dbRun(
+      `
+      INSERT INTO catalog_item_aliases (id, catalog_item_id, alias_type, alias_value, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(catalog_item_id, alias_type, alias_value)
+      DO UPDATE SET updated_at = excluded.updated_at
+    `,
+      [id, catalogItemId, aliasType, aliasValue, now, now]
+    );
     aliasesSynced += 1;
   }
 
   return { aliasesSynced };
 }
 
-export function upsertAttributes(rows: string[][], warnings: string[]): { attributesSynced: number } {
+export async function upsertAttributes(rows: string[][], warnings: string[]): Promise<{ attributesSynced: number }> {
   if (!rows || rows.length < 2) return { attributesSynced: 0 };
   const headersRaw = rows[0].map((v) => String(v ?? '').trim());
   const headers = headersRaw.map(normalizeHeader);
@@ -255,25 +267,7 @@ export function upsertAttributes(rows: string[][], warnings: string[]): { attrib
     return { attributesSynced: 0 };
   }
 
-  const db = getEstimatorDb();
   const now = new Date().toISOString();
-  const upsert = db.prepare(`
-    INSERT INTO catalog_item_attributes (
-      id, catalog_item_id, attribute_type, attribute_value,
-      material_delta_type, material_delta_value,
-      labor_delta_type, labor_delta_value,
-      active, sort_order, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(catalog_item_id, attribute_type, attribute_value)
-    DO UPDATE SET
-      material_delta_type = excluded.material_delta_type,
-      material_delta_value = excluded.material_delta_value,
-      labor_delta_type = excluded.labor_delta_type,
-      labor_delta_value = excluded.labor_delta_value,
-      active = excluded.active,
-      sort_order = excluded.sort_order,
-      updated_at = excluded.updated_at
-  `);
 
   let attributesSynced = 0;
   for (let i = 1; i < rows.length; i += 1) {
@@ -284,7 +278,7 @@ export function upsertAttributes(rows: string[][], warnings: string[]): { attrib
     const attributeValue = String(row[valueCol] ?? '').trim();
     if (!canonicalSku || !attributeType || !attributeValue) continue;
 
-    const catalogItemId = resolveCatalogItemIdFromCanonicalSku(canonicalSku);
+    const catalogItemId = await resolveCatalogItemIdFromCanonicalSku(canonicalSku);
     if (!catalogItemId) {
       warnings.push(`ATTRIBUTES: could not resolve Canonical_SKU "${canonicalSku}" to a catalog item id; row skipped.`);
       continue;
@@ -311,19 +305,38 @@ export function upsertAttributes(rows: string[][], warnings: string[]): { attrib
     const sortOrder = sortCol == null ? 0 : Math.max(0, Math.floor(parseNumber(row[sortCol], 0)));
 
     const id = `sheet-attr-${keyFromParts(catalogItemId, attributeType, attributeValue)}`;
-    upsert.run(
-      id,
-      catalogItemId,
-      attributeType,
-      attributeValue,
-      materialDeltaType,
-      materialDeltaType ? materialDeltaValue : null,
-      laborDeltaType,
-      laborDeltaType ? laborDeltaValue : null,
-      active,
-      sortOrder,
-      now,
-      now
+    await dbRun(
+      `
+      INSERT INTO catalog_item_attributes (
+        id, catalog_item_id, attribute_type, attribute_value,
+        material_delta_type, material_delta_value,
+        labor_delta_type, labor_delta_value,
+        active, sort_order, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(catalog_item_id, attribute_type, attribute_value)
+      DO UPDATE SET
+        material_delta_type = excluded.material_delta_type,
+        material_delta_value = excluded.material_delta_value,
+        labor_delta_type = excluded.labor_delta_type,
+        labor_delta_value = excluded.labor_delta_value,
+        active = excluded.active,
+        sort_order = excluded.sort_order,
+        updated_at = excluded.updated_at
+    `,
+      [
+        id,
+        catalogItemId,
+        attributeType,
+        attributeValue,
+        materialDeltaType,
+        materialDeltaType ? materialDeltaValue : null,
+        laborDeltaType,
+        laborDeltaType ? laborDeltaValue : null,
+        active,
+        sortOrder,
+        now,
+        now,
+      ]
     );
     attributesSynced += 1;
   }
@@ -331,14 +344,14 @@ export function upsertAttributes(rows: string[][], warnings: string[]): { attrib
   return { attributesSynced };
 }
 
-function updateSyncStatus(params: {
+async function updateSyncStatus(params: {
   status: 'running' | 'success' | 'failed';
   message: string | null;
   counts?: SyncCounts;
   warnings?: string[];
 }) {
   const now = new Date().toISOString();
-  const current = getEstimatorDb().prepare('SELECT * FROM catalog_sync_status_v1 WHERE id = ?').get('catalog') as CatalogSyncStatusDbRow | undefined;
+  const current = await dbGet<CatalogSyncStatusDbRow>('SELECT * FROM catalog_sync_status_v1 WHERE id = ?', ['catalog']);
   const counts = params.counts || {
     itemsSynced: current?.items_synced || 0,
     modifiersSynced: current?.modifiers_synced || 0,
@@ -348,7 +361,8 @@ function updateSyncStatus(params: {
     attributesSynced: current?.attributes_synced || 0,
   };
 
-  getEstimatorDb().prepare(`
+  await dbRun(
+    `
     UPDATE catalog_sync_status_v1
     SET
       last_attempt_at = ?,
@@ -363,46 +377,51 @@ function updateSyncStatus(params: {
       attributes_synced = ?,
       warnings_json = ?
     WHERE id = 'catalog'
-  `).run(
-    now,
-    params.status,
-    now,
-    params.status,
-    params.message,
-    counts.itemsSynced,
-    counts.modifiersSynced,
-    counts.bundlesSynced,
-    counts.bundleItemsSynced,
-    counts.aliasesSynced,
-    counts.attributesSynced,
-    JSON.stringify(params.warnings || [])
+  `,
+    [
+      now,
+      params.status,
+      now,
+      params.status,
+      params.message,
+      counts.itemsSynced,
+      counts.modifiersSynced,
+      counts.bundlesSynced,
+      counts.bundleItemsSynced,
+      counts.aliasesSynced,
+      counts.attributesSynced,
+      JSON.stringify(params.warnings || []),
+    ]
   );
 }
 
-function insertSyncRun(params: {
+async function insertSyncRun(params: {
   status: 'success' | 'failed';
   message: string | null;
   counts: SyncCounts;
   warnings: string[];
 }) {
-  getEstimatorDb().prepare(`
+  await dbRun(
+    `
     INSERT INTO catalog_sync_runs_v1 (
       id, attempted_at, status, message, items_synced, modifiers_synced, bundles_synced, bundle_items_synced,
       aliases_synced, attributes_synced,
       warnings_json
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    randomUUID(),
-    new Date().toISOString(),
-    params.status,
-    params.message,
-    params.counts.itemsSynced,
-    params.counts.modifiersSynced,
-    params.counts.bundlesSynced,
-    params.counts.bundleItemsSynced,
-    params.counts.aliasesSynced,
-    params.counts.attributesSynced,
-    JSON.stringify(params.warnings || [])
+  `,
+    [
+      randomUUID(),
+      new Date().toISOString(),
+      params.status,
+      params.message,
+      params.counts.itemsSynced,
+      params.counts.modifiersSynced,
+      params.counts.bundlesSynced,
+      params.counts.bundleItemsSynced,
+      params.counts.aliasesSynced,
+      params.counts.attributesSynced,
+      JSON.stringify(params.warnings || []),
+    ]
   );
 }
 
@@ -832,7 +851,7 @@ export async function backfillTakeoffRegistryToGoogleSheets(): Promise<TakeoffRe
   const cfg = getSpreadsheetConfig();
   const warnings: string[] = [];
 
-  updateSyncStatus({
+  await updateSyncStatus({
     status: 'running',
     message: `Backfilling ${TAKEOFF_CATALOG_SEED_ITEMS.length} takeoff registry items to Google Sheets...`,
   });
@@ -868,14 +887,14 @@ export async function backfillTakeoffRegistryToGoogleSheets(): Promise<TakeoffRe
       attributesSynced: 0,
     };
 
-    updateSyncStatus({
+    await updateSyncStatus({
       status: 'success',
       message,
       counts,
       warnings: uniqueWarnings,
     });
 
-    insertSyncRun({
+    await insertSyncRun({
       status: 'success',
       message,
       counts,
@@ -905,14 +924,14 @@ export async function backfillTakeoffRegistryToGoogleSheets(): Promise<TakeoffRe
       baseMsg || 'Takeoff registry backfill failed.'
     );
 
-    updateSyncStatus({
+    await updateSyncStatus({
       status: 'failed',
       message,
       counts: failedCounts,
       warnings,
     });
 
-    insertSyncRun({
+    await insertSyncRun({
       status: 'failed',
       message,
       counts: failedCounts,
@@ -995,7 +1014,8 @@ function validateSheetRows(values: string[][], tabName: string): string[][] {
  * ITEMS tab: supports “Labor Estimator - Catalog cleaned” and common Excel exports (aliases in upsertItems).
  * Sync defaults to merge mode (see isReplaceCatalogSyncMode).
  */
-function upsertItems(rows: string[][], warnings: string[], replaceMode: boolean): number {
+async function upsertItems(rows: string[][], warnings: string[], replaceMode: boolean): Promise<number> {
+  const itemsRel = catalogItemsRelation();
   const headers = rows[0].map(normalizeHeader);
   const skuCol = columnIndex(headers, [
     'sku',
@@ -1116,16 +1136,20 @@ function upsertItems(rows: string[][], warnings: string[], replaceMode: boolean)
     if (!description) continue;
 
     if (replaceMode && !replaceDeactivateDone) {
-      getEstimatorDb().prepare('UPDATE catalog_items SET active = 0').run();
+      await dbRun(`UPDATE ${itemsRel} SET active = 0`);
       replaceDeactivateDone = true;
     }
 
     const active = parseBoolean(getCell(row, activeCol), true);
     const stableKey = sku || itemKey || keyFromParts(category, itemName || description);
 
+    const emptyCat = emptyTextLiteralSql();
     const existing = sku
-      ? getEstimatorDb().prepare('SELECT id FROM catalog_items WHERE lower(sku) = lower(?) LIMIT 1').get(sku) as { id: string } | undefined
-      : getEstimatorDb().prepare('SELECT id FROM catalog_items WHERE id = ? OR (lower(description) = lower(?) AND lower(COALESCE(category, "")) = lower(?)) LIMIT 1').get(`sheet-item-${stableKey}`, description, category) as { id: string } | undefined;
+      ? await dbGet<{ id: string }>(`SELECT id FROM ${itemsRel} WHERE lower(sku) = lower(?) LIMIT 1`, [sku])
+      : await dbGet<{ id: string }>(
+          `SELECT id FROM ${itemsRel} WHERE id = ? OR (lower(description) = lower(?) AND lower(COALESCE(category, ${emptyCat})) = lower(?)) LIMIT 1`,
+          [`sheet-item-${stableKey}`, description, category]
+        );
 
     const id = existing?.id || `sheet-item-${stableKey}`;
     const tagTokens = splitList(getCell(row, tagsCol));
@@ -1140,60 +1164,66 @@ function upsertItems(rows: string[][], warnings: string[], replaceMode: boolean)
     const imageUrl = getCell(row, imageUrlCol) || null;
 
     if (existing) {
-      getEstimatorDb().prepare(`
-        UPDATE catalog_items
+      await dbRun(
+        `
+        UPDATE ${itemsRel}
         SET sku = ?, category = ?, subcategory = ?, family = ?, description = ?, uom = ?,
             manufacturer = ?, brand = ?, model = ?, model_number = ?, series = ?, image_url = ?,
             base_material_cost = ?, base_labor_minutes = ?, tags = ?, notes = ?, active = ?
         WHERE id = ?
-      `).run(
-        sku || null,
-        category || null,
-        getCell(row, subcategoryCol) || null,
-        getCell(row, familyCol) || null,
-        description,
-        getCell(row, uomCol) || 'EA',
-        manufacturer,
-        brand,
-        model,
-        modelNumber,
-        series,
-        imageUrl,
-        parseNumber(getCell(row, materialCol), 0),
-        parseNumber(getCell(row, laborCol), 0),
-        JSON.stringify(tags),
-        getCell(row, notesCol) || null,
-        active ? 1 : 0,
-        id
+      `,
+        [
+          sku || null,
+          category || null,
+          getCell(row, subcategoryCol) || null,
+          getCell(row, familyCol) || null,
+          description,
+          getCell(row, uomCol) || 'EA',
+          manufacturer,
+          brand,
+          model,
+          modelNumber,
+          series,
+          imageUrl,
+          parseNumber(getCell(row, materialCol), 0),
+          parseNumber(getCell(row, laborCol), 0),
+          JSON.stringify(tags),
+          getCell(row, notesCol) || null,
+          active ? 1 : 0,
+          id,
+        ]
       );
     } else {
-      getEstimatorDb().prepare(`
-        INSERT INTO catalog_items (
+      await dbRun(
+        `
+        INSERT INTO ${itemsRel} (
           id, sku, category, subcategory, family, description, manufacturer, brand, model, model_number, series, image_url, uom,
           base_material_cost, base_labor_minutes, labor_unit_type, taxable, ada_flag, tags, notes, active
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        id,
-        sku || null,
-        category || null,
-        getCell(row, subcategoryCol) || null,
-        getCell(row, familyCol) || null,
-        description,
-        manufacturer,
-        brand,
-        model,
-        modelNumber,
-        series,
-        imageUrl,
-        getCell(row, uomCol) || 'EA',
-        parseNumber(getCell(row, materialCol), 0),
-        parseNumber(getCell(row, laborCol), 0),
-        null,
-        1,
-        0,
-        JSON.stringify(tags),
-        getCell(row, notesCol) || null,
-        active ? 1 : 0
+      `,
+        [
+          id,
+          sku || null,
+          category || null,
+          getCell(row, subcategoryCol) || null,
+          getCell(row, familyCol) || null,
+          description,
+          manufacturer,
+          brand,
+          model,
+          modelNumber,
+          series,
+          imageUrl,
+          getCell(row, uomCol) || 'EA',
+          parseNumber(getCell(row, materialCol), 0),
+          parseNumber(getCell(row, laborCol), 0),
+          null,
+          1,
+          0,
+          JSON.stringify(tags),
+          getCell(row, notesCol) || null,
+          active ? 1 : 0,
+        ]
       );
     }
 
@@ -1205,16 +1235,14 @@ function upsertItems(rows: string[][], warnings: string[], replaceMode: boolean)
     const uniq = Array.from(new Set(syncedSheetItemIds));
     if (uniq.length > 0) {
       const placeholders = uniq.map(() => '?').join(',');
-      getEstimatorDb()
-        .prepare(`UPDATE catalog_items SET active = 0 WHERE id LIKE 'sheet-item-%' AND id NOT IN (${placeholders})`)
-        .run(...uniq);
+      await dbRun(`UPDATE ${itemsRel} SET active = 0 WHERE id LIKE 'sheet-item-%' AND id NOT IN (${placeholders})`, uniq);
     }
   }
 
   return synced;
 }
 
-function upsertModifiers(rows: string[][], warnings: string[], replaceMode: boolean): number {
+async function upsertModifiers(rows: string[][], warnings: string[], replaceMode: boolean): Promise<number> {
   const headers = rows[0].map(normalizeHeader);
   const keyCol = columnIndex(headers, ['modifier key', 'modifierkey', 'key', 'modifier']);
   const nameCol = columnIndex(headers, ['name', 'modifier name', 'modifiername', 'title', 'label']);
@@ -1249,12 +1277,12 @@ function upsertModifiers(rows: string[][], warnings: string[], replaceMode: bool
     if (!name) continue;
 
     if (replaceMode && !replaceDeactivateDone) {
-      getEstimatorDb().prepare('UPDATE modifiers_v1 SET active = 0').run();
+      await dbRun('UPDATE modifiers_v1 SET active = 0');
       replaceDeactivateDone = true;
     }
 
     const modifierKey = (getCell(row, keyCol) || keyFromParts(name)).toUpperCase().replace(/\s+/g, '_');
-    const existing = getEstimatorDb().prepare('SELECT id FROM modifiers_v1 WHERE modifier_key = ? LIMIT 1').get(modifierKey) as { id: string } | undefined;
+    const existing = await dbGet<{ id: string }>('SELECT id FROM modifiers_v1 WHERE modifier_key = ? LIMIT 1', [modifierKey]);
     const id = existing?.id || `sheet-mod-${keyFromParts(modifierKey)}`;
 
     const applies = splitList(getCell(row, appliesCol));
@@ -1263,41 +1291,47 @@ function upsertModifiers(rows: string[][], warnings: string[], replaceMode: bool
     const description = descCol !== null ? getCell(row, descCol) || '' : '';
 
     if (existing) {
-      getEstimatorDb().prepare(`
+      await dbRun(
+        `
         UPDATE modifiers_v1
         SET name = ?, description = ?, applies_to_categories = ?, add_labor_minutes = ?, add_material_cost = ?,
             percent_labor = ?, percent_material = ?, active = ?, updated_at = ?
         WHERE id = ?
-      `).run(
-        name,
-        description,
-        JSON.stringify(applies),
-        parseNumber(getCell(row, addLaborCol), 0),
-        parseNumber(getCell(row, addMaterialCol), 0),
-        parseNumber(getCell(row, percentLaborCol), 0),
-        parseNumber(getCell(row, percentMaterialCol), 0),
-        parseBoolean(getCell(row, activeCol), true) ? 1 : 0,
-        new Date().toISOString(),
-        id
+      `,
+        [
+          name,
+          description,
+          JSON.stringify(applies),
+          parseNumber(getCell(row, addLaborCol), 0),
+          parseNumber(getCell(row, addMaterialCol), 0),
+          parseNumber(getCell(row, percentLaborCol), 0),
+          parseNumber(getCell(row, percentMaterialCol), 0),
+          parseBoolean(getCell(row, activeCol), true) ? 1 : 0,
+          new Date().toISOString(),
+          id,
+        ]
       );
     } else {
-      getEstimatorDb().prepare(`
+      await dbRun(
+        `
         INSERT INTO modifiers_v1 (
           id, name, modifier_key, description, applies_to_categories, add_labor_minutes, add_material_cost,
           percent_labor, percent_material, active, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        id,
-        name,
-        modifierKey,
-        description,
-        JSON.stringify(applies),
-        parseNumber(getCell(row, addLaborCol), 0),
-        parseNumber(getCell(row, addMaterialCol), 0),
-        parseNumber(getCell(row, percentLaborCol), 0),
-        parseNumber(getCell(row, percentMaterialCol), 0),
-        parseBoolean(getCell(row, activeCol), true) ? 1 : 0,
-        new Date().toISOString()
+      `,
+        [
+          id,
+          name,
+          modifierKey,
+          description,
+          JSON.stringify(applies),
+          parseNumber(getCell(row, addLaborCol), 0),
+          parseNumber(getCell(row, addMaterialCol), 0),
+          parseNumber(getCell(row, percentLaborCol), 0),
+          parseNumber(getCell(row, percentMaterialCol), 0),
+          parseBoolean(getCell(row, activeCol), true) ? 1 : 0,
+          new Date().toISOString(),
+        ]
       );
     }
 
@@ -1309,16 +1343,14 @@ function upsertModifiers(rows: string[][], warnings: string[], replaceMode: bool
     const uniq = Array.from(new Set(syncedSheetModifierIds));
     if (uniq.length > 0) {
       const placeholders = uniq.map(() => '?').join(',');
-      getEstimatorDb()
-        .prepare(`UPDATE modifiers_v1 SET active = 0 WHERE id LIKE 'sheet-mod-%' AND id NOT IN (${placeholders})`)
-        .run(...uniq);
+      await dbRun(`UPDATE modifiers_v1 SET active = 0 WHERE id LIKE 'sheet-mod-%' AND id NOT IN (${placeholders})`, uniq);
     }
   }
 
   return synced;
 }
 
-function upsertBundles(rows: string[][], warnings: string[], replaceMode: boolean): { bundlesSynced: number; bundleItemsSynced: number } {
+async function upsertBundles(rows: string[][], warnings: string[], replaceMode: boolean): Promise<{ bundlesSynced: number; bundleItemsSynced: number }> {
   const headers = rows[0].map(normalizeHeader);
   const idCol = columnIndex(headers, ['bundle id', 'id']);
   const nameCol = columnIndex(headers, ['bundle name', 'name']);
@@ -1334,17 +1366,18 @@ function upsertBundles(rows: string[][], warnings: string[], replaceMode: boolea
   let replaceDeactivateDone = false;
   const syncedSheetBundleIds: string[] = [];
 
-  const catalogSkuRows = getEstimatorDb().prepare(`
-    SELECT id, sku, description, base_material_cost, base_labor_minutes
-    FROM catalog_items
-    WHERE sku IS NOT NULL AND trim(sku) <> ''
-  `).all() as Array<{
+  const itemsRel = catalogItemsRelation();
+  const catalogSkuRows = await dbAll<{
     id: string;
     sku: string;
     description: string;
     base_material_cost: number;
     base_labor_minutes: number;
-  }>;
+  }>(`
+    SELECT id, sku, description, base_material_cost, base_labor_minutes
+    FROM ${itemsRel}
+    WHERE sku IS NOT NULL AND trim(sku) <> ''
+  `);
 
   const catalogBySku = new Map<string, {
     id: string;
@@ -1366,7 +1399,7 @@ function upsertBundles(rows: string[][], warnings: string[], replaceMode: boolea
     });
   });
 
-  const modifierRows = getEstimatorDb().prepare('SELECT modifier_key FROM modifiers_v1').all() as Array<{ modifier_key: string }>;
+  const modifierRows = await dbAll<{ modifier_key: string }>('SELECT modifier_key FROM modifiers_v1');
   const modifierByCanonicalKey = new Map<string, string>();
   modifierRows.forEach((row) => {
     const key = normalizeModifierToken(row.modifier_key);
@@ -1384,18 +1417,28 @@ function upsertBundles(rows: string[][], warnings: string[], replaceMode: boolea
     if (!bundleName) continue;
 
     const bundleId = getCell(row, idCol) || `sheet-bundle-${keyFromParts(bundleName)}`;
-    const existing = getEstimatorDb().prepare('SELECT id FROM bundles_v1 WHERE id = ? LIMIT 1').get(bundleId) as { id: string } | undefined;
+    const existing = await dbGet<{ id: string }>('SELECT id FROM bundles_v1 WHERE id = ? LIMIT 1', [bundleId]);
     const active = parseBoolean(getCell(row, activeCol), true) ? 1 : 0;
 
     if (existing) {
-      getEstimatorDb().prepare('UPDATE bundles_v1 SET bundle_name = ?, category = ?, active = ?, updated_at = ? WHERE id = ?')
-        .run(bundleName, getCell(row, categoryCol) || null, active, new Date().toISOString(), bundleId);
+      await dbRun('UPDATE bundles_v1 SET bundle_name = ?, category = ?, active = ?, updated_at = ? WHERE id = ?', [
+        bundleName,
+        getCell(row, categoryCol) || null,
+        active,
+        new Date().toISOString(),
+        bundleId,
+      ]);
     } else {
-      getEstimatorDb().prepare('INSERT INTO bundles_v1 (id, bundle_name, category, active, updated_at) VALUES (?, ?, ?, ?, ?)')
-        .run(bundleId, bundleName, getCell(row, categoryCol) || null, active, new Date().toISOString());
+      await dbRun('INSERT INTO bundles_v1 (id, bundle_name, category, active, updated_at) VALUES (?, ?, ?, ?, ?)', [
+        bundleId,
+        bundleName,
+        getCell(row, categoryCol) || null,
+        active,
+        new Date().toISOString(),
+      ]);
     }
 
-    getEstimatorDb().prepare('DELETE FROM bundle_items_v1 WHERE bundle_id = ?').run(bundleId);
+    await dbRun('DELETE FROM bundle_items_v1 WHERE bundle_id = ?', [bundleId]);
 
     const includedSkus = Array.from(
       new Set(splitList(getCell(row, skuListCol)).map((token) => token.trim()).filter(Boolean))
@@ -1414,34 +1457,38 @@ function upsertBundles(rows: string[][], warnings: string[], replaceMode: boolea
       validModifierKeys.push(matchedKey);
     });
 
-    includedSkus.forEach((skuToken, index) => {
+    for (let index = 0; index < includedSkus.length; index += 1) {
+      const skuToken = includedSkus[index]!;
       const normalizedSku = normalizeSkuToken(skuToken);
       const catalog = normalizedSku ? catalogBySku.get(normalizedSku) : null;
       if (!catalog) {
         warnings.push(`BUNDLES row ${i + 1} (${bundleName}): unknown SKU "${skuToken}".`);
-        return;
+        continue;
       }
 
       const notes = validModifierKeys.length ? `Included Modifiers: ${validModifierKeys.join(', ')}` : null;
-      getEstimatorDb().prepare(`
+      await dbRun(
+        `
         INSERT INTO bundle_items_v1 (
           id, bundle_id, catalog_item_id, sku, description, qty, material_cost, labor_minutes, labor_cost, sort_order, notes
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        `${bundleId}-item-${index + 1}`,
-        bundleId,
-        catalog.id,
-        catalog.sku,
-        catalog.description || skuToken,
-        1,
-        catalog.baseMaterialCost,
-        catalog.baseLaborMinutes,
-        unitLaborCostFromMinutes(catalog.baseLaborMinutes),
-        index,
-        notes
+      `,
+        [
+          `${bundleId}-item-${index + 1}`,
+          bundleId,
+          catalog.id,
+          catalog.sku,
+          catalog.description || skuToken,
+          1,
+          catalog.baseMaterialCost,
+          catalog.baseLaborMinutes,
+          unitLaborCostFromMinutes(catalog.baseLaborMinutes),
+          index,
+          notes,
+        ]
       );
       bundleItemsSynced += 1;
-    });
+    }
 
     if (!includedSkus.length) {
       warnings.push(`BUNDLES row ${i + 1} (${bundleName}): no included SKUs provided.`);
@@ -1455,9 +1502,7 @@ function upsertBundles(rows: string[][], warnings: string[], replaceMode: boolea
     const uniq = Array.from(new Set(syncedSheetBundleIds));
     if (uniq.length > 0) {
       const placeholders = uniq.map(() => '?').join(',');
-      getEstimatorDb()
-        .prepare(`UPDATE bundles_v1 SET active = 0 WHERE id LIKE 'sheet-bundle-%' AND id NOT IN (${placeholders})`)
-        .run(...uniq);
+      await dbRun(`UPDATE bundles_v1 SET active = 0 WHERE id LIKE 'sheet-bundle-%' AND id NOT IN (${placeholders})`, uniq);
     }
   }
 
@@ -1468,7 +1513,7 @@ export async function syncCatalogFromGoogleSheets(): Promise<CatalogSyncResult> 
   const cfg = getSpreadsheetConfig();
 
   const warnings: string[] = [];
-  updateSyncStatus({ status: 'running', message: 'Catalog sync in progress...' });
+  await updateSyncStatus({ status: 'running', message: 'Catalog sync in progress...' });
 
   try {
     const auth = buildAuth();
@@ -1488,15 +1533,16 @@ export async function syncCatalogFromGoogleSheets(): Promise<CatalogSyncResult> 
 
     const replaceMode = isReplaceCatalogSyncMode();
 
-    const tx = getEstimatorDb().transaction(() => {
-      const itemsSynced = upsertItems(itemRows, warnings, replaceMode);
-      const modifiersSynced = upsertModifiers(modifierRows, warnings, replaceMode);
-      const bundleData = upsertBundles(bundleRows, warnings, replaceMode);
-      const aliasData = aliasRows ? upsertAliases(aliasRows, warnings) : { aliasesSynced: 0 };
-      const attributeData = attributeRows ? upsertAttributes(attributeRows, warnings) : { attributesSynced: 0 };
+    const runSyncBody = async (): Promise<SyncCounts> => {
+      const itemsSynced = await upsertItems(itemRows, warnings, replaceMode);
+      const modifiersSynced = await upsertModifiers(modifierRows, warnings, replaceMode);
+      const bundleData = await upsertBundles(bundleRows, warnings, replaceMode);
+      const aliasData = aliasRows ? await upsertAliases(aliasRows, warnings) : { aliasesSynced: 0 };
+      const attributeData = attributeRows ? await upsertAttributes(attributeRows, warnings) : { attributesSynced: 0 };
 
       if (!aliasRows) warnings.push(`ALIASES tab "${cfg.aliasesTab}" not found; skipping alias sync.`);
       if (!attributeRows) warnings.push(`ATTRIBUTES tab "${cfg.attributesTab}" not found; skipping attributes sync.`);
+
       return {
         itemsSynced,
         modifiersSynced,
@@ -1505,23 +1551,23 @@ export async function syncCatalogFromGoogleSheets(): Promise<CatalogSyncResult> 
         aliasesSynced: aliasData.aliasesSynced,
         attributesSynced: attributeData.attributesSynced,
       };
-    });
+    };
 
-    const counts = tx();
+    const counts = isPgDriver() ? await withPgTransaction(() => runSyncBody()) : await runSyncBody();
     const uniqueWarnings = Array.from(new Set(warnings));
     const syncedAt = new Date().toISOString();
     const message =
       `Catalog sync complete: ${counts.itemsSynced} items, ${counts.modifiersSynced} modifiers, ${counts.bundlesSynced} bundles, ` +
       `${counts.aliasesSynced} aliases, ${counts.attributesSynced} attributes.`;
 
-    updateSyncStatus({
+    await updateSyncStatus({
       status: 'success',
       message,
       counts,
       warnings: uniqueWarnings,
     });
 
-    insertSyncRun({
+    await insertSyncRun({
       status: 'success',
       message,
       counts,
@@ -1553,14 +1599,14 @@ export async function syncCatalogFromGoogleSheets(): Promise<CatalogSyncResult> 
     const baseMsg = error instanceof Error ? error.message : String(error);
     const message = enrichGoogleAuthErrorMessage(baseMsg);
 
-    updateSyncStatus({
+    await updateSyncStatus({
       status: 'failed',
       message,
       counts: failedCounts,
       warnings,
     });
 
-    insertSyncRun({
+    await insertSyncRun({
       status: 'failed',
       message,
       counts: failedCounts,

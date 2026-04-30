@@ -1,4 +1,4 @@
-import { getEstimatorDb } from '../db/connection.ts';
+import { dbAll, dbGet, dbRun } from '../db/query.ts';
 import { CatalogSyncStatusRecord, SettingsRecord, type IntakeCatalogAutoApplyMode } from '../../shared/types/estimator.ts';
 import { sanitizeProposalSettings } from '../../shared/utils/proposalDefaults.ts';
 
@@ -87,13 +87,42 @@ function mapSettingsRow(row: SettingsDbRow): SettingsRecord {
   }) as SettingsRecord;
 }
 
-export function getSettings(): SettingsRecord {
-  const row = getEstimatorDb().prepare('SELECT * FROM settings_v1 WHERE id = ?').get('global') as SettingsDbRow;
+function defaultGlobalSettingsRow(): SettingsDbRow {
+  const now = new Date().toISOString();
+  return {
+    id: 'global',
+    company_name: '',
+    company_address: '',
+    company_phone: '',
+    company_email: '',
+    logo_url: '',
+    default_labor_rate_per_hour: 100,
+    default_overhead_percent: 15,
+    default_profit_percent: 10,
+    default_tax_percent: 8.25,
+    default_labor_burden_percent: 0,
+    default_labor_overhead_percent: 5,
+    proposal_intro: '',
+    proposal_terms: '',
+    proposal_exclusions: '',
+    proposal_clarifications: '',
+    proposal_acceptance_label: 'Accepted By',
+    intake_catalog_auto_apply_mode: 'off',
+    intake_catalog_tier_a_min_score: 0.82,
+    updated_at: now,
+  };
+}
+
+export async function getSettings(): Promise<SettingsRecord> {
+  const row = (await dbGet('SELECT * FROM settings_v1 WHERE id = ?', ['global'])) as SettingsDbRow | undefined;
+  if (!row) {
+    return mapSettingsRow(defaultGlobalSettingsRow());
+  }
   return mapSettingsRow(row);
 }
 
-export function updateSettings(input: Partial<SettingsRecord>): SettingsRecord {
-  const current = getSettings();
+export async function updateSettings(input: Partial<SettingsRecord>): Promise<SettingsRecord> {
+  const current = await getSettings();
   const merged: SettingsRecord = {
     ...current,
     ...input,
@@ -111,40 +140,82 @@ export function updateSettings(input: Partial<SettingsRecord>): SettingsRecord {
   next.intakeCatalogAutoApplyMode = merged.intakeCatalogAutoApplyMode;
   next.intakeCatalogTierAMinScore = merged.intakeCatalogTierAMinScore;
 
-  getEstimatorDb().prepare(`
-    UPDATE settings_v1 SET
-      company_name = ?, company_address = ?, company_phone = ?, company_email = ?, logo_url = ?, default_labor_rate_per_hour = ?,
-      default_overhead_percent = ?, default_profit_percent = ?, default_tax_percent = ?, default_labor_burden_percent = ?, default_labor_overhead_percent = ?,
-      proposal_intro = ?, proposal_terms = ?, proposal_exclusions = ?, proposal_clarifications = ?, proposal_acceptance_label = ?,
-      intake_catalog_auto_apply_mode = ?, intake_catalog_tier_a_min_score = ?, updated_at = ?
-    WHERE id = 'global'
-  `).run(
-    next.companyName,
-    next.companyAddress,
-    next.companyPhone,
-    next.companyEmail,
-    next.logoUrl,
-    next.defaultLaborRatePerHour,
-    next.defaultOverheadPercent,
-    next.defaultProfitPercent,
-    next.defaultTaxPercent,
-    next.defaultLaborBurdenPercent,
-    next.defaultLaborOverheadPercent,
-    next.proposalIntro,
-    next.proposalTerms,
-    next.proposalExclusions,
-    next.proposalClarifications,
-    next.proposalAcceptanceLabel,
-    next.intakeCatalogAutoApplyMode,
-    next.intakeCatalogTierAMinScore,
-    next.updatedAt
+  await dbRun(
+    `
+    INSERT INTO settings_v1 (
+      id, company_name, company_address, company_phone, company_email, logo_url,
+      default_labor_rate_per_hour, default_overhead_percent, default_profit_percent, default_tax_percent,
+      default_labor_burden_percent, default_labor_overhead_percent,
+      proposal_intro, proposal_terms, proposal_exclusions, proposal_clarifications, proposal_acceptance_label,
+      intake_catalog_auto_apply_mode, intake_catalog_tier_a_min_score, updated_at
+    ) VALUES (
+      'global', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    )
+    ON CONFLICT(id) DO UPDATE SET
+      company_name = excluded.company_name,
+      company_address = excluded.company_address,
+      company_phone = excluded.company_phone,
+      company_email = excluded.company_email,
+      logo_url = excluded.logo_url,
+      default_labor_rate_per_hour = excluded.default_labor_rate_per_hour,
+      default_overhead_percent = excluded.default_overhead_percent,
+      default_profit_percent = excluded.default_profit_percent,
+      default_tax_percent = excluded.default_tax_percent,
+      default_labor_burden_percent = excluded.default_labor_burden_percent,
+      default_labor_overhead_percent = excluded.default_labor_overhead_percent,
+      proposal_intro = excluded.proposal_intro,
+      proposal_terms = excluded.proposal_terms,
+      proposal_exclusions = excluded.proposal_exclusions,
+      proposal_clarifications = excluded.proposal_clarifications,
+      proposal_acceptance_label = excluded.proposal_acceptance_label,
+      intake_catalog_auto_apply_mode = excluded.intake_catalog_auto_apply_mode,
+      intake_catalog_tier_a_min_score = excluded.intake_catalog_tier_a_min_score,
+      updated_at = excluded.updated_at
+  `,
+    [
+      next.companyName,
+      next.companyAddress,
+      next.companyPhone,
+      next.companyEmail,
+      next.logoUrl,
+      next.defaultLaborRatePerHour,
+      next.defaultOverheadPercent,
+      next.defaultProfitPercent,
+      next.defaultTaxPercent,
+      next.defaultLaborBurdenPercent,
+      next.defaultLaborOverheadPercent,
+      next.proposalIntro,
+      next.proposalTerms,
+      next.proposalExclusions,
+      next.proposalClarifications,
+      next.proposalAcceptanceLabel,
+      next.intakeCatalogAutoApplyMode,
+      next.intakeCatalogTierAMinScore,
+      next.updatedAt,
+    ]
   );
 
   return next;
 }
 
-export function getCatalogSyncStatus(): CatalogSyncStatusRecord {
-  const row = getEstimatorDb().prepare('SELECT * FROM catalog_sync_status_v1 WHERE id = ?').get('catalog') as CatalogSyncStatusDbRow;
+export async function getCatalogSyncStatus(): Promise<CatalogSyncStatusRecord> {
+  const row = (await dbGet('SELECT * FROM catalog_sync_status_v1 WHERE id = ?', ['catalog'])) as CatalogSyncStatusDbRow | undefined;
+  if (!row) {
+    return {
+      id: 'catalog',
+      lastAttemptAt: null,
+      lastSuccessAt: null,
+      status: 'never',
+      message: null,
+      itemsSynced: 0,
+      modifiersSynced: 0,
+      bundlesSynced: 0,
+      bundleItemsSynced: 0,
+      aliasesSynced: 0,
+      attributesSynced: 0,
+      warnings: [],
+    };
+  }
 
   return {
     id: row.id,
@@ -162,7 +233,7 @@ export function getCatalogSyncStatus(): CatalogSyncStatusRecord {
   };
 }
 
-export function listCatalogSyncRuns(limit = 10): Array<{
+export async function listCatalogSyncRuns(limit = 10): Promise<Array<{
   id: string;
   attemptedAt: string;
   status: 'success' | 'failed';
@@ -174,13 +245,16 @@ export function listCatalogSyncRuns(limit = 10): Array<{
   aliasesSynced: number;
   attributesSynced: number;
   warnings: string[];
-}> {
-  const rows = getEstimatorDb().prepare(`
+}>> {
+  const rows = (await dbAll(
+    `
     SELECT *
     FROM catalog_sync_runs_v1
     ORDER BY attempted_at DESC
     LIMIT ?
-  `).all(limit) as CatalogSyncRunDbRow[];
+  `,
+    [limit]
+  )) as CatalogSyncRunDbRow[];
 
   return rows.map((row) => ({
     id: row.id,

@@ -92,21 +92,32 @@ test('searchCatalogItemsForApi ranks sku/alias/canonical_sku and hides deprecate
   ).run('a1', 'c-can', 'legacy_sku', '4781-11');
 
   // Query by alias should resolve to canonical and not include non-canon/deprecated by default.
-  const byAlias = searchCatalogItemsForApi({ query: '4781-11' });
+  const byAlias = await searchCatalogItemsForApi({ query: '4781-11' });
   assert.equal(byAlias[0]?.id, 'c-can');
   assert.ok(byAlias.every((r) => r.id !== 'c-dup'));
   assert.ok(byAlias.every((r) => r.id !== 'c-dep'));
 
   // Query by sku should rank canonical first.
-  const bySku = searchCatalogItemsForApi({ query: 'GB-36' });
+  const bySku = await searchCatalogItemsForApi({ query: 'GB-36' });
   assert.equal(bySku[0]?.id, 'c-can');
 
   // Including non-canonical should show the duplicate row too.
-  const includeNonCanonical = searchCatalogItemsForApi({ query: 'GB-36', includeNonCanonical: true });
+  const includeNonCanonical = await searchCatalogItemsForApi({ query: 'GB-36', includeNonCanonical: true });
   assert.ok(includeNonCanonical.some((r) => r.id === 'c-dup'));
 
   // Including deprecated should show the deprecated row too.
-  const includeDeprecated = searchCatalogItemsForApi({ query: 'GB-OLD', includeDeprecated: true, includeNonCanonical: true });
+  const includeDeprecated = await searchCatalogItemsForApi({ query: 'GB-OLD', includeDeprecated: true, includeNonCanonical: true });
   assert.ok(includeDeprecated.some((r) => r.id === 'c-dep'));
+
+  db.exec(`CREATE VIEW IF NOT EXISTS catalog_items_clean AS SELECT * FROM catalog_items`);
+  const prevTable = process.env.CATALOG_ITEMS_TABLE;
+  try {
+    process.env.CATALOG_ITEMS_TABLE = 'catalog_items_clean';
+    const viaCleanName = await searchCatalogItemsForApi({ query: '4781-11' });
+    assert.equal(viaCleanName[0]?.id, 'c-can');
+  } finally {
+    if (prevTable === undefined) delete process.env.CATALOG_ITEMS_TABLE;
+    else process.env.CATALOG_ITEMS_TABLE = prevTable;
+  }
 });
 

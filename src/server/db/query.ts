@@ -1,7 +1,11 @@
 import type { PoolClient } from 'pg';
+import { AsyncLocalStorage } from 'async_hooks';
 import { getEstimatorDb } from './connection.ts';
 import { isPgDriver } from './driver.ts';
 import { getPgPool } from './pgPool.ts';
+
+/** When set, Postgres reads/writes route through the active transaction client (see `withPgTransaction`). */
+const pgTxExecStorage = new AsyncLocalStorage<DbExec>();
 
 /** Convert SQLite-style `?` placeholders to PostgreSQL `$1`, `$2`, ... */
 export function sqliteParamsToPg(sql: string): string {
@@ -11,6 +15,10 @@ export function sqliteParamsToPg(sql: string): string {
 
 export async function dbAll<T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<T[]> {
   if (isPgDriver()) {
+    const txExec = pgTxExecStorage.getStore();
+    if (txExec) {
+      return txExec.all<T>(sql, params);
+    }
     const { rows } = await getPgPool().query<T>(sqliteParamsToPg(sql), params);
     return rows;
   }
@@ -19,6 +27,10 @@ export async function dbAll<T = Record<string, unknown>>(sql: string, params: un
 
 export async function dbGet<T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<T | undefined> {
   if (isPgDriver()) {
+    const txExec = pgTxExecStorage.getStore();
+    if (txExec) {
+      return txExec.get<T>(sql, params);
+    }
     const { rows } = await getPgPool().query<T>(sqliteParamsToPg(sql), params);
     return rows[0];
   }
@@ -27,6 +39,10 @@ export async function dbGet<T = Record<string, unknown>>(sql: string, params: un
 
 export async function dbRun(sql: string, params: unknown[] = []): Promise<{ changes: number }> {
   if (isPgDriver()) {
+    const txExec = pgTxExecStorage.getStore();
+    if (txExec) {
+      return txExec.run(sql, params);
+    }
     const result = await getPgPool().query(sqliteParamsToPg(sql), params);
     return { changes: result.rowCount ?? 0 };
   }
@@ -59,6 +75,9 @@ function clientExec(client: PoolClient): DbExec {
 
 /**
  * PostgreSQL: async transaction with a dedicated client.
+ * Nested `withPgTransaction` calls start separate transactions (no SAVEPOINT); inner commits are durable even if an outer caller later errors.
+ * While nested, `dbRun`/`dbGet`/`dbAll` bind to the innermost transaction via AsyncLocalStorage.
+ *
  * SQLite: better-sqlite3 requires a synchronous transaction callback — the inner function must not await.
  * Callers should keep sqlite branches synchronous (no await inside fn when on sqlite).
  */
@@ -67,7 +86,8 @@ export async function withPgTransaction<T>(fn: (exec: DbExec) => Promise<T>): Pr
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const out = await fn(clientExec(client));
+    const execCtx = clientExec(client);
+    const out = (await pgTxExecStorage.run(execCtx, async () => fn(execCtx))) as T;
     await client.query('COMMIT');
     return out;
   } catch (err) {

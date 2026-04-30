@@ -3,10 +3,10 @@ import { extendedLaborDollarsForLine } from '../../shared/utils/lineLaborExtensi
 import { computeProjectConditionEffects, normalizeProjectJobConditions } from '../../shared/utils/jobConditions.ts';
 import { getConfiguredLaborRatePerHour } from '../repos/takeoffRepo.ts';
 
-export function calculateEstimateSummary(project: ProjectRecord, lines: TakeoffLineRecord[]): EstimateSummary {
+export async function calculateEstimateSummary(project: ProjectRecord, lines: TakeoffLineRecord[]): Promise<EstimateSummary> {
   const pricingMode = project.pricingMode || 'labor_and_material';
   const jobConditions = normalizeProjectJobConditions(project.jobConditions);
-  const laborRatePerHour = getConfiguredLaborRatePerHour();
+  const laborRatePerHour = await getConfiguredLaborRatePerHour();
 
   const rawMaterialFull = lines.reduce((sum, line) => sum + line.materialCost * line.qty, 0);
   const materialWithAllowances = Number(rawMaterialFull.toFixed(2));

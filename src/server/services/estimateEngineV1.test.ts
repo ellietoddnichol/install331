@@ -100,10 +100,10 @@ test('new project job conditions use zero field-schedule pricing pads', () => {
   assert.equal(j.fieldSetupCleanupHoursPerInstallerDay, 0);
 });
 
-test('union labor is baseline and does not surface as a modifier', () => {
+test('union labor is baseline and does not surface as a modifier', async () => {
   const project = buildProject();
   assert.equal(project.jobConditions.laborLearningCurvePercent, 0);
-  const summary = calculateEstimateSummary(project, [buildLine()]);
+  const summary = await calculateEstimateSummary(project, [buildLine()]);
   const conditionLines = buildProjectConditionSummaryLines(project.jobConditions);
 
   assert.equal(summary.totalLaborMinutes, 60);
@@ -113,7 +113,7 @@ test('union labor is baseline and does not surface as a modifier', () => {
   assert.equal(conditionLines.some((line) => /union wage/i.test(line)), false);
 });
 
-test('night work applies globally to labor totals and labor hours', () => {
+test('night work applies globally to labor totals and labor hours', async () => {
   const project = buildProject({
     jobConditions: {
       ...createDefaultProjectJobConditions(),
@@ -139,7 +139,7 @@ test('night work applies globally to labor totals and labor hours', () => {
     }),
   ];
 
-  const summary = calculateEstimateSummary(project, lines);
+  const summary = await calculateEstimateSummary(project, lines);
 
   assert.equal(summary.laborSubtotal, 150);
   assert.equal(summary.adjustedLaborSubtotal, 180);
@@ -155,9 +155,9 @@ test('night work applies globally to labor totals and labor hours', () => {
   assert.equal(summary.productiveCrewHoursPerDay, 16);
 });
 
-test('install-only bid excludes material dollars and material tax even when lines carry material costs', () => {
+test('install-only bid excludes material dollars and material tax even when lines carry material costs', async () => {
   const project = buildProject({ pricingMode: 'labor_only', taxPercent: 8.25 });
-  const summary = calculateEstimateSummary(project, [buildLine({ materialCost: 500, baseMaterialCost: 500 })]);
+  const summary = await calculateEstimateSummary(project, [buildLine({ materialCost: 500, baseMaterialCost: 500 })]);
   assert.equal(summary.materialSubtotal, 0);
   assert.equal(summary.taxAmount, 0);
   assert.equal(summary.overheadAmount, 0);
@@ -167,11 +167,11 @@ test('install-only bid excludes material dollars and material tax even when line
   assert.equal(summary.baseBidTotal, summary.laborLoadedSubtotal);
 });
 
-test('material-only bid still builds labor companion dollars from minutes when unit labor cost is zero', () => {
+test('material-only bid still builds labor companion dollars from minutes when unit labor cost is zero', async () => {
   const project = buildProject({ pricingMode: 'material_only' });
-  const rate = getConfiguredLaborRatePerHour();
+  const rate = await getConfiguredLaborRatePerHour();
   const line = buildLine({ laborCost: 0, baseLaborCost: 0, laborMinutes: 120, qty: 1, materialCost: 200 });
-  const summary = calculateEstimateSummary(project, [line]);
+  const summary = await calculateEstimateSummary(project, [line]);
   const expectedRaw = Number(((120 / 60) * rate).toFixed(2));
   assert.equal(summary.laborSubtotal, expectedRaw);
   assert.equal(summary.adjustedLaborSubtotal, 0);
@@ -179,7 +179,7 @@ test('material-only bid still builds labor companion dollars from minutes when u
   assert.ok(summary.baseBidTotal > 200);
 });
 
-test('material waste, field supplies, learning curve, and breaks do not change estimate pricing (breaks do reduce calendar capacity)', () => {
+test('material waste, field supplies, learning curve, and breaks do not change estimate pricing (breaks do reduce calendar capacity)', async () => {
   const project = buildProject({
     jobConditions: {
       ...createDefaultProjectJobConditions(),
@@ -201,7 +201,7 @@ test('material waste, field supplies, learning curve, and breaks do not change e
     unitSell: 100,
     lineTotal: 100,
   });
-  const summary = calculateEstimateSummary(project, [line]);
+  const summary = await calculateEstimateSummary(project, [line]);
   assert.ok(Math.abs(summary.materialSubtotal - 100) < 0.05);
   assert.equal(summary.materialWasteAllowanceAmount, 0);
   assert.equal(summary.installerFieldSuppliesAmount, 0);
@@ -212,7 +212,7 @@ test('material waste, field supplies, learning curve, and breaks do not change e
   assert.equal(summary.productiveCrewHoursPerDay, 7);
 });
 
-test('field setup/cleanup time reduces install capacity per day for calendar duration', () => {
+test('field setup/cleanup time reduces install capacity per day for calendar duration', async () => {
   const project = buildProject({
     jobConditions: {
       ...createDefaultProjectJobConditions(),
@@ -223,18 +223,18 @@ test('field setup/cleanup time reduces install capacity per day for calendar dur
     },
   });
   // 8 - 0.5 - 1 = 6.5 install hr per installer × 2 = 13 crew-hr / day
-  const summary = calculateEstimateSummary(project, [buildLine({ laborMinutes: 60, laborCost: 100, baseLaborCost: 100, unitSell: 150, lineTotal: 150 })]);
+  const summary = await calculateEstimateSummary(project, [buildLine({ laborMinutes: 60, laborCost: 100, baseLaborCost: 100, unitSell: 150, lineTotal: 150 })]);
   assert.ok(Math.abs(summary.productiveCrewHoursPerDay - 13) < 0.01);
 });
 
-test('zero travel distance does not appear in condition assumptions or proposal summary lines', () => {
+test('zero travel distance does not appear in condition assumptions or proposal summary lines', async () => {
   const project = buildProject({
     jobConditions: {
       ...createDefaultProjectJobConditions(),
       travelDistanceMiles: 0,
     },
   });
-  const summary = calculateEstimateSummary(project, [buildLine()]);
+  const summary = await calculateEstimateSummary(project, [buildLine()]);
   assert.equal(summary.conditionAssumptions.some((line) => /travel distance|distance from office/i.test(line)), false);
   const conditionLines = buildProjectConditionSummaryLines(project.jobConditions);
   assert.equal(conditionLines.some((line) => /travel distance|distance from office/i.test(line)), false);

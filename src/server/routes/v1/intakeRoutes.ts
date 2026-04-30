@@ -11,7 +11,7 @@ import { upsertIntakeReviewOverride } from '../../repos/intakeReviewOverridesRep
 
 export const intakeRouter = Router();
 
-intakeRouter.get('/templates/preferred-import.xlsx', (_req, res) => {
+intakeRouter.get('/templates/preferred-import.xlsx', async (_req, res) => {
   const wb = xlsx.utils.book_new();
 
   // Single-project template: metadata block + item table.
@@ -37,7 +37,7 @@ intakeRouter.get('/templates/preferred-import.xlsx', (_req, res) => {
   xlsx.utils.book_append_sheet(wb, wsImport, 'Import');
 
   // Catalog helper sheet (active items) so users can copy/paste valid SKUs.
-  const catalog = listCatalogItemsForApi(false);
+  const catalog = await listCatalogItemsForApi(false);
   const catalogAoa: Array<Array<string | number>> = [
     ['Item Code', 'Description', 'Category', 'Manufacturer', 'Unit'],
     ...catalog.map((i) => [i.sku || '', i.description || '', i.category || '', i.manufacturer || '', i.uom || 'EA']),

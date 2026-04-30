@@ -227,7 +227,7 @@ test('Matcher emits install-family pricing preview even when scopeBucket is unkn
       active: true,
     } as CatalogItem,
   ];
-  const draft = buildIntakeEstimateDraft({
+  const draft = await buildIntakeEstimateDraft({
     reviewLines,
     catalog: dummy,
     modifiers: [],
@@ -282,12 +282,12 @@ test('computeDraftBasisSummary detects bid splits and excludes alternates from p
   const dummy: CatalogItem[] = [
     { id: 'dummy', sku: 'DUMMY', category: 'Toilet Accessories', description: 'dummy', uom: 'EA', baseMaterialCost: 0, baseLaborMinutes: 0, taxable: false, adaFlag: false, active: true } as CatalogItem,
   ];
-  const draft = buildIntakeEstimateDraft({
+  const draft = (await buildIntakeEstimateDraft({
     reviewLines,
     catalog: dummy,
     modifiers: [],
     intakeAutomation: { mode: 'preselect_only', tierAMinScore: 0.82 },
-  })!;
+  }))!;
 
   // Accept all install-family rows (representative of user accepting rows).
   const byFp: Record<string, { selectedCatalogItemId: string | null; applicationStatus: 'suggested' | 'accepted' | 'replaced' | 'ignored'; selectedBundleId: string | null }> = {};
@@ -326,12 +326,12 @@ test('computeDraftBasisSummary honors explicit bidBucketsIncluded filter (toggle
   const dummy: CatalogItem[] = [
     { id: 'dummy', sku: 'DUMMY', category: 'Toilet Accessories', description: 'dummy', uom: 'EA', baseMaterialCost: 0, baseLaborMinutes: 0, taxable: false, adaFlag: false, active: true } as CatalogItem,
   ];
-  const draft = buildIntakeEstimateDraft({
+  const draft = (await buildIntakeEstimateDraft({
     reviewLines,
     catalog: dummy,
     modifiers: [],
     intakeAutomation: { mode: 'preselect_only', tierAMinScore: 0.82 },
-  })!;
+  }))!;
   const byFp: Record<string, { selectedCatalogItemId: string | null; applicationStatus: 'suggested' | 'accepted' | 'replaced' | 'ignored'; selectedBundleId: string | null }> = {};
   for (const s of draft.lineSuggestions) {
     byFp[s.reviewLineFingerprint] = {
@@ -369,12 +369,12 @@ test('computeDraftBasisSummary excludes install-family labor in material_only mo
       active: true,
     } as CatalogItem,
   ];
-  const draft = buildIntakeEstimateDraft({
+  const draft = (await buildIntakeEstimateDraft({
     reviewLines,
     catalog: dummy,
     modifiers: [],
     intakeAutomation: { mode: 'preselect_only', tierAMinScore: 0.82 },
-  })!;
+  }))!;
   const byFingerprint: Record<string, { selectedCatalogItemId: string | null; applicationStatus: 'suggested' | 'accepted' | 'replaced' | 'ignored'; selectedBundleId: string | null }> = {};
   for (const s of draft.lineSuggestions) {
     byFingerprint[s.reviewLineFingerprint] = {

@@ -56,7 +56,7 @@ test('duplicate resolution workflow: selects canonical, creates legacy SKU alias
   ).run('GB-36', canonicalId);
 
   // Create legacy alias for the duplicate SKU.
-  createCatalogAlias({
+  await createCatalogAlias({
     id: `a-${crypto.randomUUID()}`,
     catalogItemId: canonicalId,
     aliasType: 'legacy_sku',
@@ -83,7 +83,7 @@ test('duplicate resolution workflow: selects canonical, creates legacy SKU alias
   assert.equal(String(dup.alias_of), canonicalId);
   assert.ok(String(dup.deprecated_reason || '').includes('Duplicate of GB-36'));
 
-  const aliases = listCatalogAliasesForItem(canonicalId);
+  const aliases = await listCatalogAliasesForItem(canonicalId);
   assert.ok(aliases.some((a) => a.aliasType === 'legacy_sku' && a.aliasValue === 'GB-36-OLD'));
 });
 

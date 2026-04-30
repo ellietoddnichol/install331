@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
-import { CatalogPostCutoverHealthRecord, CatalogSyncStatusRecord, DbPersistenceStatusRecord, IntakeCatalogAutoApplyMode, SettingsRecord } from '../shared/types/estimator';
+import { CatalogPostCutoverHealthRecord, CatalogSourceRecord, CatalogSyncStatusRecord, DbPersistenceStatusRecord, IntakeCatalogAutoApplyMode, SettingsRecord } from '../shared/types/estimator';
 import { ensureProposalDefaults } from '../shared/utils/proposalDefaults';
 import { getErrorMessage } from '../shared/utils/errorMessage';
 
@@ -26,6 +26,7 @@ export function Settings() {
   const [backfillingRegistry, setBackfillingRegistry] = useState(false);
   const [backingUpDb, setBackingUpDb] = useState(false);
   const [postCutoverHealth, setPostCutoverHealth] = useState<CatalogPostCutoverHealthRecord | null>(null);
+  const [catalogSource, setCatalogSource] = useState<CatalogSourceRecord | null>(null);
 
   useEffect(() => {
     void loadAll();
@@ -47,6 +48,12 @@ export function Settings() {
       } catch {
         cutoverHealth = null;
       }
+      let source: CatalogSourceRecord | null = null;
+      try {
+        source = await api.getV1CatalogSource();
+      } catch {
+        source = null;
+      }
       const next = ensureProposalDefaults({ ...data });
       if (!next.companyName) next.companyName = 'Brighten Builders, LLC';
       if (!next.companyAddress) next.companyAddress = '512 S. 70th Street, Kansas City, KS 66611';
@@ -55,6 +62,8 @@ export function Settings() {
       setSyncStatus(status);
       setSyncRuns(runs);
       setPersistenceStatus(dbStatus);
+      setPostCutoverHealth(cutoverHealth);
+      setCatalogSource(source);
     } catch (error: unknown) {
       setLoadError(getErrorMessage(error, 'Failed to load settings.'));
     } finally {
@@ -301,6 +310,44 @@ export function Settings() {
             {syncStatus?.status || 'never'}
           </span>
         </div>
+        {catalogSource ? (
+          <div className="ui-panel-muted p-3 text-xs text-[var(--text)] space-y-2">
+            <p className="font-semibold text-slate-800">Effective catalog wiring</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
+              <div className="ui-surface-soft p-2">
+                <p className="ui-mono-kicker">DB driver</p>
+                <p className="mt-1 font-mono text-[12px] font-semibold text-slate-900">{catalogSource.dbDriver}</p>
+              </div>
+              <div className="ui-surface-soft p-2">
+                <p className="ui-mono-kicker">Estimator items table</p>
+                <p className="mt-1 font-mono text-[12px] font-semibold text-slate-900">{catalogSource.catalogItemsTable}</p>
+              </div>
+              <div className="ui-surface-soft p-2">
+                <p className="ui-mono-kicker">Sheets items tab</p>
+                <p className="mt-1 font-mono text-[12px] font-semibold text-slate-900">{catalogSource.sheetsItemsTab}</p>
+              </div>
+              <div className="ui-surface-soft p-2">
+                <p className="ui-mono-kicker">Spreadsheet id</p>
+                <p className="mt-1 font-mono text-[12px] font-semibold text-slate-900">{catalogSource.spreadsheetIdConfigured ? 'configured' : 'missing'}</p>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-600">
+              Sheet tabs (modifiers/bundles/aliases/attributes):{' '}
+              <span className="font-mono text-[11px]">
+                {catalogSource.sheetsModifiersTab} · {catalogSource.sheetsBundlesTab} · {catalogSource.sheetsAliasesTab} · {catalogSource.sheetsAttributesTab}
+              </span>
+            </p>
+            {catalogSource.notes.length ? (
+              <ul className="mt-1 list-disc pl-4 text-[11px] text-slate-700">
+                {catalogSource.notes.slice(0, 4).map((note) => (
+                  <li key={note}>{note}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : (
+          <div className="ui-panel-muted p-3 text-xs text-[var(--text)]">Catalog wiring details unavailable (server endpoint missing).</div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
           <div className="ui-surface-soft p-2">
             <p className="ui-mono-kicker">Last Attempt</p>
@@ -345,10 +392,12 @@ export function Settings() {
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
               <p className="ui-mono-kicker">Post-cutover catalog health</p>
-              <h2 className="mt-1 text-sm font-semibold text-slate-900">SQLite vs last sync (forward-facing)</h2>
+              <h2 className="mt-1 text-sm font-semibold text-slate-900">
+                {catalogSource?.dbDriver === 'pg' ? 'Postgres vs last sync (forward-facing)' : 'SQLite vs last sync (forward-facing)'}
+              </h2>
               <p className="mt-1 text-xs text-slate-500">
                 Items tab: <span className="font-mono text-[11px]">{postCutoverHealth.itemsSourceTab}</span>. Compare last sync item count to your CLEAN_ITEMS META audit; DB totals include seed/registry rows
-                and inactive sheet SKUs still present in SQLite.
+                {catalogSource?.dbDriver === 'pg' ? ' and any rows present in Postgres outside the latest sheet snapshot.' : ' and inactive sheet SKUs still present in SQLite.'}
               </p>
             </div>
           </div>
