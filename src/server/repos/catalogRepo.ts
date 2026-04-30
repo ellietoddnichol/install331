@@ -2,6 +2,7 @@ import { getEstimatorDb } from '../db/connection.ts';
 import type { CatalogItem } from '../../types.ts';
 import type { CatalogCategoryImageGapRow, CatalogPostCutoverHealthRecord, CatalogSyncStatusRecord } from '../../shared/types/estimator.ts';
 import { ensureTakeoffCatalogSeeded } from '../services/intake/takeoffCatalogRegistry.ts';
+import { getCatalogItemsTableName } from '../db/catalogTable.ts';
 
 function mapCatalogRow(row: any): CatalogItem {
   return {
@@ -53,8 +54,9 @@ function mapCatalogRow(row: any): CatalogItem {
 
 export function listActiveCatalogItems(): CatalogItem[] {
   ensureTakeoffCatalogSeeded();
+  const table = getCatalogItemsTableName();
   const rows = getEstimatorDb()
-    .prepare('SELECT * FROM catalog_items WHERE active = 1 ORDER BY category, description')
+    .prepare(`SELECT * FROM ${table} WHERE active = 1 ORDER BY category, description`)
     .all();
   return rows.map(mapCatalogRow);
 }

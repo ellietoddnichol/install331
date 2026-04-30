@@ -2,6 +2,7 @@ import type { CatalogItem } from '../../../types.ts';
 import { isPgDriver } from '../../db/driver.ts';
 import { getEstimatorDb } from '../../db/connection.ts';
 import { withPgTransaction, withSqliteTransaction, type DbExec } from '../../db/query.ts';
+import { isUsingCleanCatalogSource } from '../../db/catalogTable.ts';
 
 export const TAKEOFF_TOKEN_ALIAS_MAP: Record<string, string[]> = {
   gb: ['grab', 'bar', 'grab bar'],
@@ -1287,6 +1288,9 @@ function findExistingItemIdSqlite(seedItem: CatalogItem): string | null {
 
 /** Ensures takeoff shorthand catalog rows exist (idempotent). */
 export async function ensureTakeoffCatalogSeeded(): Promise<void> {
+  // If we're explicitly reading from a clean/source-of-truth table, do not write seed rows.
+  if (isUsingCleanCatalogSource()) return;
+
   if (isPgDriver()) {
     await withPgTransaction(async (exec) => {
       for (const item of TAKEOFF_CATALOG_SEED_ITEMS) {

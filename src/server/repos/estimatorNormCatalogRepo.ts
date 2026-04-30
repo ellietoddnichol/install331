@@ -4,6 +4,7 @@ import type {
   EstimatorParametricModifier,
   EstimatorSkuAlias,
 } from '../../shared/types/estimatorCatalogNorm.ts';
+import { getCatalogItemsTableName } from '../db/catalogTable.ts';
 
 function mapParametric(row: any): EstimatorParametricModifier {
   let applies: string[] = [];
@@ -80,8 +81,9 @@ export async function resolveTargetCatalogItemIdBySkuOrAlias(raw: string): Promi
   const t = String(raw || '').trim();
   if (!t) return null;
 
+  const table = getCatalogItemsTableName();
   const bySku = await dbGet<{ id: string }>(
-    'SELECT id FROM catalog_items WHERE active = 1 AND upper(trim(sku)) = upper(?)',
+    `SELECT id FROM ${table} WHERE active = 1 AND upper(trim(sku)) = upper(?)`,
     [t]
   );
   if (bySku) return bySku.id;
