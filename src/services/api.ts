@@ -359,7 +359,7 @@ export const api = {
     return payload.data;
   },
   async getCatalogSyncStatus(): Promise<CatalogSyncStatusRecord> {
-    const res = await apiFetch(`${API_BASE}/v1/settings/catalog-sync-status`);
+    const res = await apiFetch(`${API_BASE}/catalog/sync-status`);
     const payload = await handleResponse<{ data: CatalogSyncStatusRecord }>(res);
     return payload.data;
   },
@@ -562,7 +562,7 @@ export const api = {
     return handleResponse<CatalogItem[]>(res);
   },
   async getV1CatalogInventory(): Promise<{ total: number; active: number; inactive: number }> {
-    const res = await apiFetch(`${API_BASE}/v1/settings/catalog-inventory`);
+    const res = await apiFetch(`${API_BASE}/catalog/inventory`);
     const payload = await handleResponse<{ data: { total: number; active: number; inactive: number } }>(res);
     return payload.data;
   },

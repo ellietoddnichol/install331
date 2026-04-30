@@ -7,7 +7,12 @@ import {
 } from '../services/googleSheetsCatalogSync.ts';
 import { dbAll, dbGet, dbRun } from '../db/query.ts';
 import { getCatalogItemsTableName } from '../db/catalogTable.ts';
-import { listCatalogItemsForApi, searchCatalogItemsForApi } from '../repos/catalogRepo.ts';
+import {
+  getCatalogInventoryCounts,
+  listCatalogItemsForApi,
+  searchCatalogItemsForApi,
+} from '../repos/catalogRepo.ts';
+import { getCatalogSyncStatus } from '../repos/settingsRepo.ts';
 import { createCatalogAlias, deleteCatalogAlias, listCatalogAliasesForItem } from '../repos/catalogAliasesRepo.ts';
 import { createCatalogAttribute, deactivateCatalogAttribute, listCatalogAttributesForItem } from '../repos/catalogAttributesRepo.ts';
 import { handleRouteError } from '../http/jsonErrors.ts';
@@ -44,6 +49,23 @@ legacyRouter.get('/health', (_req, res) => res.json({ status: 'ok' }));
 legacyRouter.get('/catalog/items', async (req, res) => {
   const includeInactive = req.query.includeInactive === '1' || req.query.includeInactive === 'true';
   res.json(await listCatalogItemsForApi(includeInactive));
+});
+
+/** Same payloads as v1 settings routes; mounted here so Catalog workspace loads without session (matches /catalog/items). */
+legacyRouter.get('/catalog/sync-status', async (_req, res) => {
+  try {
+    res.json({ data: await getCatalogSyncStatus() });
+  } catch (err: unknown) {
+    handleRouteError(res, err, '[GET /api/catalog/sync-status]');
+  }
+});
+
+legacyRouter.get('/catalog/inventory', async (_req, res) => {
+  try {
+    res.json({ data: await getCatalogInventoryCounts() });
+  } catch (err: unknown) {
+    handleRouteError(res, err, '[GET /api/catalog/inventory]');
+  }
 });
 
 legacyRouter.get('/catalog/search', async (req, res) => {
