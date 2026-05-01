@@ -19,7 +19,8 @@
     "extract-sa-pem": "node scripts/extract-service-account-pem.mjs",
     "db:migrate": "node scripts/run-pg-migrations.mjs",
     "migrate:sqlite-to-pg": "tsx scripts/migrate-sqlite-to-pg.ts",
-    "catalog:audit": "tsx scripts/catalog-audit.ts"
+    "catalog:audit": "tsx scripts/catalog-audit.ts",
+    "supabase:admin-password": "tsx scripts/supabase-admin-password.ts"
   },
   "dependencies": {
     "@google-cloud/documentai": "^9.6.0",
