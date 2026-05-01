@@ -49,8 +49,17 @@ export function getPgPool(): pg.Pool {
   }
   if (!pool) {
     validateDatabaseUrl(url);
+    const sslRejectUnauthorizedRaw = String(process.env.PG_SSL_REJECT_UNAUTHORIZED ?? '').trim().toLowerCase();
+    const sslRejectUnauthorized =
+      sslRejectUnauthorizedRaw === ''
+        ? undefined
+        : !(sslRejectUnauthorizedRaw === '0' || sslRejectUnauthorizedRaw === 'false' || sslRejectUnauthorizedRaw === 'no');
     pool = new pg.Pool({
       connectionString: url,
+      // Supabase poolers require TLS. In some environments users hit
+      // "self-signed certificate in certificate chain" due to a custom CA/proxy.
+      // Allow overriding verification via env while keeping the default secure.
+      ssl: sslRejectUnauthorized === undefined ? undefined : { rejectUnauthorized: sslRejectUnauthorized },
       max: Number(process.env.PG_POOL_MAX || 20),
       idleTimeoutMillis: 30_000,
     });
