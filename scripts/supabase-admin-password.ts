@@ -12,16 +12,71 @@
  *   confirm-email <email>
  *       Marks email as confirmed (if signup confirmation blocked login).
  *
- * Examples (PowerShell, repo root):
- *   $env:SUPABASE_URL="https://xxxxx.supabase.co"
- *   $env:SUPABASE_SERVICE_ROLE_KEY="(paste service_role secret)"
- *   npx tsx scripts/supabase-admin-password.ts recovery-link ellie@company.com
- *   npx tsx scripts/supabase-admin-password.ts set-password ellie@company.com 'YourNewStrongPass!'
+ * PowerShell (use single quotes around the JWT so characters like $ are not expanded):
+ *   cd c:\\Users\\you\\311
+ *   $env:SUPABASE_URL='https://xxxxx.supabase.co'
+ *   $env:SUPABASE_SERVICE_ROLE_KEY='eyJhbGciOi...'   # from Dashboard → Settings → API → service_role (secret)
+ *   npm run supabase:admin-password -- recovery-link user@company.com
+ *
+ * Do not paste the literal text "<paste ...>" — copy the full JWT key from the dashboard (Reveal).
  */
 import { createClient } from '@supabase/supabase-js';
 
+function sanitizeEnvKey(raw: string): string {
+  let s = raw.trim();
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1).trim();
+  }
+  return s;
+}
+
+function jwtPayloadRole(key: string): string | null {
+  const parts = key.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+    const json = Buffer.from(padded, 'base64').toString('utf8');
+    const payload = JSON.parse(json) as { role?: string };
+    return typeof payload.role === 'string' ? payload.role : null;
+  } catch {
+    return null;
+  }
+}
+
+function assertServiceRoleKey(serviceKey: string): void {
+  const lower = serviceKey.toLowerCase();
+  if (
+    serviceKey.length < 80 ||
+    lower.includes('<paste') ||
+    lower.includes('paste service') ||
+    lower.includes('your_service') ||
+    lower.includes('replace_me')
+  ) {
+    console.error(
+      [
+        'SUPABASE_SERVICE_ROLE_KEY does not look like a real JWT from the dashboard.',
+        '',
+        'Fix:',
+        '  1. Supabase → Project Settings → API → copy "service_role" secret (Reveal).',
+        '  2. PowerShell: $env:SUPABASE_SERVICE_ROLE_KEY=\'eyJhbGciOi...\'  (single quotes — not double quotes if your JWT contains $).',
+        '  3. Do not paste angle brackets or the words "paste service_role" — paste only the key.',
+      ].join('\n'),
+    );
+    process.exit(1);
+  }
+
+  const role = jwtPayloadRole(serviceKey);
+  if (role === 'anon') {
+    console.error(
+      'This JWT has role "anon". Admin APIs need the service_role key from Settings → API (not the anon/public key).',
+    );
+    process.exit(1);
+  }
+}
+
 const url = String(process.env.SUPABASE_URL || '').trim();
-const serviceKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+const serviceKey = sanitizeEnvKey(String(process.env.SUPABASE_SERVICE_ROLE_KEY || ''));
 
 async function findUserIdByEmail(adminEmail: string): Promise<string | null> {
   const target = adminEmail.trim().toLowerCase();
@@ -48,6 +103,7 @@ async function main(): Promise<void> {
     console.error('Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the environment.');
     process.exit(1);
   }
+  assertServiceRoleKey(serviceKey);
   if (!email?.trim()) {
     console.error(
       'Usage:\n  tsx scripts/supabase-admin-password.ts recovery-link <email>\n  tsx scripts/supabase-admin-password.ts set-password <email> <password>\n  tsx scripts/supabase-admin-password.ts confirm-email <email>',
