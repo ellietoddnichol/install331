@@ -11,6 +11,7 @@ import {
   Settings,
   Wrench,
 } from 'lucide-react';
+import { prefetchNavPath } from '../../lib/prefetchAppRoutes.ts';
 import { useAuth } from '../../context/AuthContext';
 import { useWorkspaceStore } from '../../stores/workspaceStore.ts';
 
@@ -69,6 +70,8 @@ export function SidebarNav() {
                 to={item.path}
                 title={item.label}
                 aria-label={item.label}
+                onMouseEnter={() => prefetchNavPath(item.path)}
+                onFocus={() => prefetchNavPath(item.path)}
                 className={`group relative flex h-9 w-9 items-center justify-center rounded-md border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-400/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#101a2b] ${
                   active
                     ? 'border-[#3f69ab] bg-[#1f3558] text-white'
@@ -140,6 +143,8 @@ export function SidebarNav() {
             <Link
               key={`${item.label}-${item.path}`}
               to={item.path}
+              onMouseEnter={() => prefetchNavPath(item.path)}
+              onFocus={() => prefetchNavPath(item.path)}
               className={`h-9 px-2.5 rounded-md flex items-center gap-2.5 text-sm transition-all outline-none focus-visible:ring-2 focus-visible:ring-blue-400/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#101a2b] ${
                 active ? 'bg-[#1f3558] text-white border border-[#3f69ab]' : 'text-slate-300 border border-transparent hover:bg-[#17263f] hover:text-white'
               }`}
