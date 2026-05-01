@@ -2,7 +2,9 @@ import React, { lazy } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
 import { ProtectedShell } from './components/routing/ProtectedShell.tsx';
 import { RequireAuthGate } from './components/routing/RequireAuthGate.tsx';
+import { ForgotPasswordRoute } from './components/routing/ForgotPasswordRoute.tsx';
 import { SignInRoute } from './components/routing/SignInRoute.tsx';
+import { SignUpRoute } from './components/routing/SignUpRoute.tsx';
 import { NotFound } from './pages/NotFound.tsx';
 
 const Dashboard = lazy(() => import('./pages/Dashboard.tsx').then((m) => ({ default: m.Dashboard })));
@@ -27,6 +29,14 @@ export const appRouter = createBrowserRouter([
   {
     path: '/signin',
     element: <SignInRoute />,
+  },
+  {
+    path: '/signup',
+    element: <SignUpRoute />,
+  },
+  {
+    path: '/forgot-password',
+    element: <ForgotPasswordRoute />,
   },
   {
     path: '/',

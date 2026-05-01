@@ -36,6 +36,10 @@ function mapSupabaseSignInError(error: { message?: string; code?: string }): str
     return 'Too many sign-in attempts. Wait a few minutes and try again.';
   }
 
+  if (code === 'user_banned' || msg.includes('user is banned') || msg.includes('banned')) {
+    return 'This account is disabled in Supabase. Ask an administrator to unban the user.';
+  }
+
   return 'Invalid email or password. If your password manager is locked, unlock it or paste the password manually.';
 }
 
@@ -109,6 +113,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (supabase) {
       const { error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
       if (error) {
+        const errMeta = error as { message?: string; code?: string; status?: number };
+        console.warn('[auth] signInWithPassword failed — open DevTools → Console for details.', {
+          message: errMeta.message,
+          code: errMeta.code,
+          status: errMeta.status,
+        });
         return {
           ok: false,
           message: mapSupabaseSignInError(error),
