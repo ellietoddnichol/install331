@@ -20,14 +20,22 @@ export function SignIn() {
     return <Navigate to={destination} replace />;
   }
 
-  async function onSubmit(event: React.FormEvent) {
+  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     setError('');
 
-    const ok = await signIn(email, password, remember);
-    if (!ok) {
-      setError('Enter your email and password to continue.');
+    const form = event.currentTarget;
+    const emailEl = form.elements.namedItem('email');
+    const passwordEl = form.elements.namedItem('password');
+    const emailVal =
+      (emailEl instanceof HTMLInputElement ? emailEl.value : email).trim();
+    const passwordVal =
+      (passwordEl instanceof HTMLInputElement ? passwordEl.value : password).trim();
+
+    const result = await signIn(emailVal, passwordVal, remember);
+    if (!result.ok) {
+      setError(result.message);
       setSaving(false);
       return;
     }
@@ -75,7 +83,9 @@ export function SignIn() {
           <label className="block text-xs font-medium text-slate-600">
             Password
             <input
+              name="password"
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="ui-input mt-1 h-10"

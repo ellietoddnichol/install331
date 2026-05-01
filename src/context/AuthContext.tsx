@@ -1,12 +1,14 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { getSupabaseBrowserClient, isSupabaseBrowserConfigured } from '../client/supabaseBrowser.ts';
 
+export type SignInResult = { ok: true } | { ok: false; message: string };
+
 interface AuthContextValue {
   /** True until client storage / Supabase session has been read (avoids auth flash on hard refresh). */
   isLoading: boolean;
   isAuthenticated: boolean;
   userEmail: string | null;
-  signIn: (email: string, password: string, remember: boolean) => Promise<boolean>;
+  signIn: (email: string, password: string, remember: boolean) => Promise<SignInResult>;
   signOut: () => Promise<void>;
 }
 
@@ -72,16 +74,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return undefined;
   }, [supabaseConfigured]);
 
-  async function signIn(email: string, password: string, remember: boolean): Promise<boolean> {
-    if (!email.trim() || !password.trim()) return false;
+  async function signIn(email: string, password: string, remember: boolean): Promise<SignInResult> {
+    if (!email.trim() || !password.trim()) {
+      return { ok: false, message: 'Enter your email and password to continue.' };
+    }
     const normalizedEmail = email.trim().toLowerCase();
 
     const supabase = getSupabaseBrowserClient();
     if (supabase) {
       const { error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
-      if (error) return false;
+      if (error) {
+        return {
+          ok: false,
+          message: 'Invalid email or password.',
+        };
+      }
       setUserEmail(normalizedEmail);
-      return true;
+      return { ok: true };
     }
 
     /* Local dev fallback when Vite Supabase env is not set (AUTH_REQUIRED=0 on server). */
@@ -101,7 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       safeSetSessionAuthEmail(normalizedEmail);
     }
     setUserEmail(normalizedEmail);
-    return true;
+    return { ok: true };
   }
 
   async function signOut(): Promise<void> {
