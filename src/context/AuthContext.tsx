@@ -14,6 +14,31 @@ interface AuthContextValue {
 
 const AUTH_KEY = 'brighten-auth-email';
 
+/** User-safe copy for Supabase GoTrue errors (sign-in only). */
+function mapSupabaseSignInError(error: { message?: string; code?: string }): string {
+  const code = String(error.code || '').toLowerCase();
+  const msg = String(error.message || '').toLowerCase();
+
+  if (
+    code === 'email_not_confirmed' ||
+    msg.includes('email not confirmed') ||
+    (msg.includes('confirm') && msg.includes('email'))
+  ) {
+    return 'This email is not confirmed yet. Use the confirmation link from Supabase, or confirm the user in Supabase Auth → Users.';
+  }
+
+  if (
+    code === 'too_many_requests' ||
+    msg.includes('too many requests') ||
+    msg.includes('rate limit') ||
+    msg.includes('security purposes')
+  ) {
+    return 'Too many sign-in attempts. Wait a few minutes and try again.';
+  }
+
+  return 'Invalid email or password. If your password manager is locked, unlock it or paste the password manually.';
+}
+
 function safeGetLegacyAuthEmail(): string | null {
   try {
     return localStorage.getItem(AUTH_KEY) || sessionStorage.getItem(AUTH_KEY);
@@ -86,7 +111,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (error) {
         return {
           ok: false,
-          message: 'Invalid email or password.',
+          message: mapSupabaseSignInError(error),
         };
       }
       setUserEmail(normalizedEmail);
