@@ -472,49 +472,53 @@ legacyRouter.delete('/catalog/items/:id', async (req, res) => {
 });
 
 legacyRouter.get('/catalog/modifiers', async (_req, res) => {
-  const rows = await dbAll('SELECT * FROM modifiers_v1 ORDER BY name');
-  res.json(
-    rows.map((row: Record<string, unknown>) => ({
-      id: row.id,
-      name: row.name,
-      modifierKey: row.modifier_key,
-      description: row.description != null ? String(row.description) : '',
-      appliesToCategories: JSON.parse(String(row.applies_to_categories || '[]')),
-      addLaborMinutes: Number(row.add_labor_minutes || 0),
-      addMaterialCost: Number(row.add_material_cost || 0),
-      percentLabor: Number(row.percent_labor || 0),
-      percentMaterial: Number(row.percent_material || 0),
-      active: !!row.active,
-      updatedAt: row.updated_at,
-    }))
-  );
+  try {
+    const rows = await dbAll('SELECT * FROM modifiers_v1 ORDER BY name');
+    res.json(
+      rows.map((row: Record<string, unknown>) => ({
+        id: row.id,
+        name: row.name,
+        modifierKey: row.modifier_key,
+        description: row.description != null ? String(row.description) : '',
+        appliesToCategories: JSON.parse(String(row.applies_to_categories || '[]')),
+        addLaborMinutes: Number(row.add_labor_minutes || 0),
+        addMaterialCost: Number(row.add_material_cost || 0),
+        percentLabor: Number(row.percent_labor || 0),
+        percentMaterial: Number(row.percent_material || 0),
+        active: !!row.active,
+        updatedAt: row.updated_at,
+      }))
+    );
+  } catch (err: unknown) {
+    handleRouteError(res, err, '[GET /api/catalog/modifiers]');
+  }
 });
 
 legacyRouter.put('/catalog/modifiers/:id', async (req, res) => {
-  const existing = (await dbGet('SELECT * FROM modifiers_v1 WHERE id = ?', [req.params.id])) as Record<string, unknown> | undefined;
-  if (!existing) return res.status(404).json({ error: 'Modifier not found.' });
-
-  const parsed = legacyModifierUpdateSchema.safeParse(req.body);
-  if (!parsed.success) return handleRouteError(res, parsed.error, '[PUT /api/catalog/modifiers/:id]');
-  const input = parsed.data;
-  const now = new Date().toISOString();
-  const record = {
-    id: String(existing.id ?? ''),
-    name: String((input.name ?? existing.name) || '').trim(),
-    modifierKey: String((input.modifierKey ?? existing.modifier_key) || '')
-      .trim()
-      .toUpperCase()
-      .replace(/\s+/g, '_'),
-    appliesToCategories: input.appliesToCategories ?? JSON.parse(String(existing.applies_to_categories || '[]')),
-    addLaborMinutes: input.addLaborMinutes ?? Number(existing.add_labor_minutes ?? 0),
-    addMaterialCost: input.addMaterialCost ?? Number(existing.add_material_cost ?? 0),
-    percentLabor: input.percentLabor ?? Number(existing.percent_labor ?? 0),
-    percentMaterial: input.percentMaterial ?? Number(existing.percent_material ?? 0),
-    active: input.active === undefined ? !!existing.active : !!input.active,
-    updatedAt: now,
-  };
-
   try {
+    const existing = (await dbGet('SELECT * FROM modifiers_v1 WHERE id = ?', [req.params.id])) as Record<string, unknown> | undefined;
+    if (!existing) return res.status(404).json({ error: 'Modifier not found.' });
+
+    const parsed = legacyModifierUpdateSchema.safeParse(req.body);
+    if (!parsed.success) return handleRouteError(res, parsed.error, '[PUT /api/catalog/modifiers/:id]');
+    const input = parsed.data;
+    const now = new Date().toISOString();
+    const record = {
+      id: String(existing.id ?? ''),
+      name: String((input.name ?? existing.name) || '').trim(),
+      modifierKey: String((input.modifierKey ?? existing.modifier_key) || '')
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, '_'),
+      appliesToCategories: input.appliesToCategories ?? JSON.parse(String(existing.applies_to_categories || '[]')),
+      addLaborMinutes: input.addLaborMinutes ?? Number(existing.add_labor_minutes ?? 0),
+      addMaterialCost: input.addMaterialCost ?? Number(existing.add_material_cost ?? 0),
+      percentLabor: input.percentLabor ?? Number(existing.percent_labor ?? 0),
+      percentMaterial: input.percentMaterial ?? Number(existing.percent_material ?? 0),
+      active: input.active === undefined ? !!existing.active : !!input.active,
+      updatedAt: now,
+    };
+
     await dbRun(
       `UPDATE modifiers_v1
         SET name = ?, modifier_key = ?, applies_to_categories = ?, add_labor_minutes = ?, add_material_cost = ?,
@@ -546,10 +550,10 @@ legacyRouter.put('/catalog/modifiers/:id', async (req, res) => {
 });
 
 legacyRouter.delete('/catalog/modifiers/:id', async (req, res) => {
-  const existing = (await dbGet('SELECT * FROM modifiers_v1 WHERE id = ?', [req.params.id])) as Record<string, unknown> | undefined;
-  if (!existing) return res.status(404).json({ error: 'Modifier not found.' });
-
   try {
+    const existing = (await dbGet('SELECT * FROM modifiers_v1 WHERE id = ?', [req.params.id])) as Record<string, unknown> | undefined;
+    if (!existing) return res.status(404).json({ error: 'Modifier not found.' });
+
     await dbRun('UPDATE modifiers_v1 SET active = 0, updated_at = ? WHERE id = ?', [new Date().toISOString(), req.params.id]);
     await syncCatalogToGoogleSheetOptional('deactivate modifier', () =>
       upsertModifierInGoogleSheet({
@@ -571,40 +575,44 @@ legacyRouter.delete('/catalog/modifiers/:id', async (req, res) => {
 });
 
 legacyRouter.get('/catalog/bundles', async (_req, res) => {
-  const rows = await dbAll('SELECT * FROM bundles_v1 ORDER BY bundle_name');
-  res.json(
-    rows.map((row: Record<string, unknown>) => ({
-      id: row.id,
-      bundleName: row.bundle_name,
-      category: row.category,
-      active: !!row.active,
-      updatedAt: row.updated_at,
-    }))
-  );
+  try {
+    const rows = await dbAll('SELECT * FROM bundles_v1 ORDER BY bundle_name');
+    res.json(
+      rows.map((row: Record<string, unknown>) => ({
+        id: row.id,
+        bundleName: row.bundle_name,
+        category: row.category,
+        active: !!row.active,
+        updatedAt: row.updated_at,
+      }))
+    );
+  } catch (err: unknown) {
+    handleRouteError(res, err, '[GET /api/catalog/bundles]');
+  }
 });
 
 legacyRouter.put('/catalog/bundles/:id', async (req, res) => {
-  const existing = (await dbGet('SELECT * FROM bundles_v1 WHERE id = ?', [req.params.id])) as Record<string, unknown> | undefined;
-  if (!existing) return res.status(404).json({ error: 'Bundle not found.' });
-
-  const parsed = legacyBundleUpdateSchema.safeParse(req.body);
-  if (!parsed.success) return handleRouteError(res, parsed.error, '[PUT /api/catalog/bundles/:id]');
-  const input = parsed.data;
-  const now = new Date().toISOString();
-  const bundleItems = await dbAll<{ sku: string | null }>(
-    'SELECT sku FROM bundle_items_v1 WHERE bundle_id = ? ORDER BY sort_order, id',
-    [req.params.id]
-  );
-  const record = {
-    bundleId: String(existing.id ?? ''),
-    bundleName: String((input.bundleName ?? existing.bundle_name) || '').trim(),
-    category: (input.category ?? existing.category ?? null) as string | null,
-    includedSkus: bundleItems.map((row) => row.sku || '').filter(Boolean),
-    includedModifiers: [] as string[],
-    active: input.active === undefined ? !!existing.active : !!input.active,
-  };
-
   try {
+    const existing = (await dbGet('SELECT * FROM bundles_v1 WHERE id = ?', [req.params.id])) as Record<string, unknown> | undefined;
+    if (!existing) return res.status(404).json({ error: 'Bundle not found.' });
+
+    const parsed = legacyBundleUpdateSchema.safeParse(req.body);
+    if (!parsed.success) return handleRouteError(res, parsed.error, '[PUT /api/catalog/bundles/:id]');
+    const input = parsed.data;
+    const now = new Date().toISOString();
+    const bundleItems = await dbAll<{ sku: string | null }>(
+      'SELECT sku FROM bundle_items_v1 WHERE bundle_id = ? ORDER BY sort_order, id',
+      [req.params.id]
+    );
+    const record = {
+      bundleId: String(existing.id ?? ''),
+      bundleName: String((input.bundleName ?? existing.bundle_name) || '').trim(),
+      category: (input.category ?? existing.category ?? null) as string | null,
+      includedSkus: bundleItems.map((row) => row.sku || '').filter(Boolean),
+      includedModifiers: [] as string[],
+      active: input.active === undefined ? !!existing.active : !!input.active,
+    };
+
     await dbRun('UPDATE bundles_v1 SET bundle_name = ?, category = ?, active = ?, updated_at = ? WHERE id = ?', [
       record.bundleName,
       record.category,
@@ -620,14 +628,14 @@ legacyRouter.put('/catalog/bundles/:id', async (req, res) => {
 });
 
 legacyRouter.delete('/catalog/bundles/:id', async (req, res) => {
-  const existing = (await dbGet('SELECT * FROM bundles_v1 WHERE id = ?', [req.params.id])) as Record<string, unknown> | undefined;
-  if (!existing) return res.status(404).json({ error: 'Bundle not found.' });
-
-  const bundleItems = await dbAll<{ sku: string | null }>(
-    'SELECT sku FROM bundle_items_v1 WHERE bundle_id = ? ORDER BY sort_order, id',
-    [req.params.id]
-  );
   try {
+    const existing = (await dbGet('SELECT * FROM bundles_v1 WHERE id = ?', [req.params.id])) as Record<string, unknown> | undefined;
+    if (!existing) return res.status(404).json({ error: 'Bundle not found.' });
+
+    const bundleItems = await dbAll<{ sku: string | null }>(
+      'SELECT sku FROM bundle_items_v1 WHERE bundle_id = ? ORDER BY sort_order, id',
+      [req.params.id]
+    );
     await dbRun('UPDATE bundles_v1 SET active = 0, updated_at = ? WHERE id = ?', [new Date().toISOString(), req.params.id]);
     await syncCatalogToGoogleSheetOptional('deactivate bundle', () =>
       upsertBundleInGoogleSheet({
