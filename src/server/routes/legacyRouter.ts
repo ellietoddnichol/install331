@@ -4,12 +4,14 @@ import {
   upsertBundleInGoogleSheet,
   upsertItemInGoogleSheet,
   upsertModifierInGoogleSheet,
+  syncCatalogFromGoogleSheets,
 } from '../services/googleSheetsCatalogSync.ts';
 import { dbAll, dbGet, dbRun } from '../db/query.ts';
 import { getCatalogItemsWriteTableName } from '../db/catalogTable.ts';
 import {
   getCatalogInventoryCounts,
   listCatalogItemsForApi,
+  reactivateAllCatalogItems,
   searchCatalogItemsForApi,
 } from '../repos/catalogRepo.ts';
 import { getCatalogSyncStatus } from '../repos/settingsRepo.ts';
@@ -28,7 +30,7 @@ import { z } from 'zod';
  * Legacy catalog CRUD endpoints (mounted at `/api`).
  *
  * Retained because the current client still calls these for catalog item, modifier,
- * and bundle edits. The old monolithic `/projects`, `/settings`, `/estimate/calculate`,
+ * and bundle edits, plus catalog workspace reads/sync without session (same exposure as GET /catalog/items). The old monolithic `/projects`, `/settings`, `/estimate/calculate`,
  * `/global/*`, and `/sync/sheets` routes were removed in the 2026-04-16 cleanup —
  * all live callers now use `/api/v1/*`.
  */
@@ -81,6 +83,27 @@ legacyRouter.get('/catalog/inventory', async (_req, res) => {
     res.json({ data: await getCatalogInventoryCounts() });
   } catch (err: unknown) {
     handleRouteError(res, err, '[GET /api/catalog/inventory]');
+  }
+});
+
+/** Same as POST /api/v1/settings/sync-catalog; mounted here so Sheets sync works without session (matches catalog reads). */
+legacyRouter.post('/catalog/sync', async (_req, res) => {
+  try {
+    const result = await syncCatalogFromGoogleSheets();
+    res.json({ data: result });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message || 'Catalog sync failed.' });
+  }
+});
+
+/** Same as POST /api/v1/settings/activate-all-catalog-items. */
+legacyRouter.post('/catalog/activate-all-items', async (_req, res) => {
+  try {
+    const changed = await reactivateAllCatalogItems();
+    res.json({ data: { changed, ...(await getCatalogInventoryCounts()) } });
+  } catch (err: unknown) {
+    handleRouteError(res, err, '[POST /api/catalog/activate-all-items]');
   }
 });
 

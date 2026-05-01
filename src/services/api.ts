@@ -428,7 +428,7 @@ export const api = {
     warnings: string[];
     syncedAt: string;
   }> {
-    const res = await apiFetch(`${API_BASE}/v1/settings/sync-catalog`, { method: 'POST' });
+    const res = await apiFetch(`${API_BASE}/catalog/sync`, { method: 'POST' });
     const payload = await handleResponse<{ data: {
       message: string;
       spreadsheetId: string;
@@ -567,7 +567,7 @@ export const api = {
     return payload.data;
   },
   async activateAllV1CatalogItems(): Promise<{ changed: number; total: number; active: number; inactive: number }> {
-    const res = await apiFetch(`${API_BASE}/v1/settings/activate-all-catalog-items`, { method: 'POST' });
+    const res = await apiFetch(`${API_BASE}/catalog/activate-all-items`, { method: 'POST' });
     const payload = await handleResponse<{ data: { changed: number; total: number; active: number; inactive: number } }>(res);
     return payload.data;
   },
