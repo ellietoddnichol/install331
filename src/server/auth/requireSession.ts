@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 import type { NextFunction, Request, Response } from 'express';
 import type { Session, User } from '@supabase/supabase-js';
+import { getPublicSupabaseClientConfig } from '../publicSupabaseConfig.ts';
 
 export type AuthedRequest = Request & { authUser?: User; authSession?: Session | null };
 
@@ -31,9 +32,9 @@ function parseCookieHeader(cookieHeader: string | undefined): { name: string; va
  * Supabase auth cookies (same-origin), using the anon key for verification.
  */
 export async function getSupabaseSessionForRequest(req: Request, _res: Response): Promise<Session | null> {
-  const url = String(process.env.SUPABASE_URL || '').trim();
-  const anonKey = String(process.env.SUPABASE_ANON_KEY || '').trim();
-  if (!url || !anonKey) return null;
+  const cfg = getPublicSupabaseClientConfig();
+  if (!cfg) return null;
+  const { supabaseUrl: url, supabaseAnonKey: anonKey } = cfg;
 
   const authHeader = String(req.headers.authorization || '');
   const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
@@ -83,10 +84,13 @@ export async function requireSession(req: Request, res: Response, next: NextFunc
     return;
   }
 
-  const url = String(process.env.SUPABASE_URL || '').trim();
-  const anonKey = String(process.env.SUPABASE_ANON_KEY || '').trim();
-  if (!url || !anonKey) {
-    res.status(503).json({ error: 'Server auth is required but SUPABASE_URL / SUPABASE_ANON_KEY are not configured.' });
+  if (!getPublicSupabaseClientConfig()) {
+    res
+      .status(503)
+      .json({
+        error:
+          'Server auth is required but Supabase URL and anon key are not configured (SUPABASE_URL / SUPABASE_ANON_KEY or VITE_* / NEXT_PUBLIC_* equivalents).',
+      });
     return;
   }
 

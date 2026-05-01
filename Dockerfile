@@ -23,6 +23,13 @@ COPY . .
 # `src/` was never pushed or a wrong build context is used).
 RUN test -f index.html && test -f src/main.tsx && test -f vite.config.ts
 
+# Vite embeds VITE_* at `npm run build` time. Cloud Run runtime env does NOT change `dist/`.
+# Cloud Build must pass these via --build-arg (see cloudbuild.yaml); local builds can omit.
+ARG VITE_SUPABASE_URL=
+ARG VITE_SUPABASE_ANON_KEY=
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+
 ENV NODE_ENV=production
 # Cloud Run sets PORT (default 8080). Do not bake PORT=3000 here — it can prevent the
 # process from binding the port the platform health-checks.

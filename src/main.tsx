@@ -1,6 +1,7 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
+import { initSupabaseBrowserConfig } from './client/supabaseBrowser.ts';
 import './index.css';
 
 function installViteChunkLoadRecovery() {
@@ -50,8 +51,10 @@ function installViteChunkLoadRecovery() {
 
 installViteChunkLoadRecovery();
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+void initSupabaseBrowserConfig().then(() => {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+});

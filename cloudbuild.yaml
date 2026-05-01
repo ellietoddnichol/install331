@@ -1,5 +1,6 @@
 # Cloud Build → Docker → Artifact Registry → Cloud Run
-# GitHub trigger sets COMMIT_SHA. For manual: gcloud builds submit --substitutions=COMMIT_SHA=$(git rev-parse HEAD)
+# GitHub trigger sets COMMIT_SHA. For manual, also pass Vite args, e.g.:
+#   gcloud builds submit --substitutions=COMMIT_SHA=$(git rev-parse HEAD),_VITE_SUPABASE_URL=$SUPABASE_URL,_VITE_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
 #
 # If the trigger runs as labor-catalog@gen-lang-client-0568373820.iam.gserviceaccount.com, that SA needs:
 #   - roles/artifactregistry.writer on repository cloud-run-source-deploy (region europe-west1) — or push step fails
@@ -16,6 +17,10 @@ substitutions:
   _SERVICE_NAME: cwainstall-git
   # Same runtime SA as your existing Cloud Run revision (act-as permission required on builder SA).
   _RUN_SERVICE_ACCOUNT: '353363250924-compute@developer.gserviceaccount.com'
+  # Required for production auth SPA: same values as SUPABASE_URL / SUPABASE_ANON_KEY (see docs/SUPABASE_CLOUD_RUN.md).
+  # Set on the Cloud Build trigger (use Secret Manager–backed substitutions in Console so keys are not stored in git).
+  _VITE_SUPABASE_URL: ''
+  _VITE_SUPABASE_ANON_KEY: ''
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -36,6 +41,10 @@ steps:
     name: gcr.io/cloud-builders/docker
     args:
       - build
+      - --build-arg
+      - VITE_SUPABASE_URL=$_VITE_SUPABASE_URL
+      - --build-arg
+      - VITE_SUPABASE_ANON_KEY=$_VITE_SUPABASE_ANON_KEY
       - -t
       - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_IMAGE_NAME:$COMMIT_SHA
       - .

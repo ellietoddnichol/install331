@@ -16,6 +16,7 @@ import { getCatalogSyncStatus } from '../repos/settingsRepo.ts';
 import { createCatalogAlias, deleteCatalogAlias, listCatalogAliasesForItem } from '../repos/catalogAliasesRepo.ts';
 import { createCatalogAttribute, deactivateCatalogAttribute, listCatalogAttributesForItem } from '../repos/catalogAttributesRepo.ts';
 import { handleRouteError } from '../http/jsonErrors.ts';
+import { getPublicSupabaseClientConfig } from '../publicSupabaseConfig.ts';
 import {
   legacyBundleUpdateSchema,
   legacyCatalogItemBodySchema,
@@ -45,6 +46,17 @@ async function syncCatalogToGoogleSheetOptional(label: string, fn: () => Promise
 export const legacyRouter = Router();
 
 legacyRouter.get('/health', (_req, res) => res.json({ status: 'ok' }));
+
+/** Lets the SPA use Supabase Auth when VITE_* were not baked at docker build (runtime env on Cloud Run is enough). */
+legacyRouter.get('/bootstrap/client-config', (_req, res) => {
+  const cfg = getPublicSupabaseClientConfig();
+  res.json({
+    data: {
+      supabaseUrl: cfg?.supabaseUrl ?? null,
+      supabaseAnonKey: cfg?.supabaseAnonKey ?? null,
+    },
+  });
+});
 
 legacyRouter.get('/catalog/items', async (req, res) => {
   const includeInactive = req.query.includeInactive === '1' || req.query.includeInactive === 'true';

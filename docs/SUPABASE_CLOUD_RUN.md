@@ -30,6 +30,8 @@ supabase db push
 
 ## 4. Cloud Run service
 
+### Runtime (Cloud Run → Edit container → Variables)
+
 Set environment variables (use **Secrets** for keys):
 
 | Variable | Notes |
@@ -42,6 +44,14 @@ Set environment variables (use **Secrets** for keys):
 | `SUPABASE_JWT_SECRET` | Optional extra verify; anon client also validates JWT |
 | `SUPABASE_STORAGE_BUCKET` | `project-files` |
 | `AUTH_REQUIRED` | `1` in production once users exist in Supabase Auth |
+
+### Build time (Cloud Build / Docker — required for login in the SPA)
+
+The UI is a **Vite** bundle: `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are fixed when **`docker build`** runs `npm run build`. Putting them only on Cloud Run at runtime **does not** fix an already-built `dist/` — the browser would still get empty Supabase settings.
+
+1. In **`cloudbuild.yaml`**, substitutions **`_VITE_SUPABASE_URL`** and **`_VITE_SUPABASE_ANON_KEY`** are passed as Docker **`--build-arg`** into the image build (same string values as `SUPABASE_URL` / `SUPABASE_ANON_KEY`).
+2. On your **GitHub → Cloud Build trigger**, set those substitutions (prefer Secret Manager–backed trigger variables in the Console so values are not committed).
+3. Redeploy so a **new image** is built with the args present.
 
 ## 5. Migrating data from SQLite
 
@@ -60,6 +70,6 @@ npm run migrate:sqlite-to-pg
 ## 6. Auth
 
 - Users must exist in **Supabase Auth** (email/password or SSO).
-- Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (same values as `SUPABASE_URL` / `SUPABASE_ANON_KEY`) so the SPA can call `signInWithPassword`.
+- Set **`VITE_SUPABASE_URL`** and **`VITE_SUPABASE_ANON_KEY`** to the same values as **`SUPABASE_URL`** / **`SUPABASE_ANON_KEY`** **at Docker image build time** (`cloudbuild.yaml` substitutions → Dockerfile `ARG`), not only on Cloud Run. Runtime-only env vars cannot change the bundled SPA.
 - With `AUTH_REQUIRED=1`, the API accepts either `Authorization: Bearer <access_token>` or Supabase auth cookies on same-origin requests (`credentials` are enabled in `apiFetch`).
 - `GET /api/v1/session` returns `{ data: { user } }` without requiring auth (useful for bootstrapping the client).
