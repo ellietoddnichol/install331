@@ -3,11 +3,21 @@ import { isPgDriver } from './driver.ts';
 const ALLOWED_TABLES = new Set(['catalog_items', 'catalog_items_clean']);
 
 /**
- * Returns the catalog items table name to use for reads.
+ * Physical table for every INSERT/UPDATE/DELETE (Sheets sync, Catalog edits).
  *
- * - Local/dev defaults to `catalog_items` (SQLite seed data, tests).
- * - Production can set `CATALOG_ITEMS_TABLE=catalog_items_clean` to point
- *   the estimator at the cleaned source-of-truth table.
+ * In Postgres, `catalog_items_clean` is typically a **VIEW** over `catalog_items`.
+ * Writes targeting the VIEW fail — sync appeared to run but never persisted rows.
+ */
+export function getCatalogItemsWriteTableName(): 'catalog_items' {
+  return 'catalog_items';
+}
+
+/**
+ * Returns the catalog relation name for **reads** (list/search/workspace APIs).
+ *
+ * - Defaults to `catalog_items`.
+ * - Set `CATALOG_ITEMS_TABLE=catalog_items_clean` to read through the compatibility VIEW
+ *   (must be `SELECT * FROM catalog_items`; writes still go to `catalog_items`).
  *
  * Safety: only allows a small whitelist of identifiers to avoid SQL injection
  * when used in string-interpolated SQL.

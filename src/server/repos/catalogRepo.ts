@@ -2,7 +2,7 @@ import { dbAll, dbGet, dbRun } from '../db/query.ts';
 import type { CatalogItem } from '../../types.ts';
 import type { CatalogCategoryImageGapRow, CatalogPostCutoverHealthRecord, CatalogSyncStatusRecord } from '../../shared/types/estimator.ts';
 import { ensureTakeoffCatalogSeeded } from '../services/intake/takeoffCatalogRegistry.ts';
-import { getCatalogItemsTableName } from '../db/catalogTable.ts';
+import { getCatalogItemsTableName, getCatalogItemsWriteTableName } from '../db/catalogTable.ts';
 
 function mapCatalogRow(row: any): CatalogItem {
   return {
@@ -167,7 +167,7 @@ export async function getCatalogPostCutoverHealth(params: {
 
 /** Use after bulk DB import or when Sheet sync left most rows inactive. */
 export async function reactivateAllCatalogItems(): Promise<number> {
-  const table = getCatalogItemsTableName();
+  const table = getCatalogItemsWriteTableName();
   const result = await dbRun(`UPDATE ${table} SET active = 1`);
   return result.changes;
 }

@@ -6,7 +6,7 @@ import { google } from 'googleapis';
 import { JWT } from 'google-auth-library';
 import { isPgDriver } from '../db/driver.ts';
 import { dbAll, dbGet, dbRun, withPgTransaction } from '../db/query.ts';
-import { getCatalogItemsTableName } from '../db/catalogTable.ts';
+import { getCatalogItemsWriteTableName } from '../db/catalogTable.ts';
 import { TAKEOFF_CATALOG_SEED_ITEMS } from './intake/takeoffCatalogRegistry.ts';
 
 /** Repo root: …/src/server/services → ../../../ */
@@ -155,8 +155,9 @@ function getCell(row: string[], index: number | null): string {
   return String(row[index] ?? '').trim();
 }
 
+/** Sheets sync must mutate the physical table (not `catalog_items_clean` VIEW on Postgres). */
 function catalogItemsRelation(): string {
-  return getCatalogItemsTableName();
+  return getCatalogItemsWriteTableName();
 }
 
 /** SQLite allows double-quoted empty string literals; Postgres requires single quotes. */

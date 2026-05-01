@@ -6,7 +6,7 @@ import {
   upsertModifierInGoogleSheet,
 } from '../services/googleSheetsCatalogSync.ts';
 import { dbAll, dbGet, dbRun } from '../db/query.ts';
-import { getCatalogItemsTableName } from '../db/catalogTable.ts';
+import { getCatalogItemsWriteTableName } from '../db/catalogTable.ts';
 import {
   getCatalogInventoryCounts,
   listCatalogItemsForApi,
@@ -59,8 +59,12 @@ legacyRouter.get('/bootstrap/client-config', (_req, res) => {
 });
 
 legacyRouter.get('/catalog/items', async (req, res) => {
-  const includeInactive = req.query.includeInactive === '1' || req.query.includeInactive === 'true';
-  res.json(await listCatalogItemsForApi(includeInactive));
+  try {
+    const includeInactive = req.query.includeInactive === '1' || req.query.includeInactive === 'true';
+    res.json(await listCatalogItemsForApi(includeInactive));
+  } catch (err: unknown) {
+    handleRouteError(res, err, '[GET /api/catalog/items]');
+  }
 });
 
 /** Same payloads as v1 settings routes; mounted here so Catalog workspace loads without session (matches /catalog/items). */
@@ -233,7 +237,7 @@ legacyRouter.post('/catalog/items', async (req, res) => {
   if (!parsed.success) return handleRouteError(res, parsed.error, '[POST /api/catalog/items]');
   const i = parsed.data as CatalogItem;
   try {
-    const catItems = getCatalogItemsTableName();
+    const catItems = getCatalogItemsWriteTableName();
     await dbRun(
       `INSERT INTO ${catItems} (
           id, sku, canonical_sku, is_canonical, alias_of, category, subcategory, family, description, manufacturer, brand, model, model_number, series, image_url,
@@ -320,7 +324,7 @@ legacyRouter.put('/catalog/items/:id', async (req, res) => {
   if (!parsed.success) return handleRouteError(res, parsed.error, '[PUT /api/catalog/items/:id]');
   const i = parsed.data as CatalogItem;
   try {
-    const catItems = getCatalogItemsTableName();
+    const catItems = getCatalogItemsWriteTableName();
     await dbRun(
       `UPDATE ${catItems} SET 
           sku = ?, canonical_sku = ?, is_canonical = ?, alias_of = ?,
@@ -402,7 +406,7 @@ legacyRouter.put('/catalog/items/:id', async (req, res) => {
 
 legacyRouter.delete('/catalog/items/:id', async (req, res) => {
   try {
-    const catItems = getCatalogItemsTableName();
+    const catItems = getCatalogItemsWriteTableName();
     const existing = (await dbGet(`SELECT * FROM ${catItems} WHERE id = ?`, [req.params.id])) as Record<string, unknown> | undefined;
     if (!existing) {
       return res.status(404).json({ error: 'Catalog item not found.' });
