@@ -1,0 +1,23 @@
+# Keep build context small and deterministic (Cloud Build / Docker).
+# Do NOT ignore `src/` — Vite needs it for `npm run build`.
+
+node_modules
+dist
+build
+.git
+.github
+*.md
+.env
+.env.*
+!.env.example
+coverage
+*.log
+.DS_Store
+estimator.db
+estimator.db-shm
+estimator.db-wal
+google-service-account.json
+gen-lang-client-*.json
+div10_starter_pack.zip
+div10_starter_pack_extracted
+eval-results

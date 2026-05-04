@@ -1,0 +1,68 @@
+# Cloud Build → Docker → Artifact Registry → Cloud Run
+# GitHub trigger sets COMMIT_SHA. For manual: gcloud builds submit --substitutions=COMMIT_SHA=$(git rev-parse HEAD)
+#
+# If the trigger runs as labor-catalog@gen-lang-client-0568373820.iam.gserviceaccount.com, that SA needs:
+#   - roles/artifactregistry.writer on repository cloud-run-source-deploy (region europe-west1) — or push step fails
+#   - roles/run.admin on the project — deploy step
+#   - roles/iam.serviceAccountUser on 353363250924-compute@developer.gserviceaccount.com — deploy with --service-account
+#   - roles/logging.logWriter on the project — build logs visible in console
+# One-shot (PowerShell): scripts/grant-labor-catalog-cloud-build-roles.ps1
+substitutions:
+  _AR_HOSTNAME: europe-west1-docker.pkg.dev
+  _AR_PROJECT_ID: gen-lang-client-0568373820
+  _AR_REPOSITORY: cloud-run-source-deploy
+  _IMAGE_NAME: install331/cwainstall-git
+  _DEPLOY_REGION: europe-west1
+  _SERVICE_NAME: cwainstall-git
+  # Same runtime SA as your existing Cloud Run revision (act-as permission required on builder SA).
+  _RUN_SERVICE_ACCOUNT: '353363250924-compute@developer.gserviceaccount.com'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+
+timeout: 1800s
+
+steps:
+  # Builder SA must have artifactregistry.repositories.uploadArtifacts (or Writer) on this repo.
+  - id: docker-auth
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - gcloud auth configure-docker $_AR_HOSTNAME --quiet
+
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_IMAGE_NAME:$COMMIT_SHA
+      - .
+    waitFor:
+      - docker-auth
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_IMAGE_NAME:$COMMIT_SHA
+    waitFor:
+      - build
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        gcloud run deploy "$_SERVICE_NAME" \
+          --project="$_AR_PROJECT_ID" \
+          --region="$_DEPLOY_REGION" \
+          --platform=managed \
+          --image="$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_IMAGE_NAME:$COMMIT_SHA" \
+          --service-account="$_RUN_SERVICE_ACCOUNT" \
+          --port=8080 \
+          --quiet
+    waitFor:
+      - push

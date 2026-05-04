@@ -1,0 +1,3 @@
+clause_type,title,body,applicable_categories,active
+exclusion,Existing conditions,"Existing substrates and backing are by others unless noted in the bid documents.",Partitions|Signage,true
+assumption,Field verification,"Quantities and site conditions will be verified prior to final pricing.",,true
