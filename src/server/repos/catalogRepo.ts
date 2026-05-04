@@ -1,8 +1,8 @@
-import { getEstimatorDb } from '../db/connection.ts';
+import { dbAll, dbGet, dbRun } from '../db/query.ts';
 import type { CatalogItem } from '../../types.ts';
 import type { CatalogCategoryImageGapRow, CatalogPostCutoverHealthRecord, CatalogSyncStatusRecord } from '../../shared/types/estimator.ts';
 import { ensureTakeoffCatalogSeeded } from '../services/intake/takeoffCatalogRegistry.ts';
-import { getCatalogItemsTableName } from '../db/catalogTable.ts';
+import { getCatalogItemsTableName, getCatalogItemsWriteTableName } from '../db/catalogTable.ts';
 
 function mapCatalogRow(row: any): CatalogItem {
   return {
@@ -49,43 +49,51 @@ function mapCatalogRow(row: any): CatalogItem {
     requiresProjectConfiguration: row.requires_project_configuration == null ? undefined : !!row.requires_project_configuration,
     defaultUnit: row.default_unit || null,
     estimatorNotes: row.estimator_notes || null,
+
+    catalogSource: row.catalog_source ?? null,
+    catalogSourceTab: row.catalog_source_tab ?? null,
+    catalogSourceRow: row.catalog_source_row == null ? null : Number(row.catalog_source_row),
+    catalogSyncBatchId: row.catalog_sync_batch_id ?? null,
+    skuNormalized: row.sku_normalized ?? null,
+    manufacturerNormalized: row.manufacturer_normalized ?? null,
+    categoryMain: row.category_main ?? null,
+    itemType: row.item_type ?? null,
   };
 }
 
-export function listActiveCatalogItems(): CatalogItem[] {
-  ensureTakeoffCatalogSeeded();
+export async function listActiveCatalogItems(): Promise<CatalogItem[]> {
+  await ensureTakeoffCatalogSeeded();
   const table = getCatalogItemsTableName();
-  const rows = getEstimatorDb()
-    .prepare(`SELECT * FROM ${table} WHERE active = 1 ORDER BY category, description`)
-    .all();
+  const rows = await dbAll(`SELECT * FROM ${table} WHERE active = 1 ORDER BY category, description`);
   return rows.map(mapCatalogRow);
 }
 
 /** API / workspace: active-only for matching; admin Catalog can load every row. */
-export function listCatalogItemsForApi(includeInactive: boolean): CatalogItem[] {
-  ensureTakeoffCatalogSeeded();
+export async function listCatalogItemsForApi(includeInactive: boolean): Promise<CatalogItem[]> {
+  await ensureTakeoffCatalogSeeded();
+  const table = getCatalogItemsTableName();
   const sql = includeInactive
-    ? 'SELECT * FROM catalog_items ORDER BY category, description'
-    : 'SELECT * FROM catalog_items WHERE active = 1 ORDER BY category, description';
-  const rows = getEstimatorDb().prepare(sql).all();
+    ? `SELECT * FROM ${table} ORDER BY category, description`
+    : `SELECT * FROM ${table} WHERE active = 1 ORDER BY category, description`;
+  const rows = await dbAll(sql);
   return rows.map(mapCatalogRow);
 }
 
-export function getCatalogInventoryCounts(): { total: number; active: number; inactive: number } {
-  ensureTakeoffCatalogSeeded();
-  const row = getEstimatorDb()
-    .prepare(
-      `SELECT
-        COUNT(*) AS total,
-        SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) AS active,
-        SUM(CASE WHEN active = 0 THEN 1 ELSE 0 END) AS inactive
-      FROM catalog_items`
-    )
-    .get() as { total: number; active: number | null; inactive: number | null };
+export async function getCatalogInventoryCounts(): Promise<{ total: number; active: number; inactive: number }> {
+  await ensureTakeoffCatalogSeeded();
+  const table = getCatalogItemsTableName();
+  const row = await dbGet(
+    `SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) AS active,
+      SUM(CASE WHEN active = 0 THEN 1 ELSE 0 END) AS inactive
+    FROM ${table}`
+  );
+  const r = row as { total: number; active: number | null; inactive: number | null } | undefined;
   return {
-    total: row.total,
-    active: Number(row.active ?? 0),
-    inactive: Number(row.inactive ?? 0),
+    total: Number(r?.total ?? 0),
+    active: Number(r?.active ?? 0),
+    inactive: Number(r?.inactive ?? 0),
   };
 }
 
@@ -95,51 +103,43 @@ const forwardFacingSql = `active = 1 AND COALESCE(deprecated, 0) = 0 AND is_cano
  * Summarizes forward-facing catalog rows in SQLite for post-cutover checks (sync vs sheet audit, image gaps).
  * Forward-facing = active + canonical + not deprecated (typical estimator-facing set).
  */
-export function getCatalogPostCutoverHealth(params: {
+export async function getCatalogPostCutoverHealth(params: {
   itemsSourceTab: string;
   lastCatalogSync: CatalogSyncStatusRecord;
-}): CatalogPostCutoverHealthRecord {
-  ensureTakeoffCatalogSeeded();
-  const db = getEstimatorDb();
+}): Promise<CatalogPostCutoverHealthRecord> {
+  await ensureTakeoffCatalogSeeded();
+  const readTable = getCatalogItemsTableName();
 
-  const forward = db.prepare(`SELECT COUNT(*) AS n FROM catalog_items WHERE ${forwardFacingSql}`).get() as { n: number };
-  const missingImg = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM catalog_items WHERE ${forwardFacingSql}
+  const forward = (await dbGet(`SELECT COUNT(*) AS n FROM ${readTable} WHERE ${forwardFacingSql}`)) as { n: number };
+  const missingImg = (await dbGet(
+    `SELECT COUNT(*) AS n FROM ${readTable} WHERE ${forwardFacingSql}
        AND (image_url IS NULL OR TRIM(image_url) = '')`
-    )
-    .get() as { n: number };
-  const mfrBackedMiss = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM catalog_items WHERE ${forwardFacingSql}
+  )) as { n: number };
+  const mfrBackedMiss = (await dbGet(
+    `SELECT COUNT(*) AS n FROM ${readTable} WHERE ${forwardFacingSql}
        AND (image_url IS NULL OR TRIM(image_url) = '')
        AND TRIM(COALESCE(manufacturer, '')) != ''
        AND (TRIM(COALESCE(model, '')) != '' OR TRIM(COALESCE(series, '')) != '')`
-    )
-    .get() as { n: number };
+  )) as { n: number };
 
-  const attrDistinct = db
-    .prepare(
-      `SELECT COUNT(DISTINCT catalog_item_id) AS n
+  const attrDistinct = (await dbGet(
+    `SELECT COUNT(DISTINCT catalog_item_id) AS n
        FROM catalog_item_attributes
        WHERE active = 1`
-    )
-    .get() as { n: number };
+  )) as { n: number };
 
-  const topRows = db
-    .prepare(
-      `SELECT
+  const topRows = (await dbAll(
+    `SELECT
         COALESCE(NULLIF(TRIM(category), ''), '(Uncategorized)') AS category,
         SUM(CASE WHEN (image_url IS NULL OR TRIM(image_url) = '') THEN 1 ELSE 0 END) AS missing_image,
         COUNT(*) AS fwd
-       FROM catalog_items
+       FROM ${readTable}
        WHERE ${forwardFacingSql}
        GROUP BY category
-       HAVING missing_image > 0
+       HAVING SUM(CASE WHEN (image_url IS NULL OR TRIM(image_url) = '') THEN 1 ELSE 0 END) > 0
        ORDER BY missing_image DESC, fwd DESC
        LIMIT 12`
-    )
-    .all() as Array<{ category: string; missing_image: number; fwd: number }>;
+  )) as Array<{ category: string; missing_image: number; fwd: number }>;
 
   const topCategoriesByMissingImage: CatalogCategoryImageGapRow[] = topRows.map((row) => ({
     category: row.category,
@@ -156,7 +156,7 @@ export function getCatalogPostCutoverHealth(params: {
 
   return {
     itemsSourceTab: params.itemsSourceTab,
-    inventory: getCatalogInventoryCounts(),
+    inventory: await getCatalogInventoryCounts(),
     forwardFacing: {
       count: Number(forward.n),
       missingImageUrl: Number(missingImg.n),
@@ -170,20 +170,23 @@ export function getCatalogPostCutoverHealth(params: {
 }
 
 /** Use after bulk DB import or when Sheet sync left most rows inactive. */
-export function reactivateAllCatalogItems(): number {
-  const result = getEstimatorDb().prepare('UPDATE catalog_items SET active = 1').run();
+export async function reactivateAllCatalogItems(): Promise<number> {
+  await ensureTakeoffCatalogSeeded();
+  const wt = getCatalogItemsWriteTableName();
+  const result = await dbRun(`UPDATE ${wt} SET active = 1`, []);
   return result.changes;
 }
 
-export function searchCatalogItemsForApi(input: {
+export async function searchCatalogItemsForApi(input: {
   query: string;
   category?: string | null;
   includeInactive?: boolean;
   includeDeprecated?: boolean;
   includeNonCanonical?: boolean;
   limit?: number;
-}): CatalogItem[] {
-  ensureTakeoffCatalogSeeded();
+}): Promise<CatalogItem[]> {
+  await ensureTakeoffCatalogSeeded();
+  const readTable = getCatalogItemsTableName();
   const qRaw = input.query.trim().toLowerCase();
   if (!qRaw) return [];
 
@@ -236,9 +239,7 @@ export function searchCatalogItemsForApi(input: {
   )`);
   args.push(like, like, like, like, like, like, like, like, like, like);
 
-  const sql = `
-    SELECT DISTINCT c.*,
-      MIN(
+  const matchCase = `(
         CASE
           WHEN lower(c.sku) = ? THEN 0
           WHEN lower(COALESCE(a.alias_value,'')) = ? THEN 1
@@ -246,17 +247,30 @@ export function searchCatalogItemsForApi(input: {
           WHEN lower(c.sku) LIKE ? THEN 3
           WHEN lower(COALESCE(a.alias_value,'')) LIKE ? THEN 4
           ELSE 10
-        END
-      ) AS match_rank
-    FROM catalog_items c
-    LEFT JOIN catalog_item_aliases a ON a.catalog_item_id = c.id
-    WHERE ${where.join(' AND ')}
-    GROUP BY c.id
-    ORDER BY match_rank ASC, c.category ASC, c.description ASC
+        END)`;
+
+  const rankParams = [qEffective, qEffective, qEffective, `${qEffective}%`, `${qEffective}%`];
+
+  const sql = `
+    SELECT * FROM (
+      SELECT c.*,
+        ${matchCase} AS match_rank,
+        ROW_NUMBER() OVER (
+          PARTITION BY c.id
+          ORDER BY ${matchCase} ASC, c.category ASC, c.description ASC
+        ) AS _rn
+      FROM ${readTable} c
+      LEFT JOIN catalog_item_aliases a ON a.catalog_item_id = c.id
+      WHERE ${where.join(' AND ')}
+    ) ranked
+    WHERE ranked._rn = 1
+    ORDER BY ranked.match_rank ASC, ranked.category ASC, ranked.description ASC
     LIMIT ${limit}
   `;
-  const rows = getEstimatorDb()
-    .prepare(sql)
-    .all(...args, qEffective, qEffective, qEffective, `${qEffective}%`, `${qEffective}%`) as any[];
-  return rows.map(mapCatalogRow);
+
+  const rows = await dbAll(sql, [...args, ...rankParams, ...rankParams]);
+  return rows.map((row: Record<string, unknown>) => {
+    const { match_rank: _mr, _rn: _rn2, ...rest } = row;
+    return mapCatalogRow(rest);
+  });
 }

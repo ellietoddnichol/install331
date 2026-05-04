@@ -1,9 +1,10 @@
 import { isPgDriver } from '../db/driver.ts';
-import { getCatalogItemsTableName } from '../db/catalogTable.ts';
+import { getCatalogItemsTableName, getCatalogSourceMode, type CatalogSourceMode } from '../db/catalogTable.ts';
 
 export type CatalogSourcePayload = {
   dbDriver: 'sqlite' | 'pg';
   catalogItemsTable: ReturnType<typeof getCatalogItemsTableName>;
+  catalogSource: CatalogSourceMode;
   sheetsItemsTab: string;
   sheetsModifiersTab: string;
   sheetsBundlesTab: string;
@@ -22,6 +23,7 @@ export function buildCatalogSourcePayload(): CatalogSourcePayload {
 
   const dbDriver: CatalogSourcePayload['dbDriver'] = isPgDriver() ? 'pg' : 'sqlite';
   const catalogItemsTable = getCatalogItemsTableName();
+  const catalogSource = getCatalogSourceMode();
 
   const spreadsheetId = String(process.env.GOOGLE_SHEETS_SPREADSHEET_ID || process.env.GOOGLE_SHEETS_ID || '').trim();
   const spreadsheetIdConfigured = Boolean(spreadsheetId);
@@ -45,6 +47,7 @@ export function buildCatalogSourcePayload(): CatalogSourcePayload {
   return {
     dbDriver,
     catalogItemsTable,
+    catalogSource,
     sheetsItemsTab,
     sheetsModifiersTab,
     sheetsBundlesTab,

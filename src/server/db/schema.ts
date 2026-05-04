@@ -191,6 +191,16 @@ export function initEstimatorSchema(db: Database) {
       warnings_json TEXT NOT NULL DEFAULT '[]'
     );
 
+    CREATE TABLE IF NOT EXISTS catalog_sheet_import_rows (
+      id TEXT PRIMARY KEY,
+      sync_batch_id TEXT NOT NULL,
+      source_tab TEXT NOT NULL,
+      sheet_row_number INTEGER NOT NULL,
+      raw_cells_json TEXT NOT NULL,
+      imported_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_catalog_sheet_import_batch ON catalog_sheet_import_rows (sync_batch_id);
+
     CREATE TABLE IF NOT EXISTS project_files_v1 (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
@@ -787,6 +797,15 @@ export function initEstimatorSchema(db: Database) {
     ensureCatalogColumn('requires_project_configuration', 'requires_project_configuration INTEGER NOT NULL DEFAULT 0');
     ensureCatalogColumn('default_unit', 'default_unit TEXT');
     ensureCatalogColumn('estimator_notes', 'estimator_notes TEXT');
+
+    ensureCatalogColumn('catalog_source', 'catalog_source TEXT');
+    ensureCatalogColumn('catalog_source_tab', 'catalog_source_tab TEXT');
+    ensureCatalogColumn('catalog_source_row', 'catalog_source_row INTEGER');
+    ensureCatalogColumn('catalog_sync_batch_id', 'catalog_sync_batch_id TEXT');
+    ensureCatalogColumn('sku_normalized', 'sku_normalized TEXT');
+    ensureCatalogColumn('manufacturer_normalized', 'manufacturer_normalized TEXT');
+    ensureCatalogColumn('category_main', 'category_main TEXT');
+    ensureCatalogColumn('item_type', 'item_type TEXT');
 
     // Backfill safe defaults so older rows behave as canonical rows by default.
     db.exec(`UPDATE catalog_items SET canonical_sku = sku WHERE (canonical_sku IS NULL OR trim(canonical_sku) = '') AND sku IS NOT NULL`);

@@ -88,7 +88,31 @@ function mapSettingsRow(row: SettingsDbRow): SettingsRecord {
 }
 
 export function getSettings(): SettingsRecord {
-  const row = getEstimatorDb().prepare('SELECT * FROM settings_v1 WHERE id = ?').get('global') as SettingsDbRow;
+  const row = getEstimatorDb().prepare('SELECT * FROM settings_v1 WHERE id = ?').get('global') as SettingsDbRow | undefined;
+  if (!row) {
+    return mapSettingsRow({
+      id: 'global',
+      company_name: '',
+      company_address: '',
+      company_phone: '',
+      company_email: '',
+      logo_url: '',
+      default_labor_rate_per_hour: 100,
+      default_overhead_percent: 0,
+      default_profit_percent: 0,
+      default_tax_percent: 8.25,
+      default_labor_burden_percent: 0,
+      default_labor_overhead_percent: 5,
+      proposal_intro: null,
+      proposal_terms: null,
+      proposal_exclusions: null,
+      proposal_clarifications: null,
+      proposal_acceptance_label: null,
+      intake_catalog_auto_apply_mode: 'off',
+      intake_catalog_tier_a_min_score: 0.82,
+      updated_at: new Date().toISOString(),
+    } as SettingsDbRow);
+  }
   return mapSettingsRow(row);
 }
 
@@ -111,14 +135,8 @@ export function updateSettings(input: Partial<SettingsRecord>): SettingsRecord {
   next.intakeCatalogAutoApplyMode = merged.intakeCatalogAutoApplyMode;
   next.intakeCatalogTierAMinScore = merged.intakeCatalogTierAMinScore;
 
-  getEstimatorDb().prepare(`
-    UPDATE settings_v1 SET
-      company_name = ?, company_address = ?, company_phone = ?, company_email = ?, logo_url = ?, default_labor_rate_per_hour = ?,
-      default_overhead_percent = ?, default_profit_percent = ?, default_tax_percent = ?, default_labor_burden_percent = ?, default_labor_overhead_percent = ?,
-      proposal_intro = ?, proposal_terms = ?, proposal_exclusions = ?, proposal_clarifications = ?, proposal_acceptance_label = ?,
-      intake_catalog_auto_apply_mode = ?, intake_catalog_tier_a_min_score = ?, updated_at = ?
-    WHERE id = 'global'
-  `).run(
+  const db = getEstimatorDb();
+  const params = [
     next.companyName,
     next.companyAddress,
     next.companyPhone,
@@ -137,8 +155,35 @@ export function updateSettings(input: Partial<SettingsRecord>): SettingsRecord {
     next.proposalAcceptanceLabel,
     next.intakeCatalogAutoApplyMode,
     next.intakeCatalogTierAMinScore,
-    next.updatedAt
-  );
+    next.updatedAt,
+  ] as const;
+
+  const updated = db
+    .prepare(
+      `
+    UPDATE settings_v1 SET
+      company_name = ?, company_address = ?, company_phone = ?, company_email = ?, logo_url = ?, default_labor_rate_per_hour = ?,
+      default_overhead_percent = ?, default_profit_percent = ?, default_tax_percent = ?, default_labor_burden_percent = ?, default_labor_overhead_percent = ?,
+      proposal_intro = ?, proposal_terms = ?, proposal_exclusions = ?, proposal_clarifications = ?, proposal_acceptance_label = ?,
+      intake_catalog_auto_apply_mode = ?, intake_catalog_tier_a_min_score = ?, updated_at = ?
+    WHERE id = 'global'
+  `
+    )
+    .run(...params);
+
+  if (updated.changes === 0) {
+    db.prepare(
+      `
+      INSERT INTO settings_v1 (
+        id, company_name, company_address, company_phone, company_email, logo_url,
+        default_labor_rate_per_hour, default_overhead_percent, default_profit_percent, default_tax_percent,
+        default_labor_burden_percent, default_labor_overhead_percent,
+        proposal_intro, proposal_terms, proposal_exclusions, proposal_clarifications, proposal_acceptance_label,
+        intake_catalog_auto_apply_mode, intake_catalog_tier_a_min_score, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+    ).run('global', ...params);
+  }
 
   return next;
 }

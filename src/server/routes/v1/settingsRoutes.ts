@@ -73,10 +73,10 @@ settingsRouter.get('/catalog-inventory', async (_req, res) => {
 });
 
 /** Post–CLEAN_ITEMS cutover: DB forward-facing counts, image gaps, vs last sync (for manual comparison to sheet META audit). */
-settingsRouter.get('/catalog-post-cutover-health', (_req, res) => {
+settingsRouter.get('/catalog-post-cutover-health', async (_req, res) => {
   const itemsTab = process.env.GOOGLE_SHEETS_TAB_ITEMS || 'CLEAN_ITEMS';
   const sync = getCatalogSyncStatus();
-  return res.json({ data: getCatalogPostCutoverHealth({ itemsSourceTab: itemsTab, lastCatalogSync: sync }) });
+  return res.json({ data: await getCatalogPostCutoverHealth({ itemsSourceTab: itemsTab, lastCatalogSync: sync }) });
 });
 
 /** Sets every catalog row to active (e.g. after SQLite import). Sheet sync normally deactivates rows not in the sheet. */

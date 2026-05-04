@@ -40,19 +40,19 @@ export const legacyRouter = Router();
 
 legacyRouter.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
-legacyRouter.get('/catalog/items', (req, res) => {
+legacyRouter.get('/catalog/items', async (req, res) => {
   const includeInactive = req.query.includeInactive === '1' || req.query.includeInactive === 'true';
-  res.json(listCatalogItemsForApi(includeInactive));
+  res.json(await listCatalogItemsForApi(includeInactive));
 });
 
-legacyRouter.get('/catalog/search', (req, res) => {
+legacyRouter.get('/catalog/search', async (req, res) => {
   const q = String(req.query.q || '').trim();
   const category = req.query.category ? String(req.query.category) : null;
   const includeInactive = req.query.includeInactive === '1' || req.query.includeInactive === 'true';
   const includeDeprecated = req.query.includeDeprecated === '1' || req.query.includeDeprecated === 'true';
   const includeNonCanonical = req.query.includeNonCanonical === '1' || req.query.includeNonCanonical === 'true';
   try {
-    const results = searchCatalogItemsForApi({
+    const results = await searchCatalogItemsForApi({
       query: q,
       category,
       includeInactive,

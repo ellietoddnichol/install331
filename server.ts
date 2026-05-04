@@ -8,19 +8,26 @@ import { v1Router } from './src/server/routes/v1/index.ts';
 import { legacyRouter } from './src/server/routes/legacyRouter.ts';
 import { expressErrorHandler } from './src/server/http/jsonErrors.ts';
 import { prepareEstimatorDbForServer } from './src/server/db/connection.ts';
+import { logCatalogRuntimeHints } from './src/server/db/catalogRuntimeHints.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-['.env', '.env.local'].forEach((fileName) => {
+// Load base then local overrides (`.env.local` wins on duplicate keys).
+const envFiles: ReadonlyArray<[string, boolean]> = [
+  ['.env', false],
+  ['.env.local', true],
+];
+for (const [fileName, override] of envFiles) {
   const fullPath = path.join(__dirname, fileName);
   if (fs.existsSync(fullPath)) {
-    dotenv.config({ path: fullPath, override: false });
+    dotenv.config({ path: fullPath, override });
   }
-});
+}
 
 async function startServer() {
   // Ensure SQLite persistence is prepared before any requests hit the repos.
   await prepareEstimatorDbForServer();
+  logCatalogRuntimeHints();
 
   const app = express();
   const rawPort = process.env.PORT?.trim();

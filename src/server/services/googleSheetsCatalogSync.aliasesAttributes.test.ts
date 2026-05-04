@@ -9,8 +9,10 @@ test('upsertAliases + upsertAttributes ingest Canonical_SKU sheet rows safely', 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'install331-test-'));
   process.env.DATABASE_PATH = path.join(tmpDir, 'estimator.aliases-attrs.test.db');
   const { getEstimatorDb } = await import('../db/connection.ts');
+  const { createSqliteDbExec } = await import('../db/query.ts');
   const { upsertAliases, upsertAttributes } = await import('./googleSheetsCatalogSync.ts');
   const db = getEstimatorDb();
+  const ex = createSqliteDbExec();
 
   // Seed one catalog item.
   db.prepare(
@@ -32,8 +34,8 @@ test('upsertAliases + upsertAttributes ingest Canonical_SKU sheet rows safely', 
     ['GB-36', 'finish', 'MATTE_BLACK', 'absolute', '10', 'percent', '10', 'TRUE', '0', ''],
   ];
 
-  const a = upsertAliases(aliasRows, warnings);
-  const b = upsertAttributes(attributeRows, warnings);
+  const a = await upsertAliases(ex, 'catalog_items', aliasRows, warnings);
+  const b = await upsertAttributes(ex, 'catalog_items', attributeRows, warnings);
   assert.equal(a.aliasesSynced, 1);
   assert.equal(b.attributesSynced, 1);
 

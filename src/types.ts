@@ -90,6 +90,17 @@ export interface CatalogItem {
   requiresProjectConfiguration?: boolean;
   defaultUnit?: string | null;
   estimatorNotes?: string | null;
+
+  /** Google Sheet sync provenance / normalization (optional; additive). */
+  catalogSource?: string | null;
+  catalogSourceTab?: string | null;
+  catalogSourceRow?: number | null;
+  catalogSyncBatchId?: string | null;
+  skuNormalized?: string | null;
+  manufacturerNormalized?: string | null;
+  /** Coarse estimator bucket (see `catalogNormalization.mapCategoryMain`). */
+  categoryMain?: string | null;
+  itemType?: string | null;
 }
 
 export type CatalogAliasType = 'legacy_sku' | 'vendor_sku' | 'parser_phrase' | 'generic_name' | 'search_key';

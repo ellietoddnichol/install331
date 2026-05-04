@@ -2,13 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 test('buildCatalogSourcePayload reflects env (tabs, spreadsheet flag, clean-table note)', async () => {
-  const keys = ['GOOGLE_SHEETS_SPREADSHEET_ID', 'GOOGLE_SHEETS_ID', 'CATALOG_ITEMS_TABLE', 'GOOGLE_SHEETS_TAB_ITEMS', 'DB_DRIVER'] as const;
+  const keys = ['GOOGLE_SHEETS_SPREADSHEET_ID', 'GOOGLE_SHEETS_ID', 'CATALOG_ITEMS_TABLE', 'GOOGLE_SHEETS_TAB_ITEMS', 'DB_DRIVER', 'CATALOG_SOURCE'] as const;
   const snap: Partial<Record<(typeof keys)[number], string | undefined>> = {};
   for (const k of keys) snap[k] = process.env[k];
 
   try {
     delete process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
     delete process.env.GOOGLE_SHEETS_ID;
+    delete process.env.CATALOG_SOURCE;
     process.env.CATALOG_ITEMS_TABLE = 'catalog_items_clean';
     process.env.GOOGLE_SHEETS_TAB_ITEMS = 'CLEAN_ITEMS';
     process.env.DB_DRIVER = 'sqlite';
@@ -17,6 +18,7 @@ test('buildCatalogSourcePayload reflects env (tabs, spreadsheet flag, clean-tabl
     const p = buildCatalogSourcePayload();
 
     assert.equal(p.dbDriver, 'sqlite');
+    assert.equal(p.catalogSource, 'sqlite');
     assert.equal(p.catalogItemsTable, 'catalog_items_clean');
     assert.equal(p.sheetsItemsTab, 'CLEAN_ITEMS');
     assert.equal(p.spreadsheetIdConfigured, false);

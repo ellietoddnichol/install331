@@ -82,3 +82,19 @@ export function withSqliteTransaction<T>(fn: () => T): T {
   const db = getEstimatorDb();
   return db.transaction(fn)();
 }
+
+/** Shared connection DbExec for SQLite (same thread / pool-less prepare). */
+export function createSqliteDbExec(): DbExec {
+  if (isPgDriver()) {
+    throw new Error('createSqliteDbExec() is only valid when DB_DRIVER=sqlite');
+  }
+  const db = getEstimatorDb();
+  return {
+    all: async <T = Record<string, unknown>>(sql: string, params: unknown[] = []) =>
+      Promise.resolve(db.prepare(sql).all(...params) as T[]),
+    get: async <T = Record<string, unknown>>(sql: string, params: unknown[] = []) =>
+      Promise.resolve(db.prepare(sql).get(...params) as T | undefined),
+    run: async (sql: string, params: unknown[] = []) =>
+      Promise.resolve({ changes: db.prepare(sql).run(...params).changes }),
+  };
+}
