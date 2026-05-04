@@ -115,3 +115,115 @@ test('catalog sheet upserts: items, staging, modifiers, bundles, aliases, attrib
   };
   assert.equal(aliasCount.c, 1);
 });
+
+/** Regression: duplicate ITEMS stable keys map to one upsert target (sheet last row wins); avoids UNIQUE on catalog_items.id. */
+test('ITEMS duplicate SKU rows: last sheet row wins, single synced item', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'install331-sheet-sync-dup-'));
+  process.env.DATABASE_PATH = path.join(tmpDir, 'estimator.sheet-sync-dup.db');
+  process.env.DB_DRIVER = 'sqlite';
+  process.env.CATALOG_SYNC_SKIP_STAGING = '1';
+
+  const { getEstimatorDb } = await import('../db/connection.ts');
+  const { withCatalogSyncWriteTransaction } = await import('./catalogSyncTransaction.ts');
+  const { upsertItems } = await import('./googleSheetsCatalogSync.ts');
+
+  const db = getEstimatorDb();
+
+  const itemRows = [
+    ['SKU', 'Description', 'Unit', 'Material Cost', 'Base Labor Minutes', 'Active', 'Scope Category'],
+    ['DUP-SKU-777', 'First row dup', 'EA', '10', '1', 'TRUE', 'Fixtures'],
+    ['DUP-SKU-777', 'Last row wins dup', 'EA', '42', '99', 'TRUE', 'Fixtures'],
+  ];
+  const warnings: string[] = [];
+
+  await withCatalogSyncWriteTransaction(async (ex) => {
+    const n = await upsertItems(ex, itemRows, warnings, false, {
+      batchId: 'dup-sku-batch',
+      itemsTab: 'CLEAN_ITEMS',
+    });
+    assert.equal(n, 1);
+  });
+
+  const row = db.prepare('SELECT description, CAST(base_material_cost AS REAL) as m FROM catalog_items WHERE sku = ?').get('DUP-SKU-777') as {
+    description: string;
+    m: number;
+  };
+  assert.ok(row);
+  assert.equal(row.description, 'Last row wins dup');
+  assert.ok(Math.abs(row.m - 42) < 0.001);
+});
+
+test('sheet sync updates by primary key when sheetDerivedId exists but sku lookup misses', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'install331-sheet-sync-pk-'));
+  process.env.DATABASE_PATH = path.join(tmpDir, 'estimator.sheet-sync-pk.db');
+  process.env.DB_DRIVER = 'sqlite';
+  process.env.CATALOG_SYNC_SKIP_STAGING = '1';
+
+  const { getEstimatorDb } = await import('../db/connection.ts');
+  const { withCatalogSyncWriteTransaction } = await import('./catalogSyncTransaction.ts');
+  const { upsertItems } = await import('./googleSheetsCatalogSync.ts');
+
+  const db = getEstimatorDb();
+  const sku = 'COLLIDE-SKU-A';
+  const sheetDerivedId = `sheet-item-${sku.toLowerCase()}`;
+
+  db.prepare(
+    `INSERT INTO catalog_items (
+      id, sku, category, description, uom, base_material_cost, base_labor_minutes,
+      taxable, ada_flag, tags, notes, active, canonical_sku, is_canonical, deprecated
+    ) VALUES (?, NULL, ?, ?, 'EA', 0, 0, 1, 0, '[]', NULL, 1, NULL, 1, 0)`
+  ).run(sheetDerivedId, 'Cats', 'Legacy row without SKU value');
+
+  const itemRows = [
+    ['SKU', 'Description', 'Unit', 'Material Cost', 'Base Labor Minutes', 'Active', 'Scope Category'],
+    [sku, 'Updated by sheet sync', 'EA', '10', '5', 'TRUE', 'Cats'],
+  ];
+  const warnings: string[] = [];
+
+  await withCatalogSyncWriteTransaction(async (ex) => {
+    const n = await upsertItems(ex, itemRows, warnings, false, {
+      batchId: 'pk-collision-batch',
+      itemsTab: 'CLEAN_ITEMS',
+    });
+    assert.equal(n, 1);
+  });
+
+  const row = db.prepare('SELECT sku, description FROM catalog_items WHERE id = ?').get(sheetDerivedId) as {
+    sku: string | null;
+    description: string;
+  };
+  assert.equal(row?.sku, sku);
+  assert.equal(row?.description, 'Updated by sheet sync');
+});
+
+/** Regression: failed attempts must update status/message without clobbering count columns (`updateSyncStatus` omits counts on failure). */
+test('catalog_sync_status_v1 retains last successful counts when only status and message fail', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'install331-sheet-sync-pres-'));
+  process.env.DATABASE_PATH = path.join(tmpDir, 'estimator.sync-pres.db');
+  process.env.DB_DRIVER = 'sqlite';
+
+  const { getEstimatorDb } = await import('../db/connection.ts');
+  const db = getEstimatorDb();
+
+  db.prepare(
+    `UPDATE catalog_sync_status_v1 SET items_synced = ?, modifiers_synced = ?, bundles_synced = ?, bundle_items_synced = ?, aliases_synced = ?, attributes_synced = ?, status = 'success', message = ?
+     WHERE id = 'catalog'`
+  ).run(321, 4, 2, 0, 1, 0, 'Catalog sync complete: 321 items.');
+
+  const failedAt = new Date().toISOString();
+  db.prepare(
+    `UPDATE catalog_sync_status_v1 SET status = 'failed', message = ?, last_attempt_at = ?, warnings_json = '[]'
+     WHERE id = 'catalog'`
+  ).run(`Missing required tab "CLEAN_ITEMS".`, failedAt);
+
+  const row = db.prepare('SELECT items_synced, modifiers_synced, status, message FROM catalog_sync_status_v1 WHERE id = ?').get('catalog') as {
+    items_synced: number;
+    modifiers_synced: number;
+    status: string;
+    message: string | null;
+  };
+  assert.equal(row.items_synced, 321);
+  assert.equal(row.modifiers_synced, 4);
+  assert.equal(row.status, 'failed');
+  assert.match(String(row.message), /Missing required tab/i);
+});

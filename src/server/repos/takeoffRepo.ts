@@ -4,7 +4,7 @@ import type { IntakeMatchConfidence, IntakeScopeBucket } from '../../shared/type
 import { TakeoffLineModifierRollup, TakeoffLineRecord, TakeoffPricingSource } from '../../shared/types/estimator.ts';
 import { recordIntakeCatalogMemoryFromAcceptedMatch } from './intakeCatalogMemoryRepo.ts';
 import { getRoom } from './roomsRepo.ts';
-import { getCatalogItemsTableName } from '../db/catalogTable.ts';
+import { getCatalogItemAttributesReadTableName, getCatalogItemsTableName } from '../db/catalogTable.ts';
 
 const DEFAULT_LABOR_RATE_PER_HOUR = Number(process.env.DEFAULT_LABOR_RATE_PER_HOUR || 100);
 
@@ -306,10 +306,11 @@ function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): {
     }
 
     const selected = new Set(snapshot.map((a) => `${a.attributeType}:${a.attributeValue}`));
+    const attrRel = getCatalogItemAttributesReadTableName();
     const rows = getEstimatorDb()
       .prepare(
         `SELECT attribute_type, attribute_value, material_delta_type, material_delta_value, labor_delta_type, labor_delta_value
-         FROM catalog_item_attributes
+         FROM ${attrRel}
          WHERE catalog_item_id = ? AND active = 1`
       )
       .all(catalogItemId) as Array<{

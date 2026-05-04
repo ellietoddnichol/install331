@@ -1,0 +1,2 @@
+id,sku_lower,duplicate_count,id_list,remark
+"paste-query-results","",,"","PostgreSQL: use string_agg(id::text,'|'); SQLite: GROUP_CONCAT(id)"

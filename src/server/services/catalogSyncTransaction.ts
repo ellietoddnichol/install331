@@ -1,5 +1,5 @@
 import { getEstimatorDb } from '../db/connection.ts';
-import { isPgDriver } from '../db/driver.ts';
+import { isPgCatalogBackend } from '../db/catalogBackend.ts';
 import { createSqliteDbExec, withPgTransaction, type DbExec } from '../db/query.ts';
 
 /**
@@ -7,7 +7,7 @@ import { createSqliteDbExec, withPgTransaction, type DbExec } from '../db/query.
  * Postgres → pooled client; SQLite → explicit BEGIN IMMEDIATE with shared DbExec.
  */
 export async function withCatalogSyncWriteTransaction<T>(fn: (ex: DbExec) => Promise<T>): Promise<T> {
-  if (isPgDriver()) {
+  if (isPgCatalogBackend()) {
     return withPgTransaction(fn);
   }
   const db = getEstimatorDb();

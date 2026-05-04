@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { getCatalogModifiersReadTableName } from '../db/catalogTable.ts';
 import { getEstimatorDb } from '../db/connection.ts';
 import { LineModifierRecord, ModifierRecord } from '../../shared/types/estimator.ts';
 import { getTakeoffLineCore, resolveUnitLaborCostFromMinutes, updateTakeoffLine } from './takeoffRepo.ts';
@@ -34,7 +35,8 @@ function mapLineModifier(row: any): LineModifierRecord {
 }
 
 export function listModifiers(): ModifierRecord[] {
-  const rows = getEstimatorDb().prepare('SELECT * FROM modifiers_v1 WHERE active = 1 ORDER BY name').all();
+  const rel = getCatalogModifiersReadTableName();
+  const rows = getEstimatorDb().prepare(`SELECT * FROM ${rel} WHERE active = 1 ORDER BY name`).all();
   return rows.map(mapModifier);
 }
 
@@ -82,7 +84,8 @@ export function applyModifierToLine(lineId: string, modifierId: string): { line:
   const line = getTakeoffLineCore(lineId);
   if (!line) return null;
 
-  const modifierRow = getEstimatorDb().prepare('SELECT * FROM modifiers_v1 WHERE id = ? AND active = 1').get(modifierId);
+  const rel = getCatalogModifiersReadTableName();
+  const modifierRow = getEstimatorDb().prepare(`SELECT * FROM ${rel} WHERE id = ? AND active = 1`).get(modifierId);
   if (!modifierRow) return null;
 
   const modifier = mapModifier(modifierRow);

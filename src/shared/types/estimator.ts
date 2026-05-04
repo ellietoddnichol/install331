@@ -1,4 +1,11 @@
 import type { IntakeMatchConfidence, IntakeScopeBucket } from './intake.ts';
+import type {
+  CatalogSyncLastAttemptSummary,
+  CatalogSyncRunAuditSummary,
+  CatalogSyncWorkbookSnapshot,
+  CatalogSyncServerConfigNow,
+  CatalogSyncRunContext,
+} from './catalogSyncAudit.ts';
 
 export type ProjectStatus = 'Draft' | 'Submitted' | 'Awarded' | 'Lost' | 'Archived';
 
@@ -457,6 +464,43 @@ export interface CatalogSyncStatusRecord {
   aliasesSynced: number;
   attributesSynced: number;
   warnings: string[];
+  /** Present when sync stored structured payload in `warnings_json` (workbook-first audit). */
+  syncAudit?: CatalogSyncRunAuditSummary;
+  /**
+   * Workbook snapshot for UI: parsed from latest run `run_context_json` when present; otherwise current server env (`serverConfigNow`).
+   */
+  workbook?: CatalogSyncWorkbookSnapshot;
+  /** Live server env (tabs + importer + validation knobs) at read time — not the historic run unless no runs exist. */
+  serverConfigNow?: CatalogSyncServerConfigNow;
+  /** Latest persisted `run_context_json` (newest `catalog_sync_runs_v1` row), when valid. */
+  historicalSyncRunContext?: CatalogSyncRunContext | null;
+  /** Newest run row id (same ordering as `historicalSyncRunContext` / default CSV `runId`). */
+  latestCatalogSyncRunId?: string | null;
+  /** Roll-up of counters from `syncAudit` when present (optional ergonomic copy). */
+  lastAttemptSummary?: CatalogSyncLastAttemptSummary;
+}
+
+/** One row from `catalog_sync_runs_v1` (newest first when listed). */
+export interface CatalogSyncRunHistoryRecord {
+  id: string;
+  attemptedAt: string;
+  status: 'success' | 'failed';
+  message: string | null;
+  itemsSynced: number;
+  modifiersSynced: number;
+  bundlesSynced: number;
+  bundleItemsSynced: number;
+  aliasesSynced: number;
+  attributesSynced: number;
+  warnings: string[];
+  syncAudit?: CatalogSyncRunAuditSummary;
+  /**
+   * Workbook snapshot: from this row's `run_context_json` when present; otherwise current server env.
+   */
+  workbook?: CatalogSyncWorkbookSnapshot;
+  serverConfigNow?: CatalogSyncServerConfigNow;
+  historicalSyncRunContext?: CatalogSyncRunContext | null;
+  lastAttemptSummary?: CatalogSyncLastAttemptSummary;
 }
 
 /** DB-side snapshot for post–CLEAN_ITEMS cutover validation + image-gap triage. */

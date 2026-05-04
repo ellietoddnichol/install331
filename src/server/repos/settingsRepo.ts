@@ -1,5 +1,19 @@
 import { getEstimatorDb } from '../db/connection.ts';
-import { CatalogSyncStatusRecord, SettingsRecord, type IntakeCatalogAutoApplyMode } from '../../shared/types/estimator.ts';
+import { parseCatalogSyncWarningsPayload } from '../services/catalogSyncWorkbookValidation.ts';
+import {
+  buildCatalogSyncLastAttemptSummary,
+  type CatalogSyncRunAuditSummary,
+  parseCatalogSyncRunContextJson,
+  sliceCatalogSyncRunContextBody,
+  toCatalogSyncWorkbookSnapshotFromRunContext,
+} from '../../shared/types/catalogSyncAudit.ts';
+import { buildCatalogSyncServerConfigNow, buildCatalogSyncWorkbookSnapshot } from '../services/catalogSource.ts';
+import {
+  CatalogSyncRunHistoryRecord,
+  CatalogSyncStatusRecord,
+  SettingsRecord,
+  type IntakeCatalogAutoApplyMode,
+} from '../../shared/types/estimator.ts';
 import { sanitizeProposalSettings } from '../../shared/utils/proposalDefaults.ts';
 
 type SettingsDbRow = {
@@ -60,6 +74,7 @@ type CatalogSyncRunDbRow = {
   bundles_synced: number | null;
   bundle_items_synced: number | null;
   warnings_json: string | null;
+  run_context_json?: string | null;
 };
 
 function mapSettingsRow(row: SettingsDbRow): SettingsRecord {
@@ -188,8 +203,44 @@ export function updateSettings(input: Partial<SettingsRecord>): SettingsRecord {
   return next;
 }
 
+/** Status row may lag run history: merge audit from latest `catalog_sync_runs_v1` when missing on `catalog_sync_status_v1`. */
+function mergeSyncWarningsForStatusView(
+  statusParsed: { warnings: string[]; audit?: CatalogSyncRunAuditSummary },
+  latestRunParsed: { warnings: string[]; audit?: CatalogSyncRunAuditSummary }
+): { warnings: string[]; audit?: CatalogSyncRunAuditSummary } {
+  const audit = statusParsed.audit ?? latestRunParsed.audit;
+  const ordered = [...statusParsed.warnings, ...latestRunParsed.warnings];
+  const seen = new Set<string>();
+  const warnings = ordered.filter((w) => {
+    if (seen.has(w)) return false;
+    seen.add(w);
+    return true;
+  });
+  return { warnings, audit };
+}
+
 export function getCatalogSyncStatus(): CatalogSyncStatusRecord {
   const row = getEstimatorDb().prepare('SELECT * FROM catalog_sync_status_v1 WHERE id = ?').get('catalog') as CatalogSyncStatusDbRow;
+
+  const parsed = parseCatalogSyncWarningsPayload(row.warnings_json);
+  const serverConfigNow = buildCatalogSyncServerConfigNow();
+  const latestRun = getEstimatorDb()
+    .prepare(
+      `
+    SELECT id, run_context_json, warnings_json
+    FROM catalog_sync_runs_v1
+    ORDER BY attempted_at DESC
+    LIMIT 1
+  `
+    )
+    .get() as { id: string; run_context_json: string | null; warnings_json: string | null } | undefined;
+  const historicalSyncRunContext = parseCatalogSyncRunContextJson(latestRun?.run_context_json);
+  const workbook = historicalSyncRunContext
+    ? toCatalogSyncWorkbookSnapshotFromRunContext(sliceCatalogSyncRunContextBody(historicalSyncRunContext))
+    : buildCatalogSyncWorkbookSnapshot();
+
+  const latestRunParsed = parseCatalogSyncWarningsPayload(latestRun?.warnings_json ?? null);
+  const merged = mergeSyncWarningsForStatusView(parsed, latestRunParsed);
 
   return {
     id: row.id,
@@ -203,23 +254,34 @@ export function getCatalogSyncStatus(): CatalogSyncStatusRecord {
     bundleItemsSynced: Number(row.bundle_items_synced || 0),
     aliasesSynced: Number((row as any).aliases_synced || 0),
     attributesSynced: Number((row as any).attributes_synced || 0),
-    warnings: row.warnings_json ? JSON.parse(row.warnings_json) : [],
+    warnings: merged.warnings,
+    syncAudit: merged.audit,
+    workbook,
+    serverConfigNow,
+    historicalSyncRunContext: historicalSyncRunContext ?? null,
+    latestCatalogSyncRunId: latestRun?.id ?? null,
+    lastAttemptSummary: buildCatalogSyncLastAttemptSummary(merged.audit),
   };
 }
 
-export function listCatalogSyncRuns(limit = 10): Array<{
-  id: string;
-  attemptedAt: string;
-  status: 'success' | 'failed';
-  message: string | null;
-  itemsSynced: number;
-  modifiersSynced: number;
-  bundlesSynced: number;
-  bundleItemsSynced: number;
-  aliasesSynced: number;
-  attributesSynced: number;
-  warnings: string[];
-}> {
+/** Row slice needed for `/catalog-sync-review-csv` (warnings_json + optional run_context_json). */
+export function getCatalogSyncRunRowForCsv(runId?: string | null): CatalogSyncRunDbRow | undefined {
+  const db = getEstimatorDb();
+  if (runId?.trim()) {
+    return db.prepare(`SELECT * FROM catalog_sync_runs_v1 WHERE id = ?`).get(runId.trim()) as CatalogSyncRunDbRow | undefined;
+  }
+  return db
+    .prepare(
+      `
+    SELECT * FROM catalog_sync_runs_v1
+    ORDER BY attempted_at DESC
+    LIMIT 1
+  `
+    )
+    .get() as CatalogSyncRunDbRow | undefined;
+}
+
+export function listCatalogSyncRuns(limit = 10): CatalogSyncRunHistoryRecord[] {
   const rows = getEstimatorDb().prepare(`
     SELECT *
     FROM catalog_sync_runs_v1
@@ -227,17 +289,31 @@ export function listCatalogSyncRuns(limit = 10): Array<{
     LIMIT ?
   `).all(limit) as CatalogSyncRunDbRow[];
 
-  return rows.map((row) => ({
-    id: row.id,
-    attemptedAt: row.attempted_at,
-    status: row.status,
-    message: row.message,
-    itemsSynced: Number(row.items_synced || 0),
-    modifiersSynced: Number(row.modifiers_synced || 0),
-    bundlesSynced: Number(row.bundles_synced || 0),
-    bundleItemsSynced: Number(row.bundle_items_synced || 0),
-    aliasesSynced: Number((row as any).aliases_synced || 0),
-    attributesSynced: Number((row as any).attributes_synced || 0),
-    warnings: row.warnings_json ? JSON.parse(row.warnings_json) : [],
-  }));
+  const serverConfigNow = buildCatalogSyncServerConfigNow();
+  const workbookFallback = buildCatalogSyncWorkbookSnapshot();
+  return rows.map((row) => {
+    const parsedWarnings = parseCatalogSyncWarningsPayload(row.warnings_json);
+    const historicalSyncRunContext = parseCatalogSyncRunContextJson(row.run_context_json ?? null);
+    const workbook = historicalSyncRunContext
+      ? toCatalogSyncWorkbookSnapshotFromRunContext(sliceCatalogSyncRunContextBody(historicalSyncRunContext))
+      : workbookFallback;
+    return {
+      id: row.id,
+      attemptedAt: row.attempted_at,
+      status: row.status,
+      message: row.message,
+      itemsSynced: Number(row.items_synced || 0),
+      modifiersSynced: Number(row.modifiers_synced || 0),
+      bundlesSynced: Number(row.bundles_synced || 0),
+      bundleItemsSynced: Number(row.bundle_items_synced || 0),
+      aliasesSynced: Number((row as any).aliases_synced || 0),
+      attributesSynced: Number((row as any).attributes_synced || 0),
+      warnings: parsedWarnings.warnings,
+      syncAudit: parsedWarnings.audit,
+      workbook,
+      serverConfigNow,
+      historicalSyncRunContext: historicalSyncRunContext ?? null,
+      lastAttemptSummary: buildCatalogSyncLastAttemptSummary(parsedWarnings.audit),
+    };
+  });
 }

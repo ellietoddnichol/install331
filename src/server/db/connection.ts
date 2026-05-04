@@ -4,6 +4,7 @@ import path from 'path';
 import { initLegacyDb } from '../legacyInit.ts';
 import { initEstimatorSchema } from './schema.ts';
 import { resolveEstimatorDbPath } from './resolveEstimatorDbPath.ts';
+import { assertCatalogBackendMatchesDriver } from './catalogBackend.ts';
 import { isPgDriver } from './driver.ts';
 import {
   backupSqliteToRemoteDurableOnce,
@@ -43,6 +44,8 @@ export function getEstimatorDb(): Database {
 export async function prepareEstimatorDbForServer(): Promise<void> {
   if (prepared) return;
   prepared = true;
+
+  assertCatalogBackendMatchesDriver();
 
   if (isPgDriver()) {
     // Pooled Postgres path (query.ts, pgPool.ts). Skip local estimator.db + durable SQLite remote backup.

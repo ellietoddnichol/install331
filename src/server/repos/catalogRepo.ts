@@ -1,8 +1,13 @@
-import { dbAll, dbGet, dbRun } from '../db/query.ts';
+import { dbCatalogAll, dbCatalogGet, dbCatalogRun } from '../db/query.ts';
 import type { CatalogItem } from '../../types.ts';
 import type { CatalogCategoryImageGapRow, CatalogPostCutoverHealthRecord, CatalogSyncStatusRecord } from '../../shared/types/estimator.ts';
 import { ensureTakeoffCatalogSeeded } from '../services/intake/takeoffCatalogRegistry.ts';
-import { getCatalogItemsTableName, getCatalogItemsWriteTableName } from '../db/catalogTable.ts';
+import {
+  getCatalogItemAliasesReadTableName,
+  getCatalogItemAttributesReadTableName,
+  getCatalogItemsTableName,
+  getCatalogItemsWriteTableName,
+} from '../db/catalogTable.ts';
 
 function mapCatalogRow(row: any): CatalogItem {
   return {
@@ -64,7 +69,7 @@ function mapCatalogRow(row: any): CatalogItem {
 export async function listActiveCatalogItems(): Promise<CatalogItem[]> {
   await ensureTakeoffCatalogSeeded();
   const table = getCatalogItemsTableName();
-  const rows = await dbAll(`SELECT * FROM ${table} WHERE active = 1 ORDER BY category, description`);
+  const rows = await dbCatalogAll(`SELECT * FROM ${table} WHERE active = 1 ORDER BY category, description`);
   return rows.map(mapCatalogRow);
 }
 
@@ -75,14 +80,14 @@ export async function listCatalogItemsForApi(includeInactive: boolean): Promise<
   const sql = includeInactive
     ? `SELECT * FROM ${table} ORDER BY category, description`
     : `SELECT * FROM ${table} WHERE active = 1 ORDER BY category, description`;
-  const rows = await dbAll(sql);
+  const rows = await dbCatalogAll(sql);
   return rows.map(mapCatalogRow);
 }
 
 export async function getCatalogInventoryCounts(): Promise<{ total: number; active: number; inactive: number }> {
   await ensureTakeoffCatalogSeeded();
   const table = getCatalogItemsTableName();
-  const row = await dbGet(
+  const row = await dbCatalogGet(
     `SELECT
       COUNT(*) AS total,
       SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) AS active,
@@ -110,25 +115,26 @@ export async function getCatalogPostCutoverHealth(params: {
   await ensureTakeoffCatalogSeeded();
   const readTable = getCatalogItemsTableName();
 
-  const forward = (await dbGet(`SELECT COUNT(*) AS n FROM ${readTable} WHERE ${forwardFacingSql}`)) as { n: number };
-  const missingImg = (await dbGet(
+  const forward = (await dbCatalogGet(`SELECT COUNT(*) AS n FROM ${readTable} WHERE ${forwardFacingSql}`)) as { n: number };
+  const missingImg = (await dbCatalogGet(
     `SELECT COUNT(*) AS n FROM ${readTable} WHERE ${forwardFacingSql}
        AND (image_url IS NULL OR TRIM(image_url) = '')`
   )) as { n: number };
-  const mfrBackedMiss = (await dbGet(
+  const mfrBackedMiss = (await dbCatalogGet(
     `SELECT COUNT(*) AS n FROM ${readTable} WHERE ${forwardFacingSql}
        AND (image_url IS NULL OR TRIM(image_url) = '')
        AND TRIM(COALESCE(manufacturer, '')) != ''
        AND (TRIM(COALESCE(model, '')) != '' OR TRIM(COALESCE(series, '')) != '')`
   )) as { n: number };
 
-  const attrDistinct = (await dbGet(
+  const attrTable = getCatalogItemAttributesReadTableName();
+  const attrDistinct = (await dbCatalogGet(
     `SELECT COUNT(DISTINCT catalog_item_id) AS n
-       FROM catalog_item_attributes
+       FROM ${attrTable}
        WHERE active = 1`
   )) as { n: number };
 
-  const topRows = (await dbAll(
+  const topRows = (await dbCatalogAll(
     `SELECT
         COALESCE(NULLIF(TRIM(category), ''), '(Uncategorized)') AS category,
         SUM(CASE WHEN (image_url IS NULL OR TRIM(image_url) = '') THEN 1 ELSE 0 END) AS missing_image,
@@ -173,7 +179,7 @@ export async function getCatalogPostCutoverHealth(params: {
 export async function reactivateAllCatalogItems(): Promise<number> {
   await ensureTakeoffCatalogSeeded();
   const wt = getCatalogItemsWriteTableName();
-  const result = await dbRun(`UPDATE ${wt} SET active = 1`, []);
+  const result = await dbCatalogRun(`UPDATE ${wt} SET active = 1`, []);
   return result.changes;
 }
 
@@ -187,6 +193,7 @@ export async function searchCatalogItemsForApi(input: {
 }): Promise<CatalogItem[]> {
   await ensureTakeoffCatalogSeeded();
   const readTable = getCatalogItemsTableName();
+  const aliasesReadTable = getCatalogItemAliasesReadTableName();
   const qRaw = input.query.trim().toLowerCase();
   if (!qRaw) return [];
 
@@ -260,7 +267,7 @@ export async function searchCatalogItemsForApi(input: {
           ORDER BY ${matchCase} ASC, c.category ASC, c.description ASC
         ) AS _rn
       FROM ${readTable} c
-      LEFT JOIN catalog_item_aliases a ON a.catalog_item_id = c.id
+      LEFT JOIN ${aliasesReadTable} a ON a.catalog_item_id = c.id
       WHERE ${where.join(' AND ')}
     ) ranked
     WHERE ranked._rn = 1
@@ -268,7 +275,7 @@ export async function searchCatalogItemsForApi(input: {
     LIMIT ${limit}
   `;
 
-  const rows = await dbAll(sql, [...args, ...rankParams, ...rankParams]);
+  const rows = await dbCatalogAll(sql, [...args, ...rankParams, ...rankParams]);
   return rows.map((row: Record<string, unknown>) => {
     const { match_rank: _mr, _rn: _rn2, ...rest } = row;
     return mapCatalogRow(rest);

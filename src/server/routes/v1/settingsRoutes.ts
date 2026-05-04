@@ -4,15 +4,23 @@ import {
   getCatalogPostCutoverHealth,
   reactivateAllCatalogItems,
 } from '../../repos/catalogRepo.ts';
-import { getCatalogSyncStatus, getSettings, listCatalogSyncRuns, updateSettings } from '../../repos/settingsRepo.ts';
+import {
+  getCatalogSyncRunRowForCsv,
+  getCatalogSyncStatus,
+  getSettings,
+  listCatalogSyncRuns,
+  updateSettings,
+} from '../../repos/settingsRepo.ts';
 import { intakeLineMemoryKeyFromFields, upsertIntakeCatalogMemory } from '../../repos/intakeCatalogMemoryRepo.ts';
 import { recalculateAllLinePricing } from '../../repos/modifiersRepo.ts';
-import { backfillTakeoffRegistryToGoogleSheets, syncCatalogFromGoogleSheets } from '../../services/googleSheetsCatalogSync.ts';
+import { backfillTakeoffRegistryToGoogleSheets, resolveConfiguredAndFetchItemsTabs, syncCatalogFromGoogleSheets } from '../../services/googleSheetsCatalogSync.ts';
 import { generateProposalDraftFromGemini } from '../../services/geminiProposalDraft.ts';
 import { getErrorMessage } from '../../../shared/utils/errorMessage.ts';
 import { getDbPersistenceStatusSnapshot, runDbBackupNow } from '../../db/connection.ts';
 import { getActiveRemoteDurableKind, getRemoteDurableSqliteObjectMetadata } from '../../db/durableSqliteRemote.ts';
 import { getIntegrationHealthSnapshot } from '../../services/integrationHealth.ts';
+import { buildCatalogReviewCsv } from '../../services/catalogSyncReviewCsv.ts';
+import { isCatalogReviewQueueKey } from '../../../shared/catalogReviewQueues.ts';
 
 export const settingsRouter = Router();
 
@@ -68,15 +76,45 @@ settingsRouter.get('/catalog-sync-runs', async (req, res) => {
   return res.json({ data: await listCatalogSyncRuns(limit) });
 });
 
+/**
+ * Per-queue workbook-first review export from a sync run (`warnings_json` + optional `run_context_json`).
+ * Query: `queue` (required enum), `runId` (optional UUID — defaults to latest run row).
+ */
+settingsRouter.get('/catalog-sync-review-csv', (req, res) => {
+  const queueRaw = String(req.query.queue ?? '').trim();
+  if (!isCatalogReviewQueueKey(queueRaw)) {
+    return res.status(400).json({
+      error: `Invalid queue. Use one of: duplicate_sku_groups, alias_collisions, labor_outliers, orphan_bundle_skus, unknown_modifiers, orphan_attribute_skus, orphan_alias_skus.`,
+    });
+  }
+  const runIdArg = typeof req.query.runId === 'string' ? req.query.runId.trim() : '';
+  const runRow = getCatalogSyncRunRowForCsv(runIdArg || undefined);
+  if (!runRow) {
+    res.status(404);
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    return res.send('No catalog sync run found for export.');
+  }
+  const built = buildCatalogReviewCsv({ queue: queueRaw, run: runRow });
+  if (!built || built.rowCount === 0) {
+    res.status(404);
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    return res.send(`No rows for queue "${queueRaw}" on the selected run.`);
+  }
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  const safeSlug = `${queueRaw}-${String(runRow.id).slice(0, 8)}`;
+  res.setHeader('Content-Disposition', `attachment; filename="catalog-review-${safeSlug}.csv"`);
+  return res.send(built.csv);
+});
+
 settingsRouter.get('/catalog-inventory', async (_req, res) => {
   return res.json({ data: await getCatalogInventoryCounts() });
 });
 
 /** Post–CLEAN_ITEMS cutover: DB forward-facing counts, image gaps, vs last sync (for manual comparison to sheet META audit). */
 settingsRouter.get('/catalog-post-cutover-health', async (_req, res) => {
-  const itemsTab = process.env.GOOGLE_SHEETS_TAB_ITEMS || 'CLEAN_ITEMS';
+  const { fetch: itemsSourceTab } = resolveConfiguredAndFetchItemsTabs();
   const sync = getCatalogSyncStatus();
-  return res.json({ data: await getCatalogPostCutoverHealth({ itemsSourceTab: itemsTab, lastCatalogSync: sync }) });
+  return res.json({ data: await getCatalogPostCutoverHealth({ itemsSourceTab, lastCatalogSync: sync }) });
 });
 
 /** Sets every catalog row to active (e.g. after SQLite import). Sheet sync normally deactivates rows not in the sheet. */
@@ -89,8 +127,10 @@ settingsRouter.post('/sync-catalog', async (_req, res) => {
   try {
     const result = await syncCatalogFromGoogleSheets();
     return res.json({ data: result });
-  } catch (error: any) {
-    return res.status(500).json({ error: error.message || 'Catalog sync failed.' });
+  } catch (error: unknown) {
+    const message = getErrorMessage(error, 'Catalog sync failed.');
+    console.error('[catalog-sync] POST /v1/settings/sync-catalog failed:', message, error);
+    return res.status(500).json({ error: message });
   }
 });
 

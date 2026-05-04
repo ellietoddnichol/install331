@@ -1,3 +1,4 @@
+import { getCatalogItemAliasesReadTableName } from '../db/catalogTable.ts';
 import { getEstimatorDb } from '../db/connection.ts';
 
 export type CatalogAliasType = 'legacy_sku' | 'vendor_sku' | 'parser_phrase' | 'generic_name' | 'search_key';
@@ -19,10 +20,11 @@ function mapRow(row: any): CatalogItemAliasRow {
 }
 
 export function listCatalogAliasesForItem(catalogItemId: string): CatalogItemAliasRow[] {
+  const rel = getCatalogItemAliasesReadTableName();
   const rows = getEstimatorDb()
     .prepare(
       `SELECT id, catalog_item_id, alias_type, alias_value
-       FROM catalog_item_aliases
+       FROM ${rel}
        WHERE catalog_item_id = ?
        ORDER BY alias_type, alias_value`
     )

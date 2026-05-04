@@ -17,6 +17,10 @@ import {
   type CatalogMatchScore,
 } from './intakeCatalogMatching.ts';
 import { intakeAsText } from './metadataExtractorService.ts';
+import {
+  getCatalogItemAliasesReadTableName,
+  getCatalogItemAttributesReadTableName,
+} from '../db/catalogTable.ts';
 import { getEstimatorDb } from '../db/connection.ts';
 import { getIntakeReviewOverridesForMatcherLines } from '../repos/intakeReviewOverridesRepo.ts';
 
@@ -217,12 +221,13 @@ function findStrongAliasCatalogItemId(input: CatalogMatchInput): { catalogItemId
   const skuTokens = extractSkuLikeTokens([input.itemCode, input.description].filter(Boolean).join(' '));
 
   const db = getEstimatorDb();
+  const aliasesRel = getCatalogItemAliasesReadTableName();
 
   for (const token of skuTokens) {
     const row = db
       .prepare(
         `SELECT catalog_item_id, alias_type, alias_value
-         FROM catalog_item_aliases
+         FROM ${aliasesRel}
          WHERE lower(alias_value) = lower(?)
            AND alias_type IN ('legacy_sku', 'vendor_sku')
          LIMIT 1`
@@ -235,7 +240,7 @@ function findStrongAliasCatalogItemId(input: CatalogMatchInput): { catalogItemId
     const phraseRows = db
       .prepare(
         `SELECT catalog_item_id, alias_type, alias_value
-         FROM catalog_item_aliases
+         FROM ${aliasesRel}
          WHERE alias_type IN ('parser_phrase', 'search_key', 'generic_name')
            AND length(trim(alias_value)) >= 6
          LIMIT 5000`
@@ -270,10 +275,11 @@ function inferExplicitAttributesForItem(params: {
 
   if (wanted.length === 0) return null;
 
+  const attrRel = getCatalogItemAttributesReadTableName();
   const active = getEstimatorDb()
     .prepare(
       `SELECT attribute_type, attribute_value
-       FROM catalog_item_attributes
+       FROM ${attrRel}
        WHERE catalog_item_id = ? AND active = 1`
     )
     .all(params.catalogItemId) as Array<{ attribute_type: string; attribute_value: string }>;

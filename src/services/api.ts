@@ -1,6 +1,8 @@
 
 import { CatalogAliasType, CatalogAttributeType, CatalogDeltaType, CatalogItem, CatalogItemAlias, CatalogItemAttribute } from '../types';
-import { BundleRecord, CatalogPostCutoverHealthRecord, CatalogSyncStatusRecord, DbPersistenceStatusRecord, EstimateSummary, InstallReviewEmailDraft, ModifierRecord, PeerIntakeDefaultsResponse, ProjectFileRecord, ProjectRecord, RoomRecord, SettingsRecord, TakeoffLineRecord } from '../shared/types/estimator';
+import { BundleRecord, CatalogPostCutoverHealthRecord, CatalogSyncRunHistoryRecord, CatalogSyncStatusRecord, DbPersistenceStatusRecord, EstimateSummary, InstallReviewEmailDraft, ModifierRecord, PeerIntakeDefaultsResponse, ProjectFileRecord, ProjectRecord, RoomRecord, SettingsRecord, TakeoffLineRecord } from '../shared/types/estimator';
+import type { CatalogSyncRunAuditSummary } from '../shared/types/catalogSyncAudit.ts';
+import type { CatalogReviewQueueKey } from '../shared/catalogReviewQueues.ts';
 import { IntakeParseRequest, IntakeParseResult } from '../shared/types/intake';
 
 const API_BASE = '/api';
@@ -368,34 +370,46 @@ export const api = {
     const payload = await handleResponse<{ data: CatalogPostCutoverHealthRecord }>(res);
     return payload.data;
   },
-  async getCatalogSyncRuns(limit = 10): Promise<Array<{
-    id: string;
-    attemptedAt: string;
-    status: 'success' | 'failed';
-    message: string | null;
-    itemsSynced: number;
-    modifiersSynced: number;
-    bundlesSynced: number;
-    bundleItemsSynced: number;
-    aliasesSynced: number;
-    attributesSynced: number;
-    warnings: string[];
-  }>> {
+  async getCatalogSyncRuns(limit = 10): Promise<CatalogSyncRunHistoryRecord[]> {
     const res = await apiFetch(`${API_BASE}/v1/settings/catalog-sync-runs?limit=${encodeURIComponent(String(limit))}`);
-    const payload = await handleResponse<{ data: Array<{
-      id: string;
-      attemptedAt: string;
-      status: 'success' | 'failed';
-      message: string | null;
-      itemsSynced: number;
-      modifiersSynced: number;
-      bundlesSynced: number;
-      bundleItemsSynced: number;
-      aliasesSynced: number;
-      attributesSynced: number;
-      warnings: string[];
-    }> }>(res);
+    const payload = await handleResponse<{ data: CatalogSyncRunHistoryRecord[] }>(res);
     return payload.data;
+  },
+
+  /** Download `text/csv` for a catalog sync review queue (optional `runId` defaults server-side to latest run). */
+  async downloadCatalogSyncReviewCsv(queue: CatalogReviewQueueKey, runId?: string | null): Promise<void> {
+    const params = new URLSearchParams({ queue });
+    if (runId) params.set('runId', runId);
+    const res = await apiFetch(`${API_BASE}/v1/settings/catalog-sync-review-csv?${params.toString()}`);
+    if (!res.ok) {
+      let errorMessage = `Request failed with status ${res.status}`;
+      try {
+        const ct = res.headers.get('content-type');
+        if (ct?.includes('application/json')) {
+          const errorData = (await res.json()) as { error?: string };
+          errorMessage = errorData.error || errorMessage;
+        } else {
+          const text = await res.text();
+          if (text) errorMessage = text.trim().slice(0, 400);
+        }
+      } catch {
+        /* ignore */
+      }
+      throw new Error(errorMessage);
+    }
+    const blob = await res.blob();
+    const href = URL.createObjectURL(blob);
+    try {
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = `catalog-review-${queue}.csv`;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } finally {
+      URL.revokeObjectURL(href);
+    }
   },
   async getV1PersistenceStatus(): Promise<DbPersistenceStatusRecord & { gcsObjectMeta?: any; remoteDurableKind?: 'supabase' | 'gcs' | null }> {
     const res = await apiFetch(`${API_BASE}/v1/settings/persistence-status`);
@@ -440,7 +454,8 @@ export const api = {
   async syncV1Catalog(): Promise<{
     message: string;
     spreadsheetId: string;
-    tabs: { items: string; modifiers: string; bundles: string };
+    tabs: { items: string; modifiers: string; bundles: string; aliases: string; attributes: string };
+    itemsTabConfigured?: string;
     itemsSynced: number;
     modifiersSynced: number;
     bundlesSynced: number;
@@ -448,13 +463,15 @@ export const api = {
     aliasesSynced: number;
     attributesSynced: number;
     warnings: string[];
+    audit?: CatalogSyncRunAuditSummary;
     syncedAt: string;
   }> {
     const res = await apiFetch(`${API_BASE}/v1/settings/sync-catalog`, { method: 'POST' });
     const payload = await handleResponse<{ data: {
       message: string;
       spreadsheetId: string;
-      tabs: { items: string; modifiers: string; bundles: string };
+      tabs: { items: string; modifiers: string; bundles: string; aliases: string; attributes: string };
+      itemsTabConfigured?: string;
       itemsSynced: number;
       modifiersSynced: number;
       bundlesSynced: number;
@@ -462,6 +479,7 @@ export const api = {
       aliasesSynced: number;
       attributesSynced: number;
       warnings: string[];
+      audit?: CatalogSyncRunAuditSummary;
       syncedAt: string;
     } }>(res);
     return payload.data;

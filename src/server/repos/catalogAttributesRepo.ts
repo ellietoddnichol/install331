@@ -1,3 +1,4 @@
+import { getCatalogItemAttributesReadTableName } from '../db/catalogTable.ts';
 import { getEstimatorDb } from '../db/connection.ts';
 
 export type CatalogAttributeType = 'finish' | 'coating' | 'grip' | 'mounting' | 'assembly';
@@ -33,11 +34,12 @@ function mapRow(row: any): CatalogItemAttributeRow {
 
 export function listCatalogAttributesForItem(catalogItemId: string, options?: { includeInactive?: boolean }): CatalogItemAttributeRow[] {
   const includeInactive = options?.includeInactive === true;
+  const rel = getCatalogItemAttributesReadTableName();
   const rows = getEstimatorDb()
     .prepare(
       `SELECT id, catalog_item_id, attribute_type, attribute_value, material_delta_type, material_delta_value,
               labor_delta_type, labor_delta_value, active, sort_order
-       FROM catalog_item_attributes
+       FROM ${rel}
        WHERE catalog_item_id = ?
          AND (${includeInactive ? '1=1' : 'active = 1'})
        ORDER BY sort_order ASC, attribute_type ASC, attribute_value ASC`

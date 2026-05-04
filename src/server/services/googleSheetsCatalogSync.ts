@@ -5,9 +5,9 @@ import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
 import { JWT } from 'google-auth-library';
 import { getEstimatorDb } from '../db/connection.ts';
-import { getCatalogItemsWriteTableName } from '../db/catalogTable.ts';
+import { getCatalogItemsWriteTableName, getCatalogModifiersReadTableName } from '../db/catalogTable.ts';
 import type { DbExec } from '../db/query.ts';
-import { dbGet, dbRun } from '../db/query.ts';
+import { dbCatalogGet, dbCatalogRun } from '../db/query.ts';
 import { withCatalogSyncWriteTransaction } from './catalogSyncTransaction.ts';
 import { TAKEOFF_CATALOG_SEED_ITEMS } from './intake/takeoffCatalogRegistry.ts';
 import {
@@ -17,6 +17,13 @@ import {
   normalizeSku,
   normalizeUnit,
 } from './catalog/catalogNormalization.ts';
+import {
+  buildCatalogSyncWarningsPayload,
+  preflightCatalogWorkbookSync,
+} from './catalogSyncWorkbookValidation.ts';
+import type { CatalogSyncRunAuditSummary, CatalogSyncRunContext } from '../../shared/types/catalogSyncAudit.ts';
+import { CATALOG_SYNC_REVIEW_MAX_SAMPLES, CATALOG_SYNC_RUN_CONTEXT_SCHEMA_VERSION } from '../../shared/types/catalogSyncAudit.ts';
+import { CATALOG_SYNC_PREFLIGHT_MAX_BLOCKING } from './catalogSyncWorkbookValidation.ts';
 
 /** Repo root: …/src/server/services → ../../../ */
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -47,8 +54,14 @@ export interface CatalogSyncResult extends SyncCounts {
     items: string;
     modifiers: string;
     bundles: string;
+    aliases: string;
+    attributes: string;
   };
+  /** When set, `GOOGLE_SHEETS_TAB_ITEMS` differed from the tab actually read for item upserts. */
+  itemsTabConfigured?: string;
   warnings: string[];
+  /** Structured counters / tab rows — also embedded in `warnings_json` when enabled. */
+  audit?: CatalogSyncRunAuditSummary;
   syncedAt: string;
 }
 
@@ -63,6 +76,9 @@ export interface TakeoffRegistryBackfillResult {
 
 interface SpreadsheetConfig {
   spreadsheetId: string;
+  /** Value of GOOGLE_SHEETS_TAB_ITEMS (or default). May be `ITEMS` while reads use `itemsTab`. */
+  itemsTabConfigured: string;
+  /** Sheet tab range used for item upserts (may be CLEAN_ITEMS when configured tab is legacy ITEMS). */
   itemsTab: string;
   modifiersTab: string;
   bundlesTab: string;
@@ -82,6 +98,130 @@ function normalizeHeader(input: string): string {
 function isReplaceCatalogSyncMode(): boolean {
   const v = String(process.env.CATALOG_SYNC_REPLACE_MODE || '').trim().toLowerCase();
   return v === '1' || v === 'true' || v === 'yes';
+}
+
+function isEnvTruthy(v: string | undefined): boolean {
+  const s = String(v ?? '').trim().toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes';
+}
+
+/**
+ * Staging / planning tabs — require matching CATALOG_SYNC_IMPORT_* when referenced by GOOGLE_SHEETS_TAB_*.
+ * Legacy ITEMS is handled separately via GOOGLE_SHEETS_TAB_CLEAN_ITEMS + CATALOG_SYNC_ALLOW_LEGACY_ITEMS_TAB.
+ */
+const STAGING_TAB_IMPORT_ENV: Record<string, string> = {
+  RECOMMENDED_ITEMS: 'CATALOG_SYNC_IMPORT_RECOMMENDED_ITEMS',
+  LEGACY_ITEMS: 'CATALOG_SYNC_IMPORT_LEGACY_ITEMS',
+  RESEARCH_QUEUE: 'CATALOG_SYNC_IMPORT_RESEARCH_QUEUE',
+  CATEGORY_PLAN: 'CATALOG_SYNC_IMPORT_CATEGORY_PLAN',
+  META: 'CATALOG_SYNC_IMPORT_META',
+  SYNC_README: 'CATALOG_SYNC_IMPORT_SYNC_README',
+  DEFAULT_ITEMS: 'CATALOG_SYNC_IMPORT_DEFAULT_ITEMS',
+};
+
+function normalizeSheetTabKey(name: string): string {
+  return name.trim().toUpperCase().replace(/\s+/g, '_');
+}
+
+function assertNotLegacyItemsAliasForOtherRoles(envVarName: string, tabName: string): void {
+  if (normalizeSheetTabKey(tabName) === 'ITEMS' && envVarName !== 'GOOGLE_SHEETS_TAB_ITEMS') {
+    throw new Error(
+      `${envVarName} must not point at legacy tab ITEMS. Use MODIFIERS, BUNDLES, ALIASES, ATTRIBUTES, etc.`
+    );
+  }
+}
+
+function assertCuratedEnvTabAllowsStaging(envVarName: string, tabName: string): void {
+  const key = normalizeSheetTabKey(tabName);
+  const flag = STAGING_TAB_IMPORT_ENV[key];
+  if (!flag) return;
+  if (isEnvTruthy(process.env[flag])) return;
+  throw new Error(
+    `${envVarName}="${tabName}" is a staging-only tab. Set ${flag}=1 only if you intentionally publish from it; otherwise use curated tabs (CLEAN_ITEMS, MODIFIERS, BUNDLES, ALIASES, ATTRIBUTES).`
+  );
+}
+
+/**
+ * When operators leave GOOGLE_SHEETS_TAB_ITEMS=ITEMS but publish from CLEAN, read the clean tab unless legacy override is set.
+ */
+export function resolveConfiguredAndFetchItemsTabs(): { configured: string; fetch: string } {
+  const configured = String(process.env.GOOGLE_SHEETS_TAB_ITEMS || 'CLEAN_ITEMS').trim();
+  const cleanTab = String(process.env.GOOGLE_SHEETS_TAB_CLEAN_ITEMS || 'CLEAN_ITEMS').trim();
+  const allowLegacy = isEnvTruthy(process.env.CATALOG_SYNC_ALLOW_LEGACY_ITEMS_TAB);
+  if (normalizeSheetTabKey(configured) !== 'ITEMS') {
+    return { configured, fetch: configured };
+  }
+  if (allowLegacy) {
+    return { configured, fetch: configured };
+  }
+  return { configured, fetch: cleanTab };
+}
+
+/** Env reads only (never throws); used so failed sync runs still persist tab/env context. */
+function peekCatalogSyncSpreadsheetEnvForRunContext(): {
+  spreadsheetId: string | null;
+  spreadsheetIdConfigured: boolean;
+  itemsTabConfigured: string;
+  itemsTabFetch: string;
+  modifiersTab: string;
+  bundlesTab: string;
+  aliasesTab: string;
+  attributesTab: string;
+  cleanItemsTabEnv: string;
+} {
+  const spreadsheetIdRaw = String(process.env.GOOGLE_SHEETS_SPREADSHEET_ID || process.env.GOOGLE_SHEETS_ID || '').trim();
+  const { configured, fetch } = resolveConfiguredAndFetchItemsTabs();
+  return {
+    spreadsheetId: spreadsheetIdRaw ? spreadsheetIdRaw : null,
+    spreadsheetIdConfigured: Boolean(spreadsheetIdRaw),
+    itemsTabConfigured: configured,
+    itemsTabFetch: fetch,
+    modifiersTab: process.env.GOOGLE_SHEETS_TAB_MODIFIERS || 'MODIFIERS',
+    bundlesTab: process.env.GOOGLE_SHEETS_TAB_BUNDLES || 'BUNDLES',
+    aliasesTab: process.env.GOOGLE_SHEETS_TAB_ALIASES || 'ALIASES',
+    attributesTab: process.env.GOOGLE_SHEETS_TAB_ATTRIBUTES || 'ATTRIBUTES',
+    cleanItemsTabEnv: String(process.env.GOOGLE_SHEETS_TAB_CLEAN_ITEMS || 'CLEAN_ITEMS').trim(),
+  };
+}
+
+/** Captures workbook + importer + validation knobs at execution time (`catalog_sync_runs_v1.run_context_json`). */
+export function buildCatalogSyncRunContextRecord(runKind: CatalogSyncRunContext['runKind']): CatalogSyncRunContext {
+  const env = peekCatalogSyncSpreadsheetEnvForRunContext();
+  const itemsFetchOverridesConfiguredItemsTab =
+    env.itemsTabConfigured.trim().toUpperCase() !== env.itemsTabFetch.trim().toUpperCase();
+  const stagingTabImportsByEnv: Record<string, boolean> = {};
+  for (const flag of Object.values(STAGING_TAB_IMPORT_ENV)) {
+    stagingTabImportsByEnv[flag] = isEnvTruthy(process.env[flag]);
+  }
+  return {
+    schemaVersion: CATALOG_SYNC_RUN_CONTEXT_SCHEMA_VERSION,
+    runKind,
+    recordedAtIso: new Date().toISOString(),
+    spreadsheetId: env.spreadsheetId,
+    spreadsheetIdConfigured: env.spreadsheetIdConfigured,
+    tabs: {
+      itemsConfigured: env.itemsTabConfigured,
+      itemsFetch: env.itemsTabFetch,
+      cleanItemsTabEnv: env.cleanItemsTabEnv,
+      modifiers: env.modifiersTab,
+      bundles: env.bundlesTab,
+      aliases: env.aliasesTab,
+      attributes: env.attributesTab,
+    },
+    itemsFetchOverridesConfiguredItemsTab,
+    importEnv: {
+      catalogSyncAllowLegacyItemsTab: isEnvTruthy(process.env.CATALOG_SYNC_ALLOW_LEGACY_ITEMS_TAB),
+      catalogSyncReplaceMode: isReplaceCatalogSyncMode(),
+      catalogSyncSkipStagingSheetImportRows: String(process.env.CATALOG_SYNC_SKIP_STAGING || '').trim() === '1',
+      catalogSyncItemsSource: String(process.env.CATALOG_SYNC_ITEMS_SOURCE || '').trim(),
+      stagingTabImportsByEnv,
+    },
+    validation: {
+      publishBlockersAllowedCategoriesRaw: String(process.env.PUBLISH_BLOCKERS_ALLOWED_CATEGORIES || '').trim(),
+      catalogSyncReviewMaxSamples: CATALOG_SYNC_REVIEW_MAX_SAMPLES,
+      preflightMaxBlockingIssues: CATALOG_SYNC_PREFLIGHT_MAX_BLOCKING,
+    },
+  };
 }
 
 function parseBoolean(input: unknown, defaultValue = true): boolean {
@@ -167,6 +307,21 @@ function getCell(row: string[], index: number | null): string {
 function keyFromParts(...parts: string[]): string {
   const joined = parts.map((part) => part.trim().toLowerCase()).filter(Boolean).join('|');
   return createHash('sha1').update(joined || randomUUID()).digest('hex').slice(0, 20);
+}
+
+/** SKU / Item Key-stable segment for deterministic ids (collapse case-only workbook duplicates). */
+function workbookCatalogStableSegment(params: {
+  sku: string;
+  itemKey: string;
+  category: string;
+  itemName: string;
+  description: string;
+}): string {
+  const sku = params.sku.trim();
+  const itemKey = params.itemKey.trim();
+  if (sku) return sku.toLowerCase();
+  if (itemKey) return itemKey.toLowerCase();
+  return keyFromParts(params.category, params.itemName || params.description);
 }
 
 async function fetchTabOrNull(params: { sheets: ReturnType<typeof google.sheets>; spreadsheetId: string; tabName: string }): Promise<string[][] | null> {
@@ -361,7 +516,7 @@ async function readSyncStatusRow(ex: DbExec | undefined): Promise<CatalogSyncSta
   if (ex) {
     return ex.get<CatalogSyncStatusDbRow>('SELECT * FROM catalog_sync_status_v1 WHERE id = ?', ['catalog']);
   }
-  return dbGet<CatalogSyncStatusDbRow>('SELECT * FROM catalog_sync_status_v1 WHERE id = ?', ['catalog']);
+  return dbCatalogGet<CatalogSyncStatusDbRow>('SELECT * FROM catalog_sync_status_v1 WHERE id = ?', ['catalog']);
 }
 
 async function updateSyncStatus(
@@ -369,12 +524,14 @@ async function updateSyncStatus(
   params: {
     status: 'running' | 'success' | 'failed';
     message: string | null;
+    /** Omit on failure so snapshot counts stay aligned with last success; inserts into `catalog_sync_runs_v1` still carry per-attempt totals. */
     counts?: SyncCounts;
     warnings?: string[];
+    audit?: CatalogSyncRunAuditSummary;
   }
 ) {
   const now = new Date().toISOString();
-  const run = ex ? (sql: string, p: unknown[]) => ex.run(sql, p) : (sql: string, p: unknown[]) => dbRun(sql, p);
+  const run = ex ? (sql: string, p: unknown[]) => ex.run(sql, p) : (sql: string, p: unknown[]) => dbCatalogRun(sql, p);
   const current = await readSyncStatusRow(ex);
   const counts = params.counts || {
     itemsSynced: current?.items_synced || 0,
@@ -414,7 +571,7 @@ async function updateSyncStatus(
       counts.bundleItemsSynced,
       counts.aliasesSynced,
       counts.attributesSynced,
-      JSON.stringify(params.warnings || []),
+      buildCatalogSyncWarningsPayload(params.warnings || [], params.audit),
     ]
   );
 }
@@ -426,16 +583,20 @@ async function insertSyncRun(
     message: string | null;
     counts: SyncCounts;
     warnings: string[];
+    audit?: CatalogSyncRunAuditSummary;
+    runContext?: CatalogSyncRunContext | null;
   }
 ) {
-  const run = ex ? (sql: string, p: unknown[]) => ex.run(sql, p) : (sql: string, p: unknown[]) => dbRun(sql, p);
+  const run = ex ? (sql: string, p: unknown[]) => ex.run(sql, p) : (sql: string, p: unknown[]) => dbCatalogRun(sql, p);
+  const runContextJson = params.runContext != null ? JSON.stringify(params.runContext) : null;
   await run(
     `
     INSERT INTO catalog_sync_runs_v1 (
       id, attempted_at, status, message, items_synced, modifiers_synced, bundles_synced, bundle_items_synced,
       aliases_synced, attributes_synced,
-      warnings_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      warnings_json,
+      run_context_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
     [
       randomUUID(),
@@ -448,7 +609,8 @@ async function insertSyncRun(
       params.counts.bundleItemsSynced,
       params.counts.aliasesSynced,
       params.counts.attributesSynced,
-      JSON.stringify(params.warnings || []),
+      buildCatalogSyncWarningsPayload(params.warnings || [], params.audit),
+      runContextJson,
     ]
   );
 }
@@ -723,7 +885,7 @@ function buildAuth(): JWT {
 
 function getSpreadsheetConfig(): SpreadsheetConfig {
   const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID || process.env.GOOGLE_SHEETS_ID || '1QWCGCssWtAQ8Pjx9_-7LDs4lraRbptURd8D04bNvnEg';
-  const itemsTab = process.env.GOOGLE_SHEETS_TAB_ITEMS || 'CLEAN_ITEMS';
+  const { configured, fetch } = resolveConfiguredAndFetchItemsTabs();
   const modifiersTab = process.env.GOOGLE_SHEETS_TAB_MODIFIERS || 'MODIFIERS';
   const bundlesTab = process.env.GOOGLE_SHEETS_TAB_BUNDLES || 'BUNDLES';
   const aliasesTab = process.env.GOOGLE_SHEETS_TAB_ALIASES || 'ALIASES';
@@ -733,7 +895,26 @@ function getSpreadsheetConfig(): SpreadsheetConfig {
     throw new Error('Missing spreadsheet ID. Set GOOGLE_SHEETS_SPREADSHEET_ID or GOOGLE_SHEETS_ID.');
   }
 
-  return { spreadsheetId, itemsTab, modifiersTab, bundlesTab, aliasesTab, attributesTab };
+  assertNotLegacyItemsAliasForOtherRoles('GOOGLE_SHEETS_TAB_MODIFIERS', modifiersTab);
+  assertNotLegacyItemsAliasForOtherRoles('GOOGLE_SHEETS_TAB_BUNDLES', bundlesTab);
+  assertNotLegacyItemsAliasForOtherRoles('GOOGLE_SHEETS_TAB_ALIASES', aliasesTab);
+  assertNotLegacyItemsAliasForOtherRoles('GOOGLE_SHEETS_TAB_ATTRIBUTES', attributesTab);
+
+  assertCuratedEnvTabAllowsStaging('GOOGLE_SHEETS_TAB_MODIFIERS', modifiersTab);
+  assertCuratedEnvTabAllowsStaging('GOOGLE_SHEETS_TAB_BUNDLES', bundlesTab);
+  assertCuratedEnvTabAllowsStaging('GOOGLE_SHEETS_TAB_ALIASES', aliasesTab);
+  assertCuratedEnvTabAllowsStaging('GOOGLE_SHEETS_TAB_ATTRIBUTES', attributesTab);
+  assertCuratedEnvTabAllowsStaging('GOOGLE_SHEETS_TAB_ITEMS', configured);
+
+  return {
+    spreadsheetId,
+    itemsTabConfigured: configured,
+    itemsTab: fetch,
+    modifiersTab,
+    bundlesTab,
+    aliasesTab,
+    attributesTab,
+  };
 }
 
 function toA1Column(index: number): string {
@@ -876,6 +1057,7 @@ export async function upsertItemInGoogleSheet(input: {
 }
 
 export async function backfillTakeoffRegistryToGoogleSheets(): Promise<TakeoffRegistryBackfillResult> {
+  const runContextRecord = buildCatalogSyncRunContextRecord('takeoff_registry_backfill');
   const cfg = getSpreadsheetConfig();
   const warnings: string[] = [];
 
@@ -927,6 +1109,7 @@ export async function backfillTakeoffRegistryToGoogleSheets(): Promise<TakeoffRe
       message,
       counts,
       warnings: uniqueWarnings,
+      runContext: runContextRecord,
     });
 
     return {
@@ -955,7 +1138,6 @@ export async function backfillTakeoffRegistryToGoogleSheets(): Promise<TakeoffRe
     await updateSyncStatus(undefined, {
       status: 'failed',
       message,
-      counts: failedCounts,
       warnings,
     });
 
@@ -964,7 +1146,9 @@ export async function backfillTakeoffRegistryToGoogleSheets(): Promise<TakeoffRe
       message,
       counts: failedCounts,
       warnings,
+      runContext: runContextRecord,
     });
+    console.error('[catalog] Takeoff registry backfill failed.', { message }, error);
 
     throw new Error(message, error instanceof Error ? { cause: error } : undefined);
   }
@@ -1156,6 +1340,27 @@ export async function upsertItems(
     );
   }
 
+  /** Last row wins: duplicate SKUs / Item Keys / hash keys in one ITEMS sheet map to one upsert target. */
+  const lastOccurrenceRowIndexByStableKey = new Map<string, number>();
+  for (let j = 1; j < rows.length; j += 1) {
+    const probe = rows[j];
+    if (!probe || probe.length === 0) continue;
+    const skuP = getCell(probe, skuCol);
+    const itemKeyP = getCell(probe, itemKeyCol);
+    const categoryP = getCell(probe, categoryCol);
+    const itemNameP = getCell(probe, itemCol);
+    const descriptionP = getCell(probe, descriptionCol) || itemNameP;
+    if (!descriptionP) continue;
+    const stableKeyP = workbookCatalogStableSegment({
+      sku: skuP,
+      itemKey: itemKeyP,
+      category: categoryP,
+      itemName: itemNameP,
+      description: descriptionP,
+    });
+    lastOccurrenceRowIndexByStableKey.set(stableKeyP, j);
+  }
+
   let replaceDeactivateDone = false;
   const syncedSheetItemIds: string[] = [];
 
@@ -1171,6 +1376,14 @@ export async function upsertItems(
 
     if (!description) continue;
 
+    const stableKey = workbookCatalogStableSegment({
+      sku,
+      itemKey,
+      category,
+      itemName,
+      description,
+    });
+
     if (!skipStaging) {
       const importId = `import-${ctx.batchId}-${i}`;
       await ex.run(
@@ -1180,22 +1393,33 @@ export async function upsertItems(
       );
     }
 
+    if (lastOccurrenceRowIndexByStableKey.get(stableKey) !== i) continue;
+
     if (replaceMode && !replaceDeactivateDone) {
       await ex.run(`UPDATE ${writeTable} SET active = 0`, []);
       replaceDeactivateDone = true;
     }
 
     const active = parseBoolean(getCell(row, activeCol), true);
-    const stableKey = sku || itemKey || keyFromParts(category, itemName || description);
+    const sheetDerivedId = `sheet-item-${stableKey}`;
 
-    const existing = sku
+    let existingRow = sku
       ? await ex.get<{ id: string }>(`SELECT id FROM ${writeTable} WHERE lower(sku) = lower(?) LIMIT 1`, [sku])
       : await ex.get<{ id: string }>(
           `SELECT id FROM ${writeTable} WHERE id = ? OR (lower(description) = lower(?) AND lower(COALESCE(category, '')) = lower(?)) LIMIT 1`,
-          [`sheet-item-${stableKey}`, description, category]
+          [sheetDerivedId, description, category]
         );
 
-    const id = existing?.id || `sheet-item-${stableKey}`;
+    /**
+     * If SKU/description lookup misses but `sheetDerivedId` already exists (e.g. SKU changed on sheet,
+     * or Cloud DB has leftovers from older sync keys), we must UPDATE — never INSERT duplicate PK.
+     * This fixes: UNIQUE constraint failed: catalog_items.id (SQLite PG uses same semantics).
+     */
+    if (!existingRow) {
+      existingRow = await ex.get<{ id: string }>(`SELECT id FROM ${writeTable} WHERE id = ? LIMIT 1`, [sheetDerivedId]);
+    }
+
+    const id = existingRow?.id || sheetDerivedId;
     const tagTokens = splitList(getCell(row, tagsCol));
     const defaultModTokens = splitList(getCell(row, defaultModifiersCol));
     const tags = Array.from(new Set([...tagTokens, ...defaultModTokens]));
@@ -1218,94 +1442,84 @@ export async function upsertItems(
     });
     const canonicalSku = sku || null;
 
-    if (existing) {
-      await ex.run(
-        `
-        UPDATE ${writeTable}
-        SET sku = ?, category = ?, subcategory = ?, family = ?, description = ?, uom = ?,
-            manufacturer = ?, brand = ?, model = ?, model_number = ?, series = ?, image_url = ?,
-            base_material_cost = ?, base_labor_minutes = ?, tags = ?, notes = ?, active = ?,
-            canonical_sku = COALESCE(?, canonical_sku),
-            catalog_source = 'google_sheet', catalog_source_tab = ?, catalog_source_row = ?, catalog_sync_batch_id = ?,
-            sku_normalized = ?, manufacturer_normalized = ?, category_main = ?, item_type = ?
-        WHERE id = ?
-      `,
-        [
-          sku || null,
-          category || null,
-          getCell(row, subcategoryCol) || null,
-          getCell(row, familyCol) || null,
-          description,
-          uomEff,
-          manufacturer,
-          brand,
-          model,
-          modelNumber,
-          series,
-          imageUrl,
-          parseNumber(getCell(row, materialCol), 0),
-          parseNumber(getCell(row, laborCol), 0),
-          JSON.stringify(tags),
-          getCell(row, notesCol) || null,
-          active ? 1 : 0,
-          canonicalSku,
-          ctx.itemsTab,
-          i + 1,
-          ctx.batchId,
-          skuNorm || null,
-          mfrKey || null,
-          catMain,
-          itemType,
-          id,
-        ]
-      );
-    } else {
-      await ex.run(
-        `
-        INSERT INTO ${writeTable} (
-          id, sku, category, subcategory, family, description, manufacturer, brand, model, model_number, series, image_url, uom,
-          base_material_cost, base_labor_minutes, labor_unit_type, taxable, ada_flag, tags, notes, active,
-          canonical_sku, is_canonical, deprecated,
-          catalog_source, catalog_source_tab, catalog_source_row, catalog_sync_batch_id,
-          sku_normalized, manufacturer_normalized, category_main, item_type
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-        [
-          id,
-          sku || null,
-          category || null,
-          getCell(row, subcategoryCol) || null,
-          getCell(row, familyCol) || null,
-          description,
-          manufacturer,
-          brand,
-          model,
-          modelNumber,
-          series,
-          imageUrl,
-          uomEff,
-          parseNumber(getCell(row, materialCol), 0),
-          parseNumber(getCell(row, laborCol), 0),
-          null,
-          1,
-          0,
-          JSON.stringify(tags),
-          getCell(row, notesCol) || null,
-          active ? 1 : 0,
-          canonicalSku,
-          1,
-          0,
-          'google_sheet',
-          ctx.itemsTab,
-          i + 1,
-          ctx.batchId,
-          skuNorm || null,
-          mfrKey || null,
-          catMain,
-          itemType,
-        ]
-      );
-    }
+    const insertParams: unknown[] = [
+      id,
+      sku || null,
+      category || null,
+      getCell(row, subcategoryCol) || null,
+      getCell(row, familyCol) || null,
+      description,
+      manufacturer,
+      brand,
+      model,
+      modelNumber,
+      series,
+      imageUrl,
+      uomEff,
+      parseNumber(getCell(row, materialCol), 0),
+      parseNumber(getCell(row, laborCol), 0),
+      null,
+      1,
+      0,
+      JSON.stringify(tags),
+      getCell(row, notesCol) || null,
+      active ? 1 : 0,
+      canonicalSku,
+      1,
+      0,
+      'google_sheet',
+      ctx.itemsTab,
+      i + 1,
+      ctx.batchId,
+      skuNorm || null,
+      mfrKey || null,
+      catMain,
+      itemType,
+    ];
+
+    /**
+     * Single upsert: covers SKU-matched ids (e.g. c1), sheet-item-* rows, and any PK race where
+     * pre-select missed an existing id (fixes UNIQUE constraint failed: catalog_items.id on SQLite/PG).
+     */
+    await ex.run(
+      `
+      INSERT INTO ${writeTable} (
+        id, sku, category, subcategory, family, description, manufacturer, brand, model, model_number, series, image_url, uom,
+        base_material_cost, base_labor_minutes, labor_unit_type, taxable, ada_flag, tags, notes, active,
+        canonical_sku, is_canonical, deprecated,
+        catalog_source, catalog_source_tab, catalog_source_row, catalog_sync_batch_id,
+        sku_normalized, manufacturer_normalized, category_main, item_type
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        sku = excluded.sku,
+        category = excluded.category,
+        subcategory = excluded.subcategory,
+        family = excluded.family,
+        description = excluded.description,
+        uom = excluded.uom,
+        manufacturer = excluded.manufacturer,
+        brand = excluded.brand,
+        model = excluded.model,
+        model_number = excluded.model_number,
+        series = excluded.series,
+        image_url = excluded.image_url,
+        base_material_cost = excluded.base_material_cost,
+        base_labor_minutes = excluded.base_labor_minutes,
+        tags = excluded.tags,
+        notes = excluded.notes,
+        active = excluded.active,
+        canonical_sku = COALESCE(excluded.canonical_sku, ${writeTable}.canonical_sku),
+        catalog_source = excluded.catalog_source,
+        catalog_source_tab = excluded.catalog_source_tab,
+        catalog_source_row = excluded.catalog_source_row,
+        catalog_sync_batch_id = excluded.catalog_sync_batch_id,
+        sku_normalized = excluded.sku_normalized,
+        manufacturer_normalized = excluded.manufacturer_normalized,
+        category_main = excluded.category_main,
+        item_type = excluded.item_type
+    `,
+      insertParams
+    );
 
     syncedSheetItemIds.push(id);
     synced += 1;
@@ -1487,7 +1701,10 @@ export async function upsertBundles(
     });
   });
 
-  const modifierRows = await ex.all<{ modifier_key: string }>('SELECT modifier_key FROM modifiers_v1', []);
+  const modifierRows = await ex.all<{ modifier_key: string }>(
+    `SELECT modifier_key FROM ${getCatalogModifiersReadTableName()}`,
+    []
+  );
   const modifierByCanonicalKey = new Map<string, string>();
   modifierRows.forEach((row) => {
     const key = normalizeModifierToken(row.modifier_key);
@@ -1598,15 +1815,31 @@ export async function upsertBundles(
 }
 
 export async function syncCatalogFromGoogleSheets(): Promise<CatalogSyncResult> {
+  /** Captured early so inserts on failure paths still describe the env that was in effect. */
+  const runContextRecord = buildCatalogSyncRunContextRecord('catalog_full_sync');
   const cfg = getSpreadsheetConfig();
   const writeTable = getCatalogItemsWriteTableName();
 
   const warnings: string[] = [];
+  let lastPassedPreflightAudit: CatalogSyncRunAuditSummary | undefined;
+  let catalogSyncFailureAlreadyRecorded = false;
   await updateSyncStatus(undefined, { status: 'running', message: 'Catalog sync in progress...' });
 
   try {
     const auth = buildAuth();
     const sheets = google.sheets({ version: 'v4', auth });
+
+    for (const t of ['RECOMMENDED_ITEMS', 'LEGACY_ITEMS', 'RESEARCH_QUEUE', 'CATEGORY_PLAN', 'META', 'SYNC_README', 'DEFAULT_ITEMS']) {
+      console.info(`[catalog-sync] skipped tab ${t} (staging)`);
+    }
+    if (
+      normalizeSheetTabKey(cfg.itemsTabConfigured) === 'ITEMS' &&
+      normalizeSheetTabKey(cfg.itemsTab) !== 'ITEMS'
+    ) {
+      console.info(
+        `[catalog-sync] skipped tab ITEMS (staging for item upserts — using ${cfg.itemsTab} instead; set CATALOG_SYNC_ALLOW_LEGACY_ITEMS_TAB=1 to ingest legacy ITEMS).`
+      );
+    }
 
     const [itemRows, modifierRows, bundleRows, aliasRows, attributeRows] = await Promise.all([
       fetchTabOrNull({ sheets, spreadsheetId: cfg.spreadsheetId, tabName: cfg.itemsTab }),
@@ -1620,10 +1853,69 @@ export async function syncCatalogFromGoogleSheets(): Promise<CatalogSyncResult> 
     if (!modifierRows) throw new Error(`Missing required tab "${cfg.modifiersTab}".`);
     if (!bundleRows) throw new Error(`Missing required tab "${cfg.bundlesTab}".`);
 
+    const sourceLower = String(process.env.CATALOG_SYNC_ITEMS_SOURCE || '').trim().toLowerCase();
+    if (
+      (sourceLower === 'clean' || sourceLower === 'clean_only') &&
+      normalizeSheetTabKey(cfg.itemsTabConfigured) === 'ITEMS'
+    ) {
+      warnings.push(
+        'CATALOG_SYNC_ITEMS_SOURCE marks the clean workbook as authoritative; item upserts use GOOGLE_SHEETS_TAB_CLEAN_ITEMS while GOOGLE_SHEETS_TAB_ITEMS still names ITEMS.'
+      );
+    }
+
+    if (cfg.itemsTabConfigured !== cfg.itemsTab) {
+      warnings.push(
+        `Item rows are read from "${cfg.itemsTab}" because GOOGLE_SHEETS_TAB_ITEMS names legacy tab "${cfg.itemsTabConfigured}" and CATALOG_SYNC_ALLOW_LEGACY_ITEMS_TAB is unset — set it to 1 only if you must ingest the raw ITEMS tab.`
+      );
+    } else if (cfg.itemsTab.trim().toUpperCase() === 'ITEMS' && isEnvTruthy(process.env.CATALOG_SYNC_ALLOW_LEGACY_ITEMS_TAB)) {
+      warnings.push(
+        'Using legacy ITEMS tab for item upserts (CATALOG_SYNC_ALLOW_LEGACY_ITEMS_TAB=1). Prefer pointing GOOGLE_SHEETS_TAB_ITEMS at CLEAN_ITEMS for production.'
+      );
+    }
+
     const replaceMode = isReplaceCatalogSyncMode();
 
     if (!aliasRows) warnings.push(`ALIASES tab "${cfg.aliasesTab}" not found; skipping alias sync.`);
     if (!attributeRows) warnings.push(`ATTRIBUTES tab "${cfg.attributesTab}" not found; skipping attributes sync.`);
+
+    const preflight = await preflightCatalogWorkbookSync({
+      itemRows,
+      modifierRows,
+      bundleRows,
+      aliasRows,
+      attributeRows,
+    });
+    if (preflight.blocking.length) {
+      warnings.push(...preflight.warnings);
+      const uniquePreflightWarn = Array.from(new Set(warnings));
+      const preflightBlockedMessage =
+        enrichGoogleAuthErrorMessage(`Catalog sync blocked (preflight validation):\n${preflight.blocking.join('\n')}`);
+      await updateSyncStatus(undefined, {
+        status: 'failed',
+        message: preflightBlockedMessage,
+        warnings: uniquePreflightWarn,
+        audit: preflight.audit,
+      });
+      await insertSyncRun(undefined, {
+        status: 'failed',
+        message: preflightBlockedMessage,
+        counts: {
+          itemsSynced: 0,
+          modifiersSynced: 0,
+          bundlesSynced: 0,
+          bundleItemsSynced: 0,
+          aliasesSynced: 0,
+          attributesSynced: 0,
+        },
+        warnings: uniquePreflightWarn,
+        audit: preflight.audit,
+        runContext: runContextRecord,
+      });
+      catalogSyncFailureAlreadyRecorded = true;
+      throw new Error(preflightBlockedMessage);
+    }
+    lastPassedPreflightAudit = preflight.audit;
+    warnings.push(...preflight.warnings);
 
     const batchId = randomUUID();
     const counts = await withCatalogSyncWriteTransaction(async (ex) => {
@@ -1655,11 +1947,17 @@ export async function syncCatalogFromGoogleSheets(): Promise<CatalogSyncResult> 
       `Catalog sync complete: ${counts.itemsSynced} items, ${counts.modifiersSynced} modifiers, ${counts.bundlesSynced} bundles, ` +
       `${counts.aliasesSynced} aliases, ${counts.attributesSynced} attributes.`;
 
+    const audit: CatalogSyncRunAuditSummary = {
+      ...preflight.audit,
+      syncCounts: { ...counts },
+    };
+
     await updateSyncStatus(undefined, {
       status: 'success',
       message,
       counts,
       warnings: uniqueWarnings,
+      audit,
     });
 
     await insertSyncRun(undefined, {
@@ -1667,6 +1965,8 @@ export async function syncCatalogFromGoogleSheets(): Promise<CatalogSyncResult> 
       message,
       counts,
       warnings: uniqueWarnings,
+      audit,
+      runContext: runContextRecord,
     });
 
     return {
@@ -1677,8 +1977,12 @@ export async function syncCatalogFromGoogleSheets(): Promise<CatalogSyncResult> 
         items: cfg.itemsTab,
         modifiers: cfg.modifiersTab,
         bundles: cfg.bundlesTab,
+        aliases: cfg.aliasesTab,
+        attributes: cfg.attributesTab,
       },
+      itemsTabConfigured: cfg.itemsTabConfigured !== cfg.itemsTab ? cfg.itemsTabConfigured : undefined,
       warnings: uniqueWarnings,
+      audit,
       syncedAt,
     };
   } catch (error: unknown) {
@@ -1694,19 +1998,28 @@ export async function syncCatalogFromGoogleSheets(): Promise<CatalogSyncResult> 
     const baseMsg = error instanceof Error ? error.message : String(error);
     const message = enrichGoogleAuthErrorMessage(baseMsg);
 
-    await updateSyncStatus(undefined, {
-      status: 'failed',
-      message,
-      counts: failedCounts,
-      warnings,
-    });
+    // Do not pass `counts`: failed attempts apply 0 rows (transaction rolled back), but the status
+    // row is the operator snapshot — zeroing counters made the UI imply "no catalog in DB" while
+    // `catalog_sync_runs_v1` still records this attempt with zeros.
+    if (!catalogSyncFailureAlreadyRecorded) {
+      await updateSyncStatus(undefined, {
+        status: 'failed',
+        message,
+        warnings,
+        audit: lastPassedPreflightAudit,
+      });
 
-    await insertSyncRun(undefined, {
-      status: 'failed',
-      message,
-      counts: failedCounts,
-      warnings,
-    });
+      await insertSyncRun(undefined, {
+        status: 'failed',
+        message,
+        counts: failedCounts,
+        warnings,
+        audit: lastPassedPreflightAudit,
+        runContext: runContextRecord,
+      });
+    }
+    console.error('[catalog-sync] Failed (no DB writes from this attempt).', { message }, error);
+
     const wrapped = new Error(message, error instanceof Error ? { cause: error } : undefined);
     throw wrapped;
   }

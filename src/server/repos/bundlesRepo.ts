@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
-import { dbAll, dbGet, dbRun } from '../db/query.ts';
+import { getBundlesReadTableNames } from '../db/catalogTable.ts';
+import { dbCatalogAll, dbCatalogGet, dbCatalogRun } from '../db/query.ts';
 import { BundleItemRecord, BundleRecord, TakeoffLineRecord } from '../../shared/types/estimator.ts';
 import { createTakeoffLine, resolveUnitLaborCostFromMinutes } from './takeoffRepo.ts';
 
@@ -30,17 +31,20 @@ function mapBundleItem(row: any): BundleItemRecord {
 }
 
 export async function listBundles(): Promise<BundleRecord[]> {
-  const rows = await dbAll('SELECT * FROM bundles_v1 WHERE active = 1 ORDER BY bundle_name');
+  const { bundlesTable } = getBundlesReadTableNames();
+  const rows = await dbCatalogAll(`SELECT * FROM ${bundlesTable} WHERE active = 1 ORDER BY bundle_name`);
   return rows.map(mapBundle);
 }
 
 export async function getBundle(bundleId: string): Promise<BundleRecord | null> {
-  const row = await dbGet('SELECT * FROM bundles_v1 WHERE id = ?', [bundleId]);
+  const { bundlesTable } = getBundlesReadTableNames();
+  const row = await dbCatalogGet(`SELECT * FROM ${bundlesTable} WHERE id = ?`, [bundleId]);
   return row ? mapBundle(row) : null;
 }
 
 export async function listBundleItems(bundleId: string): Promise<BundleItemRecord[]> {
-  const rows = await dbAll('SELECT * FROM bundle_items_v1 WHERE bundle_id = ? ORDER BY sort_order, id', [bundleId]);
+  const { bundleItemsTable } = getBundlesReadTableNames();
+  const rows = await dbCatalogAll(`SELECT * FROM ${bundleItemsTable} WHERE bundle_id = ? ORDER BY sort_order, id`, [bundleId]);
   return rows.map(mapBundleItem);
 }
 
@@ -58,7 +62,7 @@ export async function createBundle(input: {
     updatedAt: now,
   };
 
-  await dbRun('INSERT INTO bundles_v1 (id, bundle_name, category, active, updated_at) VALUES (?, ?, ?, ?, ?)', [
+  await dbCatalogRun('INSERT INTO bundles_v1 (id, bundle_name, category, active, updated_at) VALUES (?, ?, ?, ?, ?)', [
     bundle.id,
     bundle.bundleName,
     bundle.category,
@@ -83,7 +87,7 @@ export async function createBundle(input: {
       notes: item.notes ?? null,
     };
 
-    await dbRun(
+    await dbCatalogRun(
       `
       INSERT INTO bundle_items_v1 (
         id, bundle_id, catalog_item_id, sku, description, qty, material_cost, labor_minutes, labor_cost, sort_order, notes

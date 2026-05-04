@@ -6,6 +6,7 @@ import {
   upsertModifierInGoogleSheet,
 } from '../services/googleSheetsCatalogSync.ts';
 import { getEstimatorDb } from '../db/connection.ts';
+import { getBundlesReadTableNames, getCatalogModifiersReadTableName } from '../db/catalogTable.ts';
 import { listCatalogItemsForApi, searchCatalogItemsForApi } from '../repos/catalogRepo.ts';
 import { createCatalogAlias, deleteCatalogAlias, listCatalogAliasesForItem } from '../repos/catalogAliasesRepo.ts';
 import { createCatalogAttribute, deactivateCatalogAttribute, listCatalogAttributesForItem } from '../repos/catalogAttributesRepo.ts';
@@ -408,7 +409,8 @@ legacyRouter.delete('/catalog/items/:id', async (req, res) => {
 });
 
 legacyRouter.get('/catalog/modifiers', (_req, res) => {
-  const rows = getEstimatorDb().prepare('SELECT * FROM modifiers_v1 ORDER BY name').all() as any[];
+  const modRel = getCatalogModifiersReadTableName();
+  const rows = getEstimatorDb().prepare(`SELECT * FROM ${modRel} ORDER BY name`).all() as any[];
   res.json(
     rows.map((row) => ({
       id: row.id,
@@ -427,7 +429,8 @@ legacyRouter.get('/catalog/modifiers', (_req, res) => {
 });
 
 legacyRouter.put('/catalog/modifiers/:id', async (req, res) => {
-  const existing = getEstimatorDb().prepare('SELECT * FROM modifiers_v1 WHERE id = ?').get(req.params.id) as any;
+  const modRel = getCatalogModifiersReadTableName();
+  const existing = getEstimatorDb().prepare(`SELECT * FROM ${modRel} WHERE id = ?`).get(req.params.id) as any;
   if (!existing) return res.status(404).json({ error: 'Modifier not found.' });
 
   const parsed = legacyModifierUpdateSchema.safeParse(req.body);
@@ -483,7 +486,8 @@ legacyRouter.put('/catalog/modifiers/:id', async (req, res) => {
 });
 
 legacyRouter.delete('/catalog/modifiers/:id', async (req, res) => {
-  const existing = getEstimatorDb().prepare('SELECT * FROM modifiers_v1 WHERE id = ?').get(req.params.id) as any;
+  const modRel = getCatalogModifiersReadTableName();
+  const existing = getEstimatorDb().prepare(`SELECT * FROM ${modRel} WHERE id = ?`).get(req.params.id) as any;
   if (!existing) return res.status(404).json({ error: 'Modifier not found.' });
 
   try {
@@ -510,7 +514,8 @@ legacyRouter.delete('/catalog/modifiers/:id', async (req, res) => {
 });
 
 legacyRouter.get('/catalog/bundles', (_req, res) => {
-  const rows = getEstimatorDb().prepare('SELECT * FROM bundles_v1 ORDER BY bundle_name').all() as any[];
+  const { bundlesTable } = getBundlesReadTableNames();
+  const rows = getEstimatorDb().prepare(`SELECT * FROM ${bundlesTable} ORDER BY bundle_name`).all() as any[];
   res.json(
     rows.map((row) => ({
       id: row.id,
@@ -523,7 +528,8 @@ legacyRouter.get('/catalog/bundles', (_req, res) => {
 });
 
 legacyRouter.put('/catalog/bundles/:id', async (req, res) => {
-  const existing = getEstimatorDb().prepare('SELECT * FROM bundles_v1 WHERE id = ?').get(req.params.id) as any;
+  const { bundlesTable, bundleItemsTable } = getBundlesReadTableNames();
+  const existing = getEstimatorDb().prepare(`SELECT * FROM ${bundlesTable} WHERE id = ?`).get(req.params.id) as any;
   if (!existing) return res.status(404).json({ error: 'Bundle not found.' });
 
   const parsed = legacyBundleUpdateSchema.safeParse(req.body);
@@ -531,7 +537,7 @@ legacyRouter.put('/catalog/bundles/:id', async (req, res) => {
   const input = parsed.data;
   const now = new Date().toISOString();
   const bundleItems = getEstimatorDb()
-    .prepare('SELECT sku FROM bundle_items_v1 WHERE bundle_id = ? ORDER BY sort_order, id')
+    .prepare(`SELECT sku FROM ${bundleItemsTable} WHERE bundle_id = ? ORDER BY sort_order, id`)
     .all(req.params.id) as Array<{ sku: string | null }>;
   const record = {
     bundleId: existing.id,
@@ -554,11 +560,12 @@ legacyRouter.put('/catalog/bundles/:id', async (req, res) => {
 });
 
 legacyRouter.delete('/catalog/bundles/:id', async (req, res) => {
-  const existing = getEstimatorDb().prepare('SELECT * FROM bundles_v1 WHERE id = ?').get(req.params.id) as any;
+  const { bundlesTable, bundleItemsTable } = getBundlesReadTableNames();
+  const existing = getEstimatorDb().prepare(`SELECT * FROM ${bundlesTable} WHERE id = ?`).get(req.params.id) as any;
   if (!existing) return res.status(404).json({ error: 'Bundle not found.' });
 
   const bundleItems = getEstimatorDb()
-    .prepare('SELECT sku FROM bundle_items_v1 WHERE bundle_id = ? ORDER BY sort_order, id')
+    .prepare(`SELECT sku FROM ${bundleItemsTable} WHERE bundle_id = ? ORDER BY sort_order, id`)
     .all(req.params.id) as Array<{ sku: string | null }>;
   try {
     getEstimatorDb()

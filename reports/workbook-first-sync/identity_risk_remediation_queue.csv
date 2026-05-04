@@ -1,0 +1,2 @@
+remediation_tier,priority_source,normalized_sku,manufacturer,category,description,current_id,id_pattern,catalog_source_tab,active,risk_type,recommended_action
+future_preflight_hardening,n/a,,,,,,,,,no_rows_from_db,Run against production mirror; local DB may be empty. Re-run: npm run catalog:audit:identity-mfr-sku

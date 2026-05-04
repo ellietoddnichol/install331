@@ -1,5 +1,5 @@
 import type { CatalogItem } from '../../../types.ts';
-import { isPgDriver } from '../../db/driver.ts';
+import { isPgCatalogBackend } from '../../db/catalogBackend.ts';
 import { getEstimatorDb } from '../../db/connection.ts';
 import { withPgTransaction, withSqliteTransaction, type DbExec } from '../../db/query.ts';
 import { isUsingCleanCatalogSource } from '../../db/catalogTable.ts';
@@ -1291,7 +1291,7 @@ export async function ensureTakeoffCatalogSeeded(): Promise<void> {
   // If we're explicitly reading from a clean/source-of-truth table, do not write seed rows.
   if (isUsingCleanCatalogSource()) return;
 
-  if (isPgDriver()) {
+  if (isPgCatalogBackend()) {
     await withPgTransaction(async (exec) => {
       for (const item of TAKEOFF_CATALOG_SEED_ITEMS) {
         const targetId = await findExistingItemIdPg(exec, item);
@@ -1325,6 +1325,27 @@ export async function ensureTakeoffCatalogSeeded(): Promise<void> {
               id, sku, category, subcategory, family, description, manufacturer, brand, model, model_number, series, image_url, uom,
               base_material_cost, base_labor_minutes, labor_unit_type, taxable, ada_flag, tags, notes, active
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              sku = excluded.sku,
+              category = excluded.category,
+              subcategory = excluded.subcategory,
+              family = excluded.family,
+              description = excluded.description,
+              manufacturer = excluded.manufacturer,
+              brand = excluded.brand,
+              model = excluded.model,
+              model_number = excluded.model_number,
+              series = excluded.series,
+              image_url = excluded.image_url,
+              uom = excluded.uom,
+              base_material_cost = excluded.base_material_cost,
+              base_labor_minutes = excluded.base_labor_minutes,
+              labor_unit_type = excluded.labor_unit_type,
+              taxable = excluded.taxable,
+              ada_flag = excluded.ada_flag,
+              tags = excluded.tags,
+              notes = excluded.notes,
+              active = excluded.active
           `,
             [item.id, ...values]
           );
@@ -1352,6 +1373,28 @@ export async function ensureTakeoffCatalogSeeded(): Promise<void> {
       base_material_cost, base_labor_minutes, labor_unit_type, taxable, ada_flag, tags, notes, active,
       install_labor_family
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      sku = excluded.sku,
+      category = excluded.category,
+      subcategory = excluded.subcategory,
+      family = excluded.family,
+      description = excluded.description,
+      manufacturer = excluded.manufacturer,
+      brand = excluded.brand,
+      model = excluded.model,
+      model_number = excluded.model_number,
+      series = excluded.series,
+      image_url = excluded.image_url,
+      uom = excluded.uom,
+      base_material_cost = excluded.base_material_cost,
+      base_labor_minutes = excluded.base_labor_minutes,
+      labor_unit_type = excluded.labor_unit_type,
+      taxable = excluded.taxable,
+      ada_flag = excluded.ada_flag,
+      tags = excluded.tags,
+      notes = excluded.notes,
+      active = excluded.active,
+      install_labor_family = excluded.install_labor_family
   `);
 
     const update = db.prepare(`

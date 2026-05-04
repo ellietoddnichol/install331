@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
-import { CatalogPostCutoverHealthRecord, CatalogSyncStatusRecord, DbPersistenceStatusRecord, IntakeCatalogAutoApplyMode, SettingsRecord } from '../shared/types/estimator';
+import { CatalogPostCutoverHealthRecord, CatalogSyncRunHistoryRecord, CatalogSyncStatusRecord, DbPersistenceStatusRecord, IntakeCatalogAutoApplyMode, SettingsRecord } from '../shared/types/estimator';
 import { ensureProposalDefaults } from '../shared/utils/proposalDefaults';
 import { getErrorMessage } from '../shared/utils/errorMessage';
 
@@ -10,17 +10,7 @@ export function Settings() {
   const [persistenceStatus, setPersistenceStatus] = useState<(DbPersistenceStatusRecord & { gcsObjectMeta?: any; remoteDurableKind?: 'supabase' | 'gcs' | null }) | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [syncRuns, setSyncRuns] = useState<Array<{
-    id: string;
-    attemptedAt: string;
-    status: 'success' | 'failed';
-    message: string | null;
-    itemsSynced: number;
-    modifiersSynced: number;
-    bundlesSynced: number;
-    bundleItemsSynced: number;
-    warnings: string[];
-  }>>([]);
+  const [syncRuns, setSyncRuns] = useState<CatalogSyncRunHistoryRecord[]>([]);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [backfillingRegistry, setBackfillingRegistry] = useState(false);
@@ -483,6 +473,7 @@ export function Settings() {
                 <tr>
                   <th className="ui-table-th">Attempted</th>
                   <th className="ui-table-th">Status</th>
+                  <th className="ui-table-th">Context</th>
                   <th className="ui-table-th">Counts</th>
                   <th className="ui-table-th">Message</th>
                 </tr>
@@ -495,6 +486,17 @@ export function Settings() {
                       <span className={`ui-mono-chip ${run.status === 'success' ? 'ui-mono-chip--ok' : 'ui-mono-chip--danger'}`}>
                         {run.status}
                       </span>
+                    </td>
+                    <td className="py-2 pr-2 align-top">
+                      {run.historicalSyncRunContext ? (
+                        <span className="ui-mono-chip ui-mono-chip--ok text-[10px]" title={`Items read tab: ${run.workbook?.tabs.itemsFetch ?? '—'}`}>
+                          Historical
+                        </span>
+                      ) : (
+                        <span className="ui-mono-chip ui-mono-chip--mute text-[10px]" title="No run_context_json; workbook fields use current server env">
+                          Legacy row
+                        </span>
+                      )}
                     </td>
                     <td className="py-2 pr-2 text-slate-700">
                       {run.itemsSynced}I / {run.modifiersSynced}M / {run.bundlesSynced}B / {run.bundleItemsSynced}BI / {run.aliasesSynced}A / {run.attributesSynced}AT

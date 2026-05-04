@@ -188,7 +188,8 @@ export function initEstimatorSchema(db: Database) {
       bundle_items_synced INTEGER NOT NULL DEFAULT 0,
       aliases_synced INTEGER NOT NULL DEFAULT 0,
       attributes_synced INTEGER NOT NULL DEFAULT 0,
-      warnings_json TEXT NOT NULL DEFAULT '[]'
+      warnings_json TEXT NOT NULL DEFAULT '[]',
+      run_context_json TEXT
     );
 
     CREATE TABLE IF NOT EXISTS catalog_sheet_import_rows (
@@ -356,6 +357,7 @@ export function initEstimatorSchema(db: Database) {
     const runNames = new Set(runCols.map((c) => c.name));
     if (!runNames.has('aliases_synced')) db.exec('ALTER TABLE catalog_sync_runs_v1 ADD COLUMN aliases_synced INTEGER NOT NULL DEFAULT 0');
     if (!runNames.has('attributes_synced')) db.exec('ALTER TABLE catalog_sync_runs_v1 ADD COLUMN attributes_synced INTEGER NOT NULL DEFAULT 0');
+    if (!runNames.has('run_context_json')) db.exec('ALTER TABLE catalog_sync_runs_v1 ADD COLUMN run_context_json TEXT');
   } catch {
     // best-effort
   }

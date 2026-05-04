@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 test('buildCatalogSourcePayload reflects env (tabs, spreadsheet flag, clean-table note)', async () => {
-  const keys = ['GOOGLE_SHEETS_SPREADSHEET_ID', 'GOOGLE_SHEETS_ID', 'CATALOG_ITEMS_TABLE', 'GOOGLE_SHEETS_TAB_ITEMS', 'DB_DRIVER', 'CATALOG_SOURCE'] as const;
+  const keys = ['GOOGLE_SHEETS_SPREADSHEET_ID', 'GOOGLE_SHEETS_ID', 'CATALOG_ITEMS_TABLE', 'GOOGLE_SHEETS_TAB_ITEMS', 'DB_DRIVER', 'CATALOG_SOURCE', 'CATALOG_BACKEND'] as const;
   const snap: Partial<Record<(typeof keys)[number], string | undefined>> = {};
   for (const k of keys) snap[k] = process.env[k];
 
@@ -10,6 +10,7 @@ test('buildCatalogSourcePayload reflects env (tabs, spreadsheet flag, clean-tabl
     delete process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
     delete process.env.GOOGLE_SHEETS_ID;
     delete process.env.CATALOG_SOURCE;
+    delete process.env.CATALOG_BACKEND;
     process.env.CATALOG_ITEMS_TABLE = 'catalog_items_clean';
     process.env.GOOGLE_SHEETS_TAB_ITEMS = 'CLEAN_ITEMS';
     process.env.DB_DRIVER = 'sqlite';

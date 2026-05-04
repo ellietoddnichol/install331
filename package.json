@@ -20,7 +20,10 @@
     "db:migrate": "node scripts/run-pg-migrations.mjs",
     "migrate:sqlite-to-pg": "tsx scripts/migrate-sqlite-to-pg.ts",
     "catalog:audit": "tsx scripts/catalog-audit.ts",
-    "catalog:audit:supabase": "tsx scripts/auditCatalogSupabase.ts"
+    "catalog:audit:supabase": "tsx scripts/auditCatalogSupabase.ts",
+    "catalog:audit:supabase-phase": "tsx scripts/supabase-catalog-phase-audit.ts",
+    "catalog:audit:identity-mfr-sku": "tsx scripts/identity-risk-mfr-sku-audit.ts",
+    "catalog:publish:blockers": "tsx scripts/publish-blockers-report.ts"
   },
   "dependencies": {
     "@google-cloud/documentai": "^9.6.0",

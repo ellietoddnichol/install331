@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowUpDown, Database, Package, Plus, RefreshCw, Search, ShieldCheck, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
@@ -8,7 +9,16 @@ import { CatalogSyncStatusRecord, BundleRecord, ModifierRecord } from '../shared
 import { CatalogItem } from '../types';
 import { formatCurrencySafe, formatNumberSafe, formatPercentSafe } from '../utils/numberFormat';
 import { isDisplayableCatalogImageUrl } from '../shared/utils/catalogImageUrl';
+import { getErrorMessage } from '../shared/utils/errorMessage';
 import { INSTALL_LABOR_FAMILY_OPTIONS } from '../shared/utils/installLaborFamilyOptions';
+import {
+  CATALOG_REVIEW_QUEUE_KEYS,
+  catalogReviewCatalogSearchPath,
+  guessCatalogReviewSkuToken,
+  mergeCatalogReviewSources,
+  resolveCatalogReviewExportLines,
+  type CatalogReviewQueueKey,
+} from '../shared/catalogReviewQueues.ts';
 
 function CatalogItemThumb({ url }: { url: string | undefined }) {
   const [broken, setBroken] = useState(false);
@@ -43,8 +53,329 @@ function statusClass(status: CatalogSyncStatusRecord['status']): string {
   return 'ui-chip-soft text-[var(--text-muted)]';
 }
 
+const CATALOG_SYNC_UI_REVIEW_CAP = 50;
+
+const MANUAL_REVIEW_TABLE_CAP = 8;
+
+const MANUAL_REVIEW_QUEUE_LABELS: Record<CatalogReviewQueueKey, string> = {
+  duplicate_sku_groups: 'Duplicate SKU groups',
+  alias_collisions: 'Alias collisions',
+  labor_outliers: 'Labor outliers',
+  orphan_bundle_skus: 'Orphan bundle SKUs',
+  unknown_modifiers: 'Unknown modifiers',
+  orphan_attribute_skus: 'Orphan attribute canonical SKUs',
+  orphan_alias_skus: 'Orphan alias canonical SKUs',
+};
+
+
+function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusRecord }) {
+  const review = syncStatus.syncAudit?.catalogReview;
+  const warn = syncStatus.warnings || [];
+  const sum = syncStatus.lastAttemptSummary;
+  const hist = syncStatus.historicalSyncRunContext;
+
+  const warnDup = warn.filter((w) => /duplicate canonical sku/i.test(w));
+  const warnAlias = warn.filter((w) => /ALIASES: alias key/i.test(w));
+  const warnLabor = warn.filter((w) => /suspicious labor/i.test(w));
+  const warnBundleOrphan = warn.filter((w) => /BUNDLES row .*:\s*(included SKU|unknown modifier)/i.test(w));
+  const warnAttrOrphan = warn.filter((w) => /^(ATTRIBUTES row|ALIASES row).*not found in ITEMS/i.test(w));
+
+  const dupCount = review?.duplicateSkuConflictCount ?? warnDup.length;
+  const aliasCount = review?.aliasMultiTargetCount ?? warnAlias.length;
+  const laborCount = review?.laborOutlierCount ?? warnLabor.length;
+  const bundleSkuCount =
+    review?.orphanBundleSkuReferenceCount ?? warnBundleOrphan.filter((w) => /included SKU/i.test(w)).length;
+  const bundleModCount =
+    review?.orphanBundleModifierReferenceCount ??
+    warnBundleOrphan.filter((w) => /unknown modifier/i.test(w)).length;
+  const orphanAttrCount =
+    review?.orphanAttributeCanonicalCount ?? warnAttrOrphan.filter((w) => /^ATTRIBUTES row/i.test(w)).length;
+  const orphanAliasCount =
+    review?.orphanAliasCanonicalCount ?? warnAttrOrphan.filter((w) => /^ALIASES row/i.test(w)).length;
+
+  function renderList(label: string, items: string[], emptyHint: string) {
+    if (!items.length) {
+      return emptyHint ? <p className="text-[var(--text-muted)]">{emptyHint}</p> : null;
+    }
+    return (
+      <ul className="mt-1 list-inside list-disc space-y-1 text-[11px] leading-snug">
+        {items.slice(0, CATALOG_SYNC_UI_REVIEW_CAP).map((line, i) => (
+          <li key={`${label}-${i}`} className="break-words font-mono">
+            {line}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  const dupItems = review?.duplicateSkuConflictSampleKeys?.length ? review.duplicateSkuConflictSampleKeys : warnDup;
+  const aliasItems = review?.aliasMultiTargetSampleKeys?.length ? review.aliasMultiTargetSampleKeys : warnAlias;
+  const laborItems = review?.laborOutlierSampleLines?.length ? review.laborOutlierSampleLines : warnLabor;
+  const skuS =
+    review?.orphanBundleSkuSample?.length && review.orphanBundleSkuSample.some(Boolean)
+      ? review.orphanBundleSkuSample.map((s) => `Unknown bundle SKU ref: ${s}`)
+      : warnBundleOrphan.filter((w) => /included SKU/i.test(w));
+  const modS =
+    review?.orphanBundleModifierSample?.length && review.orphanBundleModifierSample.some(Boolean)
+      ? review.orphanBundleModifierSample.map((s) => `Unknown bundle modifier: ${s}`)
+      : warnBundleOrphan.filter((w) => /unknown modifier/i.test(w));
+  const attrS =
+    review?.orphanAttributeCanonicalSample?.length && review.orphanAttributeCanonicalSample.some(Boolean)
+      ? review.orphanAttributeCanonicalSample.map((s) => `Orphan attribute canonical: ${s}`)
+      : warnAttrOrphan.filter((w) => /^ATTRIBUTES row/i.test(w));
+  const aliasS =
+    review?.orphanAliasCanonicalSample?.length && review.orphanAliasCanonicalSample.some(Boolean)
+      ? review.orphanAliasCanonicalSample.map((s) => `Orphan alias canonical: ${s}`)
+      : warnAttrOrphan.filter((w) => /^ALIASES row/i.test(w));
+
+  const mergedReviewLines = mergeCatalogReviewSources(syncStatus.warnings || [], syncStatus.message);
+
+  return (
+    <details className="rounded-lg border border-dashed border-[var(--line)] bg-[var(--surface)] px-3 py-2">
+      <summary className="cursor-pointer select-none text-xs font-semibold text-slate-800">
+        Sync publish review
+      </summary>
+      <div className="mt-2 space-y-2 border-t border-[var(--line)] pt-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {hist ? (
+            <span className="ui-mono-chip ui-mono-chip--ok text-[10px]">Historical workbook</span>
+          ) : (
+            <span className="ui-mono-chip ui-mono-chip--mute text-[10px]">Current server workbook</span>
+          )}
+          {hist ? (
+            <span className="text-[10px] text-[var(--text-muted)]">
+              Review sample cap at run: {hist.validation.catalogSyncReviewMaxSamples} · Preflight blocking cap:{' '}
+              {hist.validation.preflightMaxBlockingIssues}
+            </span>
+          ) : null}
+        </div>
+        {syncStatus.workbook ? (
+          <div className="rounded bg-[var(--surface-soft)] px-2 py-1.5 text-[10px] font-mono text-slate-700">
+            <div>
+              Spreadsheet ID:{' '}
+              {syncStatus.workbook.spreadsheetIdConfigured && syncStatus.workbook.spreadsheetId
+                ? syncStatus.workbook.spreadsheetId
+                : '(not configured)'}
+            </div>
+            <div className="mt-0.5 text-[var(--text-muted)]">
+              Tabs — items read: {syncStatus.workbook.tabs.itemsFetch}
+              {syncStatus.workbook.tabs.itemsConfigured !== syncStatus.workbook.tabs.itemsFetch
+                ? ` (GOOGLE_SHEETS_TAB_ITEMS ${syncStatus.workbook.tabs.itemsConfigured})`
+                : ''}{' '}
+              · CLEAN_ITEMS env: {syncStatus.workbook.tabs.cleanItemsTabEnv ?? '—'} · modifiers:{' '}
+              {syncStatus.workbook.tabs.modifiers} · bundles: {syncStatus.workbook.tabs.bundles} · aliases:{' '}
+              {syncStatus.workbook.tabs.aliases} · attributes: {syncStatus.workbook.tabs.attributes}
+            </div>
+            {syncStatus.serverConfigNow ? (
+              <details className="mt-1.5">
+                <summary className="cursor-pointer text-[10px] text-slate-600">Live server config (now)</summary>
+                <div className="mt-1 text-[9px] text-slate-600">
+                  Items read: {syncStatus.serverConfigNow.tabs.itemsFetch} · legacy allowed:{' '}
+                  {syncStatus.serverConfigNow.importEnv.catalogSyncAllowLegacyItemsTab ? 'yes' : 'no'} · replace mode:{' '}
+                  {syncStatus.serverConfigNow.importEnv.catalogSyncReplaceMode ? 'yes' : 'no'} · skip staging rows:{' '}
+                  {syncStatus.serverConfigNow.importEnv.catalogSyncSkipStagingSheetImportRows ? 'yes' : 'no'}
+                </div>
+              </details>
+            ) : null}
+          </div>
+        ) : null}
+        {sum ? (
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] sm:grid-cols-3">
+            {sum.skippedDuplicateItemRows != null ? (
+              <>
+                <dt className="text-[var(--text-muted)]">Skipped dup rows</dt>
+                <dd className="font-mono">{sum.skippedDuplicateItemRows}</dd>
+              </>
+            ) : null}
+            {sum.failedValidationRows != null ? (
+              <>
+                <dt className="text-[var(--text-muted)]">Failed cell validation</dt>
+                <dd className="font-mono">{sum.failedValidationRows}</dd>
+              </>
+            ) : null}
+            {sum.bundleUnknownSkuReferences != null ? (
+              <>
+                <dt className="text-[var(--text-muted)]">Unknown bundle SKUs (preflight)</dt>
+                <dd className="font-mono">{sum.bundleUnknownSkuReferences}</dd>
+              </>
+            ) : null}
+            {sum.bundleUnknownModifierReferences != null ? (
+              <>
+                <dt className="text-[var(--text-muted)]">Unknown bundle modifiers</dt>
+                <dd className="font-mono">{sum.bundleUnknownModifierReferences}</dd>
+              </>
+            ) : null}
+            {sum.persistedSyncCounts ? (
+              <>
+                <dt className="text-[var(--text-muted)]">Last persisted rows</dt>
+                <dd className="col-span-2 font-mono text-[9px] leading-tight">
+                  items {sum.persistedSyncCounts.itemsSynced} · mod {sum.persistedSyncCounts.modifiersSynced} · bnd{' '}
+                  {sum.persistedSyncCounts.bundlesSynced} · bi {sum.persistedSyncCounts.bundleItemsSynced} · al{' '}
+                  {sum.persistedSyncCounts.aliasesSynced} · at {sum.persistedSyncCounts.attributesSynced}
+                </dd>
+              </>
+            ) : null}
+          </dl>
+        ) : null}
+        {syncStatus.status === 'failed' && syncStatus.message?.trim() ? (
+          <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-950">
+            <span className="font-semibold">Blocking failure: </span>
+            <span className="whitespace-pre-wrap">{syncStatus.message.trim()}</span>
+          </div>
+        ) : null}
+
+        <div className="rounded-lg border border-[var(--line)] bg-[var(--surface-soft)] px-2 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] font-semibold text-slate-800">Manual review queues</p>
+            <p className="max-w-[28rem] text-[10px] text-[var(--text-muted)]">
+              Preview matches the latest sync snapshot below. CSV exports read the selected sync run (
+              <span className="font-mono">{syncStatus.latestCatalogSyncRunId ?? 'latest row'}</span>
+              ); open items in Catalog via search (
+              <span className="font-mono">/catalog?q=...</span>).
+            </p>
+          </div>
+          <div className="mt-2 space-y-3">
+            {CATALOG_REVIEW_QUEUE_KEYS.map((queue) => {
+              const lines = resolveCatalogReviewExportLines(queue, mergedReviewLines, syncStatus.syncAudit);
+              const preview = lines.slice(0, MANUAL_REVIEW_TABLE_CAP);
+              const runIdArg = syncStatus.latestCatalogSyncRunId ?? undefined;
+              return (
+                <div key={queue} className="rounded border border-[var(--line)] bg-[var(--surface)] px-2 py-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[11px] font-medium text-slate-800">
+                      {MANUAL_REVIEW_QUEUE_LABELS[queue]} ({lines.length})
+                    </span>
+                    <button
+                      type="button"
+                      className="ui-btn-secondary px-2 py-1 text-[10px]"
+                      onClick={() =>
+                        void api.downloadCatalogSyncReviewCsv(queue, runIdArg ?? null).catch((err: unknown) =>
+                          alert(getErrorMessage(err, 'CSV download failed.'))
+                        )
+                      }
+                    >
+                      Download CSV
+                    </button>
+                  </div>
+                  {preview.length ? (
+                    <div className="mt-2 overflow-x-auto">
+                      <table className="w-full border-collapse text-left text-[10px]">
+                        <thead>
+                          <tr className="border-b border-[var(--line)] text-[var(--text-muted)]">
+                            <th className="py-1 pr-2 font-medium">Detail</th>
+                            <th className="py-1 font-medium">Open in Catalog</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {preview.map((line, idx) => {
+                            const token = guessCatalogReviewSkuToken(line);
+                            const to = catalogReviewCatalogSearchPath(token);
+                            return (
+                              <tr key={`${queue}-${idx}`} className="border-b border-[var(--line)] last:border-b-0">
+                                <td className="max-w-[min(420px,55vw)] py-1 pr-2 align-top">
+                                  <span className="block truncate font-mono" title={line}>
+                                    {line}
+                                  </span>
+                                </td>
+                                <td className="whitespace-nowrap py-1 align-top">
+                                  {token ? (
+                                    <Link to={to} className="text-[var(--brand-strong)] underline">
+                                      Search "{token}"
+                                    </Link>
+                                  ) : (
+                                    <span className="text-[var(--text-muted)]">—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      {lines.length > preview.length ? (
+                        <p className="mt-1 text-[10px] text-[var(--text-muted)]">
+                          Showing first {preview.length} of {lines.length}. Use CSV for the full queue.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-[10px] text-[var(--text-muted)]">No rows in this queue for the current snapshot.</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <details className="rounded border border-[var(--line)] bg-[var(--surface)] px-2 py-1.5" open>
+            <summary className="cursor-pointer text-[11px] font-medium text-slate-800">
+              Duplicate SKU hints ({dupCount})
+            </summary>
+            <div className="mt-1 pl-1">
+              {renderList(
+                'dup',
+                dupItems.map((s) => String(s)),
+                'Run sync to populate structured review, or export the "Duplicate SKU groups" CSV from Manual review queues above. For repo-wide blocker CSV, see workbook-first-sync docs (`npm run catalog:publish:blockers`).'
+              )}
+            </div>
+          </details>
+          <details className="rounded border border-[var(--line)] bg-[var(--surface)] px-2 py-1.5">
+            <summary className="cursor-pointer text-[11px] font-medium text-slate-800">
+              Alias conflicts ({aliasCount})
+            </summary>
+            <div className="mt-1 pl-1">{renderList('alias', aliasItems.map(String), 'No alias conflict samples for this sync.')}</div>
+          </details>
+          <details className="rounded border border-[var(--line)] bg-[var(--surface)] px-2 py-1.5">
+            <summary className="cursor-pointer text-[11px] font-medium text-slate-800">
+              Labor outliers ({laborCount})
+            </summary>
+            <div className="mt-1 pl-1">{renderList('labor', laborItems.map(String), 'No suspicious labor hints for this sync.')}</div>
+          </details>
+          <details className="rounded border border-[var(--line)] bg-[var(--surface)] px-2 py-1.5">
+            <summary className="cursor-pointer text-[11px] font-medium text-slate-800">
+              Orphan bundles — SKUs ({bundleSkuCount}) / modifiers ({bundleModCount})
+            </summary>
+            <div className="mt-1 space-y-1 pl-1">
+              {skuS.length ? renderList('bsku', skuS, '') : null}
+              {modS.length ? renderList('bmod', modS, '') : null}
+              {!skuS.length && !modS.length
+                ? renderList('empty', [], 'No orphan bundle hints for this sync.')
+                : null}
+            </div>
+          </details>
+          <details className="rounded border border-[var(--line)] bg-[var(--surface)] px-2 py-1.5">
+            <summary className="cursor-pointer text-[11px] font-medium text-slate-800">
+              Orphan attrs / aliases ({orphanAttrCount + orphanAliasCount})
+            </summary>
+            <div className="mt-1 space-y-1 pl-1">
+              {attrS.length ? renderList('attr', attrS, '') : null}
+              {aliasS.length ? renderList('als', aliasS, '') : null}
+              {!attrS.length && !aliasS.length
+                ? renderList('empty', [], 'No orphan attribute/alias hints for this sync.')
+                : null}
+            </div>
+          </details>
+          <details className="rounded border border-[var(--line)] bg-[var(--surface)] px-2 py-1.5">
+            <summary className="cursor-pointer text-[11px] font-medium text-slate-800">Raw audit JSON</summary>
+            <div className="mt-1 pl-1">
+              {syncStatus.syncAudit ? (
+                <pre className="max-h-56 overflow-auto rounded border border-[var(--line)] bg-[var(--surface-soft)] p-2 text-[10px] leading-tight">
+                  {JSON.stringify(syncStatus.syncAudit, null, 2)}
+                </pre>
+              ) : (
+                <p className="text-[var(--text-muted)]">No structured audit on the last attempt. Run sync again.</p>
+              )}
+            </div>
+          </details>
+        </div>
+      </div>
+    </details>
+  );
+}
 export function Catalog() {
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const seededSearchFromUrl = useRef(false);
   const { data, isLoading, isError, error, refetch } = useCatalogWorkspaceQuery();
   const items = data?.items ?? [];
   const modifiers = data?.modifiers ?? [];
@@ -59,6 +390,7 @@ export function Catalog() {
   const [activeTab, setActiveTab] = useState<CatalogTab>('items');
   const [activatingAll, setActivatingAll] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncActionError, setSyncActionError] = useState<string | null>(null);
 
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -134,6 +466,15 @@ export function Catalog() {
     return () => window.removeEventListener('catalog-synced', onSynced);
   }, [invalidateWorkspace]);
 
+  useEffect(() => {
+    if (seededSearchFromUrl.current) return;
+    const q = searchParams.get('q');
+    if (q && q.trim()) {
+      setSearch(q.trim());
+      seededSearchFromUrl.current = true;
+    }
+  }, [searchParams]);
+
   async function handleActivateAllCatalogItems() {
     if (!inventory || inventory.inactive === 0) return;
     const ok = window.confirm(
@@ -153,14 +494,15 @@ export function Catalog() {
   }
 
   async function handleSyncCatalog() {
+    setSyncActionError(null);
     setSyncing(true);
     try {
       await api.syncV1Catalog();
-      invalidateWorkspace();
+      await invalidateWorkspace();
     } catch (error) {
       console.error('Catalog sync failed', error);
-      invalidateWorkspace();
-      alert(error instanceof Error ? error.message : 'Catalog sync failed.');
+      setSyncActionError(getErrorMessage(error, 'Catalog sync failed.'));
+      await invalidateWorkspace();
     } finally {
       setSyncing(false);
     }
@@ -678,6 +1020,11 @@ export function Catalog() {
   }
 
   const lastSynced = syncStatus?.lastSuccessAt || syncStatus?.lastAttemptAt;
+  const displayedSyncFailure =
+    syncActionError ||
+    (syncStatus?.status === 'failed' && syncStatus.message?.trim() ? syncStatus.message.trim() : null);
+  const itemsSyncedLabelHint =
+    syncStatus?.status === 'failed' ? 'Last successful sheet import' : 'Last sheet sync';
 
   return (
     <div className="ui-page space-y-4">
@@ -723,16 +1070,35 @@ export function Catalog() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2 text-xs">
-          <div className="ui-surface-soft px-2 py-1.5 text-slate-700">Syncing ITEMS, MODIFIERS, BUNDLES, ALIASES, ATTRIBUTES</div>
+          <div className="ui-surface-soft px-2 py-1.5 text-slate-700" title="Resolved from server env (GOOGLE_SHEETS_TAB_*)">
+            {syncStatus?.workbook ? (
+              <>
+                Sheet tabs: {syncStatus.workbook.tabs.itemsFetch}, {syncStatus.workbook.tabs.modifiers},{' '}
+                {syncStatus.workbook.tabs.bundles}, {syncStatus.workbook.tabs.aliases},{' '}
+                {syncStatus.workbook.tabs.attributes}
+              </>
+            ) : (
+              <>Syncing ITEMS, MODIFIERS, BUNDLES, ALIASES, ATTRIBUTES</>
+            )}
+          </div>
           <div className="ui-surface-soft px-2 py-1.5 text-slate-700">Last synced: {lastSynced ? new Date(lastSynced).toLocaleString() : 'Never'}</div>
           <div className="ui-surface-soft px-2 py-1.5 text-slate-700">
             DB rows: {inventory ? `${inventory.total} total · ${inventory.active} active · ${inventory.inactive} inactive` : '—'}
           </div>
-          <div className="ui-surface-soft px-2 py-1.5 text-slate-700">Last sheet sync: {syncStatus?.itemsSynced ?? '—'} items</div>
+          <div className="ui-surface-soft px-2 py-1.5 text-slate-700" title={itemsSyncedLabelHint}>
+            {itemsSyncedLabelHint}: {syncStatus?.itemsSynced ?? '—'} items
+          </div>
           <div className="ui-surface-soft px-2 py-1.5 text-slate-700">
             Modifiers: {syncStatus?.modifiersSynced || modifiers.length} | Bundles: {syncStatus?.bundlesSynced || bundles.length} | Aliases: {syncStatus?.aliasesSynced || 0} | Attributes: {syncStatus?.attributesSynced || 0}
           </div>
         </div>
+
+        {displayedSyncFailure ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900 whitespace-pre-wrap">
+            <span className="font-semibold">Sync error: </span>
+            {displayedSyncFailure}
+          </div>
+        ) : null}
 
         {inventory && inventory.inactive > 0 ? (
           <div className="ui-callout-warn flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -758,6 +1124,7 @@ export function Catalog() {
             ))}
           </div>
         ) : null}
+        {syncStatus ? <CatalogSyncReviewPanel syncStatus={syncStatus} /> : null}
       </section>
 
       <section className="ui-surface p-1.5">

@@ -14,6 +14,7 @@ import { isPgDriver } from '../src/server/db/driver.ts';
 import { closePgPool } from '../src/server/db/pgPool.ts';
 import { dbAll } from '../src/server/db/query.ts';
 import type { CatalogValidationIssueType } from '../src/shared/types/catalogValidationIssue.ts';
+import { CATALOG_ALLOWED_UOM } from '../src/shared/catalogValidationConstants.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -73,12 +74,6 @@ const CATEGORY_CSI_MAP: Array<{ re: RegExp; code: string; label: string }> = [
   { re: /locker/i, code: '10 51 00', label: 'Lockers' },
   { re: /storage|unit\s*ventilat|wire\s*partitions/i, code: '10 56 00', label: 'Storage' },
 ];
-
-const ALLOWED_UOM = new Set(
-  'EA,LS,LF,SF,BOX,CASE,ST,SET,STALL,COMPARTMENT,PAIR,ROLL,PER,TBD'
-    .split(',')
-    .map((s) => s.trim().toUpperCase())
-);
 
 function escapeCell(v: string): string {
   const s = v.replace(/"/g, '""');
@@ -286,7 +281,7 @@ async function run() {
     }
 
     const u = String(row.uom ?? 'EA').trim().toUpperCase() || 'EA';
-    if (!ALLOWED_UOM.has(u) && u !== 'EA') {
+    if (!CATALOG_ALLOWED_UOM.has(u) && u !== 'EA') {
       pushIssue(allIssues, 'UOM_ANOMALY', 'catalog_item', id, 'Unusual or nonstandard UOM', u);
     }
     const category = String(row.category ?? '');
