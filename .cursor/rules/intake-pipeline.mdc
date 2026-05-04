@@ -1,0 +1,14 @@
+---
+description: Intake upload, PDF/Document AI, Gemini extraction, and normalization conventions
+globs: src/server/services/intake/**/*,src/server/services/gemini*.ts,src/server/services/intakePipeline.ts,src/server/services/bidReasoning/**/*,src/shared/utils/intake*.ts,data/div10-bid-reasoning/**/*
+alwaysApply: false
+---
+
+# Intake & document extraction
+
+- **PDF text**: `pdfParser.ts` chooses `GoogleDocumentAiProvider` when `UPLOAD_PDF_PROVIDER=google-document-ai` (requires GCP processor + ADC); otherwise `FallbackPdfExtractionProvider` (pdf-parse).
+- **Gemini**: `extractIntakeFromGemini` / `geminiExtractionService` — keep prompt rules in sync with `rowClassifierService.shouldKeepNormalizedLine` and `intakeTextGuards` (contact/boilerplate, section headers, pricing disclaimers).
+- **Normalization**: Use `normalizeIntakeUnit` from `intakeNormalization.ts` when fixing units from LLM or spreadsheets; extend `UNIT_ALIASES` for new OCR patterns instead of one-off fixes in components.
+- **Validator**: `validateNormalizedItems` drops non-scope lines and canonicalizes units — add new drop rules via shared guards in `intakeTextGuards.ts`, not duplicated regex in the UI.
+- **Pipeline**: `intakePipeline.ts` maps Gemini lines to `NormalizedIntakeLine`; use `as NormalizedIntakeLine[]` after `.filter` when TypeScript narrows optional fields incorrectly.
+- **Division 10 bid reasoning**: Packaged knowledge lives under `data/div10-bid-reasoning/` (JSON + CSV + playbook). `bidReasoning/div10BidReasoningService.ts` loads `div10_bid_reasoning_knowledge.json`, augments the Gemini prompt, merges commercial-clause assumptions in `intakePipeline`, drops commercial/metadata lines via `rowClassifierService` (`matchesDiv10CommercialOrMetadataLine`), and appends install hidden-scope hints to line notes. Extend the JSON for new block types or phrases; keep server-only (do not import from shared client code).

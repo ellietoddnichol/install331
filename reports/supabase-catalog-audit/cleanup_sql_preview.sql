@@ -1,0 +1,49 @@
+-- cleanup_sql_preview.sql
+-- NON-EXECUTABLE REFERENCE / dry-run patterns only.
+-- Review with DBA before running in production. Replace :batch_id placeholders.
+
+-- ---------------------------------------------------------------------------
+-- EXAMPLE: passive whitespace hygiene (Postgres)
+-- ---------------------------------------------------------------------------
+-- UPDATE catalog_items
+-- SET sku = NULLIF(TRIM(sku), ''),
+--     manufacturer = NULLIF(TRIM(manufacturer), ''),
+--     category = NULLIF(TRIM(category), ''),
+--     uom = UPPER(NULLIF(TRIM(uom), ''))
+-- WHERE id IN (SELECT id FROM catalog_items WHERE active = 1);
+
+-- ---------------------------------------------------------------------------
+-- EXAMPLE: batch insert validation issues from audit (Postgres)
+-- ---------------------------------------------------------------------------
+-- INSERT INTO estimator_catalog_validation_issues (
+--   id, issue_type, entity_kind, entity_id, source_ref, message, detail_json, status, severity, created_at
+-- )
+-- VALUES (
+--   'ecvi-' || gen_random_uuid()::text,
+--   'DUPLICATE_SKU',
+--   'catalog_item',
+--   'sheet-item-…',
+--   'audit:2026-05-04',
+--   'Duplicate manufacturer+SKU cluster',
+--   '{"batch":"2026-05-04","peers":["id-a","id-b"]}',
+--   'open',
+--   'high',
+--   to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+-- );
+
+-- ---------------------------------------------------------------------------
+-- EXAMPLE: read-only duplicate preview (Postgres / SQLite compatible pattern)
+-- ---------------------------------------------------------------------------
+-- SELECT manufacturer_normalized, sku_normalized, COUNT(*) cnt, string_agg(id, '|') ids
+-- FROM catalog_items
+-- GROUP BY 1,2 HAVING COUNT(*) > 1;
+
+-- ---------------------------------------------------------------------------
+-- FUTURE: unified modifier read model (view sketch — do not deploy without review)
+-- ---------------------------------------------------------------------------
+-- CREATE OR REPLACE VIEW v_catalog_modifiers_resolved AS
+-- SELECT id, modifier_key, name, 'modifiers_v1' AS src, applies_to_categories AS applies_json
+-- FROM modifiers_v1
+-- UNION ALL
+-- SELECT id, modifier_key, name, 'estimator_parametric_modifiers' AS src, applies_to_categories_json
+-- FROM estimator_parametric_modifiers;

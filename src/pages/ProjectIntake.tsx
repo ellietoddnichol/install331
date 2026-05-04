@@ -1,32 +1,68 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, FileUp, FolderInput, PlusCircle, Save, Search, Upload, WandSparkles } from 'lucide-react';
+import { ArrowLeft, ChevronDown, FileUp, FolderInput, Info, PlusCircle, Save, Search, Upload, WandSparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import { PricingMode, ProjectJobConditions, ProjectRecord, RoomRecord, SettingsRecord, TakeoffLineRecord } from '../shared/types/estimator';
-import { IntakeParseResult, IntakeReviewLine } from '../shared/types/intake';
+import {
+  ModifierRecord,
+  PeerIntakeDefaultsResponse,
+  PricingMode,
+  ProjectJobConditions,
+  ProjectRecord,
+  ProjectStructuredAssumption,
+  RoomRecord,
+  SettingsRecord,
+  TakeoffLineRecord,
+} from '../shared/types/estimator';
+import type { IntakeApplicationStatus } from '../shared/types/intake';
+import { IntakeAiSuggestions, IntakeParseResult, IntakeReviewLine } from '../shared/types/intake';
 import { CatalogItem } from '../types';
 import {
   createDefaultProjectJobConditions,
+  bondJobConditionsPatchFromAssumptions,
   normalizeProjectJobConditions,
+  OFFICE_FIELD_SCHEDULE_DEFAULTS,
   recommendDeliveryPlan,
   recommendedPhasedWorkMultiplier,
 } from '../shared/utils/jobConditions';
 import { collectPastProjectDateErrors, mapProjectDateErrors } from '../shared/utils/projectDateValidation';
 import { OFFICE_ADDRESS, getDistanceInMiles } from '../utils/geo';
-import { formatNumberSafe } from '../utils/numberFormat';
-import { touchCatalogSyncTimestamp } from '../utils/catalogBackgroundSync';
-import { beautifyItemName, canonicalizeManufacturer } from '../shared/utils/itemNameBeautifier';
-import { PreferredBrandsSelector } from '../components/intake/PreferredBrandsSelector';
-import { ImportTemplateCallout } from '../components/intake/ImportTemplateCallout';
-import { BeautifiedLineHeader } from '../components/intake/BeautifiedLineHeader';
-import { CollapsibleSectionCard } from '../components/intake/CollapsibleSectionCard';
-import { ValidationSummaryBanner } from '../components/intake/ValidationSummaryBanner';
-import { ActionFeedbackBanner } from '../components/feedback/ActionFeedbackBanner';
+import { coerceSafeProjectName, isPlausibleProjectTitle, plausibleTitleFromFileName } from '../shared/utils/intakeTextGuards';
+import { formatCurrencySafe, formatNumberSafe } from '../utils/numberFormat';
+import { numericInputValue, parseNumericInput } from '../utils/numericInput';
+import { SiteAddressAutocomplete } from '../components/intake/SiteAddressAutocomplete';
+import { CatalogCategorySelect } from '../components/intake/CatalogCategorySelect';
+import {
+  clampSuggestionCategories,
+  mergeDetectedScopeCategories,
+  resolveImportedCategory,
+  uniqueSortedCatalogCategories,
+} from '../shared/utils/catalogCategories';
+import { computeCatalogPeerPricingSuggestion } from '../shared/utils/catalogPeerSuggestions';
+import { catalogItemMatchesQuery } from '../shared/utils/catalogItemSearch';
+import { computeReviewStepOverallConfidence } from '../shared/utils/reviewStepConfidence';
+import {
+  buildInitialEstimateReviewState,
+  ESTIMATE_REVIEW_HIGH_CONFIDENCE,
+  ESTIMATE_REVIEW_LOW_SCORE_THRESHOLD,
+  getActiveCatalogMatchForRow,
+  inferJobConditionPatchesFromText,
+  resolveIntakePersistFieldsForTakeoffLine,
+  resolveLineForProjectCreation,
+  type EstimateReviewLineState,
+} from '../shared/utils/intakeEstimateReview';
+import { IntakeEstimateReviewPanel } from '../components/intake/IntakeEstimateReviewPanel';
+import { IntakeFieldBadge, IntakeFieldLegend } from '../components/intake/IntakeFieldChrome';
+import { createInitialProjectDraft, newIntakeProjectDraftId } from './intake/projectIntakeDraft';
+import { generateBidPackageNumberPreview, isBlankOrPlaceholderBidNumber } from '../shared/utils/bidPackageNumber';
+import { normalizeProjectSizeSelectValue, PROJECT_JOB_SIZE_OPTIONS } from '../shared/utils/projectJobSizeTiers';
 
 type CreationMode = 'blank' | 'takeoff' | 'document' | 'template';
 type IntakeStep = 1 | 2 | 3 | 4 | 5;
-type ValidationMessage = { text: string; targetId?: string };
+
+type CatalogPickerTarget =
+  | { kind: 'line'; lineId: string }
+  | { kind: 'fingerprint'; fingerprint: string };
 
 interface ParserReviewSummary {
   status: string | null;
@@ -38,6 +74,7 @@ interface ParserReviewSummary {
   validationWarnings: string[];
   parseWarnings: string[];
   sourceSummary: IntakeParseResult['sourceSummary'] | null;
+  aiSuggestions: IntakeAiSuggestions | null;
 }
 
 interface WarningGroupSummary {
@@ -55,7 +92,8 @@ interface LineSuggestion {
   rawText: string;
   itemName: string;
   description: string;
-  qty: number;
+  /** null while the quantity field is cleared for editing */
+  qty: number | null;
   unit: string;
   category: string | null;
   sourceReference: string;
@@ -69,6 +107,16 @@ interface LineSuggestion {
   matched: boolean;
   matchConfidence?: 'strong' | 'possible' | 'none';
   matchReason?: string;
+  suggestedBundleId?: string | null;
+  suggestedBundleName?: string | null;
+  /** Stable key from server parse; links to estimate draft rows. */
+  reviewLineFingerprint?: string;
+  catalogAttributeSnapshot?: Array<{
+    attributeType: 'finish' | 'coating' | 'grip' | 'mounting' | 'assembly';
+    attributeValue: string;
+    source: 'user' | 'inferred';
+    reason?: string;
+  }> | null;
 }
 
 type SourceKind =
@@ -159,8 +207,9 @@ interface NewCatalogDraft {
   sku: string;
   category: string;
   unit: CatalogItem['uom'];
-  materialCost: number;
-  laborMinutes: number;
+  /** null while the field is cleared for editing */
+  materialCost: number | null;
+  laborMinutes: number | null;
 }
 
 interface RoomSuggestion {
@@ -529,18 +578,22 @@ function parseDocumentMetadata(text: string): Partial<ProjectRecord> {
     return null;
   };
 
-  const inferredProjectLine = lines
-    .slice(0, 16)
-    .find((line) => {
+  const labeledProject = findValue(/project\s*name|job\s*name|project\b/i);
+  const labeledProjectSafe =
+    labeledProject && isPlausibleProjectTitle(labeledProject) ? labeledProject : null;
+
+  const inferredProjectLine =
+    lines.slice(0, 16).find((line) => {
       if (line.length < 6 || line.length > 96) return false;
       if (/^(client|gc|general contractor|address|location|site|date|bid date|project number|job number|scope of work|proposal|invitation to bid)\b/i.test(line)) return false;
       if (/^(section|division)\b/i.test(line)) return false;
       if (looksLikeDate(line) || /^\d+$/.test(line)) return false;
+      if (!isPlausibleProjectTitle(line)) return false;
       return tokenizeText(line).length >= 2;
     }) || null;
 
   return {
-    projectName: findValue(/project\s*name|job\s*name|project\b/i) ?? inferredProjectLine ?? 'Imported Project',
+    projectName: labeledProjectSafe ?? inferredProjectLine ?? 'Imported Project',
     projectNumber: findValue(/project\s*#|project\s*number|bid\s*package/i) ?? null,
     clientName: findValue(/client|gc|general\s*contractor/i) ?? null,
     address: findValue(/address|location|site/i) ?? null,
@@ -782,11 +835,8 @@ function geminiLinesToParsedRows(lines: GeminiIntakeLine[], sourceReference: str
   }));
 }
 
-function suggestCatalogMatch(
-  input: { itemName?: string; category?: string | null; description?: string; rawText?: string; manufacturer?: string | null },
-  catalog: CatalogItem[],
-  preferredBrands: string[] = [],
-): CatalogItem | null {
+function suggestCatalogMatch(input: { itemName?: string; category?: string | null; description?: string; rawText?: string }, catalog: CatalogItem[]): CatalogItem | null {
+  const canonicalCatalog = catalog.filter((c) => !c.deprecated && c.isCanonical !== false);
   const itemName = String(input.itemName || '').trim();
   const category = String(input.category || '').trim();
   const description = String(input.description || '').trim();
@@ -797,7 +847,7 @@ function suggestCatalogMatch(
 
   if (!normalized) return null;
 
-  const bySku = catalog.find((candidate) => {
+  const bySku = canonicalCatalog.find((candidate) => {
     const sku = normalizeComparableText(candidate.sku);
     return sku && normalized.includes(sku);
   });
@@ -806,7 +856,7 @@ function suggestCatalogMatch(
   let best: CatalogItem | null = null;
   let bestScore = 0;
 
-  for (const candidate of catalog) {
+  for (const candidate of canonicalCatalog) {
     const candidateSearch = [
       candidate.sku,
       candidate.description,
@@ -853,7 +903,7 @@ function dedupeSuggestions(lines: LineSuggestion[]): LineSuggestion[] {
     }
 
     const existing = bucket.get(key)!;
-    existing.qty += line.qty;
+    existing.qty = (existing.qty ?? 0) + (line.qty ?? 0);
     existing.include = existing.include || line.include;
   }
 
@@ -867,7 +917,8 @@ function mapIntakeSourceKind(sourceKind: IntakeParseResult['sourceKind']): Sourc
 
 function buildIntakeLineSuggestion(line: IntakeReviewLine, fallbackSource: string): LineSuggestion {
   const preferredMatch = line.catalogMatch ?? line.suggestedMatch;
-  const notes = [line.notes, ...line.warnings].filter(Boolean).join(' | ');
+  const bundle = line.bundleMatch ?? line.suggestedBundle;
+  const notes = [line.notes, ...line.warnings, bundle ? `Bundle hint: ${bundle.bundleName}` : ''].filter(Boolean).join(' | ');
 
   return {
     id: makeId('line-suggest'),
@@ -890,6 +941,9 @@ function buildIntakeLineSuggestion(line: IntakeReviewLine, fallbackSource: strin
     matched: !!preferredMatch,
     matchConfidence: preferredMatch?.confidence || 'none',
     matchReason: preferredMatch?.reason || '',
+    suggestedBundleId: bundle?.bundleId ?? null,
+    suggestedBundleName: bundle?.bundleName ?? null,
+    reviewLineFingerprint: line.reviewLineFingerprint,
   };
 }
 
@@ -946,7 +1000,127 @@ function buildIntakeWarnings(result: IntakeParseResult): string[] {
     );
   }
 
-  return Array.from(new Set([...result.warnings, ...result.diagnostics.warnings, ...summaryWarnings].filter(Boolean)));
+  const merged = [...result.warnings, ...result.diagnostics.warnings, ...summaryWarnings].filter(Boolean);
+  return Array.from(new Set(collapseStalePdfRoomWarnings(merged)));
+}
+
+/** Older server builds emitted one warning per PDF page for room assignment; collapse for a sane UI. */
+function collapseStalePdfRoomWarnings(warnings: string[]): string[] {
+  const roomSpam = warnings.filter(
+    (w) =>
+      /no room assignment/i.test(w) &&
+      /multiple rooms/i.test(w) &&
+      /page\s+\d+/i.test(w)
+  );
+  const rest = warnings.filter(
+    (w) =>
+      !(
+        /no room assignment/i.test(w) &&
+        /multiple rooms/i.test(w) &&
+        /page\s+\d+/i.test(w)
+      )
+  );
+  if (roomSpam.length > 2) {
+    rest.push(
+      `${roomSpam.length} PDF room-assignment notices were collapsed (older parser). All imported lines use "General"; split rooms in the workspace if needed.`
+    );
+  } else {
+    rest.push(...roomSpam);
+  }
+  return rest;
+}
+
+function normalizeWarningGroupKey(warning: string): string {
+  const value = String(warning || '').trim();
+  if (!value) return 'other';
+  const normalized = value.toLowerCase();
+  if (normalized.includes('could not be matched to the catalog') || normalized.includes('no catalog match identified')) return 'catalog-match-missing';
+  if (normalized.includes('uncertain catalog match')) return 'catalog-match-uncertain';
+  if (normalized.includes('catalog coverage may be missing')) return 'catalog-coverage-gap';
+  if (normalized.includes('category could not be confidently inferred')) return 'category-inference';
+  if (normalized.includes('possible room header')) return 'room-header';
+  if (normalized.includes('ignored totals or summary rows')) return 'totals-rows';
+  if (normalized.includes('duplicate')) return 'duplicates';
+  if (normalized.includes('manual template')) return 'manual-template';
+  return normalized
+    .replace(/inventory list:\d+/g, 'inventory list:#')
+    .replace(/row\s+\d+/g, 'row #')
+    .replace(/page\s+\d+/g, 'page #')
+    .replace(/"[^"]+"/g, '"header"');
+}
+
+function describeWarningGroup(key: string, examples: string[]): Pick<WarningGroupSummary, 'label' | 'tone'> {
+  if (key === 'catalog-match-missing') return { label: 'Missing catalog matches', tone: 'danger' };
+  if (key === 'catalog-match-uncertain') return { label: 'Uncertain catalog matches', tone: 'warning' };
+  if (key === 'catalog-coverage-gap') return { label: 'Catalog coverage gaps', tone: 'warning' };
+  if (key === 'category-inference') return { label: 'Category review needed', tone: 'warning' };
+  if (key === 'room-header') return { label: 'Possible room-header false positives', tone: 'info' };
+  if (key === 'totals-rows') return { label: 'Totals rows ignored', tone: 'info' };
+  if (key === 'duplicates') return { label: 'Possible duplicate lines', tone: 'warning' };
+  if (key === 'manual-template') return { label: 'Manual template fallback', tone: 'danger' };
+  return { label: examples[0] || 'Other warnings', tone: 'info' };
+}
+
+function buildWarningGroupSummaries(input: {
+  intakeWarnings: string[];
+  validationWarnings: string[];
+  parseWarnings: string[];
+}): WarningGroupSummary[] {
+  const grouped = new Map<string, { count: number; examples: string[] }>();
+  [...input.intakeWarnings, ...input.validationWarnings, ...input.parseWarnings]
+    .filter(Boolean)
+    .forEach((warning) => {
+      const key = normalizeWarningGroupKey(warning);
+      const current = grouped.get(key) || { count: 0, examples: [] };
+      current.count += 1;
+      if (!current.examples.includes(warning) && current.examples.length < 3) current.examples.push(warning);
+      grouped.set(key, current);
+    });
+
+  return Array.from(grouped.entries())
+    .map(([key, value]) => ({
+      key,
+      count: value.count,
+      examples: value.examples,
+      ...describeWarningGroup(key, value.examples),
+    }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+}
+
+function buildParserReviewSummary(result: IntakeParseResult): ParserReviewSummary {
+  return {
+    status: result.status || null,
+    fileType: result.fileType || null,
+    overallConfidence: result.confidence?.overallConfidence ?? null,
+    recommendedAction: result.confidence?.recommendedAction || null,
+    parserStrategy: result.diagnostics?.parseStrategy || null,
+    validationErrors: result.validation?.errors || [],
+    validationWarnings: result.validation?.warnings || [],
+    parseWarnings: result.parseWarnings || [],
+    sourceSummary: result.sourceSummary || null,
+    aiSuggestions: result.aiSuggestions ?? null,
+  };
+}
+
+function formatConfidencePercent(value: number | null | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 'n/a';
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatRecommendedAction(action: string | null | undefined): string {
+  if (!action) return 'Unknown';
+  if (action === 'auto-import') return 'Auto-import';
+  if (action === 'review-before-import') return 'Review before import';
+  if (action === 'manual-template') return 'Manual template';
+  return action;
+}
+
+function formatParserStrategy(value: string | null | undefined): string {
+  return value ? value.replace(/-/g, ' ') : 'Unknown';
+}
+
+function sumReviewLineQuantity(lines: Array<{ qty?: number | null; quantity?: number | null }>): number {
+  return Number(lines.reduce((total, line) => total + Number(line.qty ?? line.quantity ?? 0), 0).toFixed(2));
 }
 
 function normalizeWarningGroupKey(warning: string): string {
@@ -1052,44 +1226,6 @@ function summarizeAssumptions(result: IntakeParseResult): string {
   return assumptions.map((assumption) => assumption.text).filter(Boolean).join('\n');
 }
 
-function createInitialProjectDraft(settings?: SettingsRecord | null): Partial<ProjectRecord> {
-  return {
-    projectName: '',
-    projectNumber: '',
-    clientName: '',
-    generalContractor: '',
-    estimator: '',
-    address: '',
-    proposalDate: '',
-    projectType: 'Commercial',
-    projectSize: 'Medium',
-    floorLevel: 'Ground',
-    accessDifficulty: 'Easy',
-    installHeight: 'Standard',
-    materialHandling: 'Standard',
-    wallSubstrate: 'Drywall',
-    laborBurdenPercent: settings?.defaultLaborBurdenPercent ?? 25,
-    overheadPercent: settings?.defaultOverheadPercent ?? 15,
-    profitPercent: settings?.defaultProfitPercent ?? 10,
-    taxPercent: settings?.defaultTaxPercent ?? 8.25,
-    pricingMode: 'labor_and_material',
-    selectedScopeCategories: [],
-    preferredBrands: [],
-    bidDate: '',
-    dueDate: '',
-    notes: '',
-    specialNotes: '',
-    jobConditions: createDefaultProjectJobConditions(),
-  };
-}
-
-function mergeDetectedCategories(existing: string[] | undefined, additions: Array<string | null | undefined>): string[] {
-  return Array.from(new Set([
-    ...(existing || []).map((entry) => String(entry || '').trim()).filter(Boolean),
-    ...additions.map((entry) => String(entry || '').trim()).filter(Boolean),
-  ])).sort();
-}
-
 export function ProjectIntake() {
   const navigate = useNavigate();
   const { userEmail } = useAuth();
@@ -1115,13 +1251,14 @@ export function ProjectIntake() {
   const [takeoffUploadMessage, setTakeoffUploadMessage] = useState('');
   const [takeoffDragOver, setTakeoffDragOver] = useState(false);
   const [takeoffImportText, setTakeoffImportText] = useState('');
+  const [blankQuickAddText, setBlankQuickAddText] = useState('');
+  const [blankQuickAddDragOver, setBlankQuickAddDragOver] = useState(false);
   const [uploadedDocumentFile, setUploadedDocumentFile] = useState<File | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState('');
   const [uploadedText, setUploadedText] = useState('');
   const [intakeWarnings, setIntakeWarnings] = useState<string[]>([]);
 
   const [createConfirmedOnly, setCreateConfirmedOnly] = useState(true);
-  const [catalogPickerLineId, setCatalogPickerLineId] = useState<string | null>(null);
   const [catalogSearch, setCatalogSearch] = useState('');
   const [newCatalogLineId, setNewCatalogLineId] = useState<string | null>(null);
   const [newCatalogDraft, setNewCatalogDraft] = useState<NewCatalogDraft | null>(null);
@@ -1134,6 +1271,15 @@ export function ProjectIntake() {
   const [distanceMessage, setDistanceMessage] = useState('No calculated distance yet.');
   const [projectDateErrors, setProjectDateErrors] = useState<Partial<Record<'bidDate' | 'proposalDate' | 'dueDate', string>>>({});
   const [parserReviewSummary, setParserReviewSummary] = useState<ParserReviewSummary | null>(null);
+  const [lastIntakeParse, setLastIntakeParse] = useState<IntakeParseResult | null>(null);
+  const [estimateReviewLines, setEstimateReviewLines] = useState<Record<string, EstimateReviewLineState>>({});
+  const [estimateReviewJobConditions, setEstimateReviewJobConditions] = useState<Record<string, IntakeApplicationStatus>>({});
+  const [estimateReviewProjectMods, setEstimateReviewProjectMods] = useState<Record<string, IntakeApplicationStatus>>({});
+  const [intakeModifiers, setIntakeModifiers] = useState<ModifierRecord[]>([]);
+  const [catalogPickerTarget, setCatalogPickerTarget] = useState<CatalogPickerTarget | null>(null);
+  const [peerIntakeHint, setPeerIntakeHint] = useState<PeerIntakeDefaultsResponse | null>(null);
+  const peerHintDismissedForKey = useRef<string | null>(null);
+  const [peerSetupAssumptionNote, setPeerSetupAssumptionNote] = useState<string | null>(null);
 
   const [roomSuggestions, setRoomSuggestions] = useState<RoomSuggestion[]>([]);
   const [lineSuggestions, setLineSuggestions] = useState<LineSuggestion[]>([]);
@@ -1156,25 +1302,49 @@ export function ProjectIntake() {
   }, [userEmail]);
 
   useEffect(() => {
+    if (!userEmail) return;
+    setProjectDraft((prev) => {
+      if (String(prev.estimator || '').trim()) return prev;
+      return {
+        ...prev,
+        estimator: userEmail,
+      };
+    });
+  }, [userEmail]);
+
+  useEffect(() => {
+    const onCatalogSynced = () => {
+      void api.getCatalog().then(setCatalog);
+    };
+    window.addEventListener('catalog-synced', onCatalogSynced);
+    return () => window.removeEventListener('catalog-synced', onCatalogSynced);
+  }, []);
+
+  useEffect(() => {
     void (async () => {
-      try {
-        await api.syncV1Catalog();
-        touchCatalogSyncTimestamp();
-      } catch {
-        /* non-fatal; local catalog may be stale */
-      }
-      const [projectData, catalogData, settingsData] = await Promise.all([api.getV1Projects(), api.getCatalog(), api.getV1Settings()]);
+      const [projectData, catalogData, settingsData, modifiersData] = await Promise.all([
+        api.getV1Projects(),
+        api.getCatalog(),
+        api.getV1Settings(),
+        api.getV1Modifiers(),
+      ]);
       setProjects(projectData);
       setCatalog(catalogData);
       setSettingsDefaults(settingsData);
+      setIntakeModifiers(modifiersData);
 
       const defaults = createInitialProjectDraft(settingsData);
       setProjectDraft((prev) => ({
         ...defaults,
         ...prev,
+        id: prev.id || defaults.id || newIntakeProjectDraftId(),
         laborBurdenPercent: prev.laborBurdenPercent ?? defaults.laborBurdenPercent,
         overheadPercent: prev.overheadPercent ?? defaults.overheadPercent,
         profitPercent: prev.profitPercent ?? defaults.profitPercent,
+        laborOverheadPercent: prev.laborOverheadPercent ?? defaults.laborOverheadPercent,
+        laborProfitPercent: prev.laborProfitPercent ?? defaults.laborProfitPercent,
+        subLaborManagementFeeEnabled: prev.subLaborManagementFeeEnabled ?? defaults.subLaborManagementFeeEnabled,
+        subLaborManagementFeePercent: prev.subLaborManagementFeePercent ?? defaults.subLaborManagementFeePercent,
         taxPercent: prev.taxPercent ?? defaults.taxPercent,
         selectedScopeCategories: Array.isArray(prev.selectedScopeCategories) ? prev.selectedScopeCategories : defaults.selectedScopeCategories,
         jobConditions: normalizeProjectJobConditions({
@@ -1184,6 +1354,64 @@ export function ProjectIntake() {
       }));
     })();
   }, []);
+
+  useEffect(() => {
+    const address = String(projectDraft.address || '').trim();
+    if (!address || address.length < 8) return;
+    const timer = setTimeout(() => {
+      void refreshDraftDistance(address, true);
+    }, 650);
+    return () => clearTimeout(timer);
+  }, [projectDraft.address]);
+
+  useEffect(() => {
+    if (projectDraft.projectNumberSource === 'manual') return;
+    const id = String(projectDraft.id || '').trim();
+    if (!id) {
+      setProjectDraft((p) => ({ ...p, id: newIntakeProjectDraftId() }));
+      return;
+    }
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const next = await generateBidPackageNumberPreview({
+            projectId: id,
+            projectName: String(projectDraft.projectName || ''),
+            now: new Date(),
+          });
+          setProjectDraft((p) => {
+            if (p.projectNumberSource === 'manual') return p;
+            if (p.projectNumber === next) return p;
+            return { ...p, projectNumber: next, projectNumberSource: 'auto' };
+          });
+        } catch (e) {
+          console.warn('Bid package # preview failed', e);
+        }
+      })();
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [projectDraft.id, projectDraft.projectName, projectDraft.projectNumberSource]);
+
+  useEffect(() => {
+    if (step < 3) return;
+    const c = String(projectDraft.clientName || '').trim();
+    const g = String(projectDraft.generalContractor || '').trim();
+    if (!c && !g) {
+      setPeerIntakeHint(null);
+      return;
+    }
+    const dismissKey = `${c.toLowerCase()}\t${g.toLowerCase()}`;
+    if (peerHintDismissedForKey.current === dismissKey) {
+      setPeerIntakeHint(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      void api.getV1PeerIntakeDefaults({ clientName: c || undefined, generalContractor: g || undefined }).then((data) => {
+        setPeerIntakeHint(data?.sourceProjectId ? data : null);
+      });
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [step, projectDraft.clientName, projectDraft.generalContractor]);
 
   const availableProjectSources = useMemo(
     () => projects.filter((project) => project.id !== sourceProjectId),
@@ -1209,67 +1437,32 @@ export function ProjectIntake() {
     [intakeWarnings, parserReviewSummary]
   );
 
-  function targetIdForChecklistEntry(entry: string): string | undefined {
-    const normalized = entry.toLowerCase();
-    if (normalized.includes('project name')) return 'intake-project-name';
-    if (normalized.includes('client')) return 'intake-client';
-    if (normalized.includes('site address')) return 'intake-site-address';
-    if (normalized.includes('project type')) return 'intake-project-type';
-    if (normalized.includes('bid due date')) return 'intake-bid-date';
-    if (normalized.includes('pricing mode')) return 'intake-pricing-mode';
-    if (normalized.includes('scope category')) return 'intake-scope-categories';
-    if (normalized.includes('crew size')) return 'intake-crew-size';
-    return undefined;
-  }
-
-  function reportValidation(messages: ValidationMessage[]) {
-    setValidationMessages(messages);
-    if (messages.length) {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  }
-
-  function handleValidationSelect(targetId?: string) {
-    if (!targetId) return;
-    const target = document.getElementById(targetId);
-    if (!target) return;
-    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target instanceof HTMLButtonElement) {
-      target.focus();
-    }
-  }
+  const parserReviewDisplayConfidence = useMemo(() => {
+    if (!parserReviewSummary) return null;
+    const baseline = parserReviewSummary.overallConfidence ?? 0;
+    const overall = computeReviewStepOverallConfidence(lineSuggestions, {
+      validationWarnings: parserReviewSummary.validationWarnings,
+      parseWarnings: parserReviewSummary.parseWarnings,
+      intakeWarnings,
+      validationErrors: parserReviewSummary.validationErrors,
+      baseline: parserReviewSummary.overallConfidence,
+    });
+    const hasIncluded = lineSuggestions.some((l) => l.include);
+    return {
+      overall,
+      adjustedFromReview: hasIncluded && Math.abs(overall - baseline) >= 0.02,
+    };
+  }, [parserReviewSummary, lineSuggestions, intakeWarnings]);
 
   const unmatchedSuggestions = useMemo(
     () => lineSuggestions.filter((line) => !line.matched),
     [lineSuggestions]
   );
 
-  const filteredReviewSuggestions = useMemo(() => {
-    const query = reviewSearch.trim().toLowerCase();
-    return lineSuggestions.filter((line) => {
-      if (reviewFilter === 'needs-match' && line.matched) return false;
-      if (reviewFilter === 'matched' && !line.matched) return false;
-      if (reviewFilter === 'ignored' && line.include) return false;
-      if (!query) return true;
-      const haystack = `${line.itemName} ${line.description} ${line.roomName} ${line.category || ''} ${line.sku || ''}`.toLowerCase();
-      return haystack.includes(query);
-    });
-  }, [lineSuggestions, reviewFilter, reviewSearch]);
-
-  const selectedReviewIndex = useMemo(
-    () => filteredReviewSuggestions.findIndex((line) => line.id === selectedReviewLineId),
-    [filteredReviewSuggestions, selectedReviewLineId]
+  const filteredCatalog = useMemo(
+    () => catalog.filter((item) => catalogItemMatchesQuery(item, catalogSearch)),
+    [catalog, catalogSearch]
   );
-
-  const filteredCatalog = useMemo(() => {
-    const q = catalogSearch.toLowerCase();
-    if (!q) return catalog;
-    return catalog.filter((item) =>
-      item.description.toLowerCase().includes(q) ||
-      item.sku.toLowerCase().includes(q) ||
-      item.category.toLowerCase().includes(q)
-    );
-  }, [catalog, catalogSearch]);
 
   const scopeCategoryOptions = useMemo(
     () => Array.from(new Set([
@@ -1279,15 +1472,14 @@ export function ProjectIntake() {
     [catalog, lineSuggestions]
   );
 
-  const brandOptions = useMemo(() => {
-    const bucket = new Map<string, string>();
-    catalog.forEach((item) => {
-      const canonical = canonicalizeManufacturer(item.manufacturer);
-      if (!canonical) return;
-      if (!bucket.has(canonical.toLowerCase())) bucket.set(canonical.toLowerCase(), canonical);
+  const newCatalogPeerSuggestion = useMemo(() => {
+    if (!newCatalogDraft) return null;
+    return computeCatalogPeerPricingSuggestion(catalog, {
+      description: newCatalogDraft.description,
+      category: newCatalogDraft.category,
+      uom: newCatalogDraft.unit,
     });
-    return Array.from(bucket.values()).sort((a, b) => a.localeCompare(b));
-  }, [catalog]);
+  }, [catalog, newCatalogDraft]);
 
   const basicsChecklist = useMemo(() => {
     const missing: string[] = [];
@@ -1341,6 +1533,49 @@ export function ProjectIntake() {
         ...updates,
       }),
     }));
+  }
+
+  const draftJob = useMemo(
+    () => normalizeProjectJobConditions(projectDraft.jobConditions),
+    [projectDraft.jobConditions]
+  );
+
+  function resetIntakeAdvancedPricingToOfficeDefaults() {
+    if (!settingsDefaults) return;
+    setProjectDraft((prev) => ({
+      ...prev,
+      laborBurdenPercent: settingsDefaults.defaultLaborBurdenPercent,
+      overheadPercent: settingsDefaults.defaultOverheadPercent,
+      profitPercent: 0,
+      taxPercent: settingsDefaults.defaultTaxPercent,
+      laborOverheadPercent: settingsDefaults.defaultLaborOverheadPercent,
+      laborProfitPercent: 0,
+      jobConditions: normalizeProjectJobConditions({
+        ...(prev.jobConditions || createDefaultProjectJobConditions()),
+        ...OFFICE_FIELD_SCHEDULE_DEFAULTS,
+        laborRateMultiplier: 1,
+        installerCount: 1,
+        estimateAdderPercent: 0,
+        estimateAdderAmount: 0,
+      }),
+    }));
+  }
+
+  function matchesIntakeOffice(
+    field: 'burden' | 'materialOandP' | 'profit' | 'tax' | 'laborOverhead' | 'laborProfit'
+  ): boolean {
+    if (!settingsDefaults) return false;
+    if (field === 'burden') return Number(projectDraft.laborBurdenPercent) === settingsDefaults.defaultLaborBurdenPercent;
+    if (field === 'materialOandP')
+      return (
+        Number(projectDraft.overheadPercent) === settingsDefaults.defaultOverheadPercent &&
+        Number(projectDraft.profitPercent) === 0
+      );
+    if (field === 'profit') return Number(projectDraft.profitPercent) === settingsDefaults.defaultProfitPercent;
+    if (field === 'tax') return Number(projectDraft.taxPercent) === settingsDefaults.defaultTaxPercent;
+    if (field === 'laborOverhead') return Number(projectDraft.laborOverheadPercent) === settingsDefaults.defaultLaborOverheadPercent;
+    if (field === 'laborProfit') return Number(projectDraft.laborProfitPercent) === 0;
+    return false;
   }
 
   function applyDraftDeliveryRecommendation(distance: number | null, options?: { difficulty?: ProjectJobConditions['deliveryDifficulty']; force?: boolean }) {
@@ -1421,8 +1656,15 @@ export function ProjectIntake() {
     const assumptionNotes = summarizeAssumptions(result);
     setProjectDraft((prev) => ({
       ...prev,
-      projectName: prev.projectName || result.projectMetadata.projectName || prev.projectName,
+      projectName: prev.projectName?.trim()
+        ? prev.projectName
+        : coerceSafeProjectName(result.projectMetadata.projectName || '', '') || 'Imported Project',
       projectNumber: prev.projectNumber || result.projectMetadata.projectNumber || prev.projectNumber,
+      projectNumberSource: (() => {
+        if (String(prev.projectNumber || '').trim()) return prev.projectNumberSource;
+        if (String(result.projectMetadata.projectNumber || '').trim()) return 'manual' as const;
+        return prev.projectNumberSource;
+      })(),
       clientName: prev.clientName || result.projectMetadata.client || prev.clientName,
       generalContractor: prev.generalContractor || result.projectMetadata.generalContractor || prev.generalContractor,
       estimator: prev.estimator || result.projectMetadata.estimator || prev.estimator,
@@ -1431,7 +1673,11 @@ export function ProjectIntake() {
       proposalDate: prev.proposalDate || normalizeDateString(result.projectMetadata.proposalDate) || prev.proposalDate,
       pricingMode: prev.pricingMode || result.projectMetadata.pricingBasis || prev.pricingMode,
       notes: mergeDistinctText(mergeSourceNote(prev.notes, sourceLabel), [assumptionNotes]),
-      specialNotes: mergeDistinctText(prev.specialNotes, [result.proposalAssist.scopeSummaryDraft, result.proposalAssist.clarificationsDraft, result.proposalAssist.exclusionsDraft]),
+      specialNotes: prev.specialNotes,
+      jobConditions: normalizeProjectJobConditions({
+        ...(prev.jobConditions || createDefaultProjectJobConditions()),
+        ...bondJobConditionsPatchFromAssumptions(result.projectMetadata.assumptions || []),
+      }),
     }));
 
     if (String(importedAddress || '').trim()) {
@@ -1440,16 +1686,63 @@ export function ProjectIntake() {
   }
 
   function applyIntakeParseToReview(result: IntakeParseResult, fallbackSource: string) {
-    const suggestions = dedupeSuggestions(result.reviewLines.map((line) => buildIntakeLineSuggestion(line, fallbackSource)));
-    setLineSuggestions(suggestions);
-    setRoomSuggestions(buildIntakeRoomSuggestions(result, suggestions));
+    const allowed = uniqueSortedCatalogCategories(catalog);
+    const raw = dedupeSuggestions(result.reviewLines.map((line) => buildIntakeLineSuggestion(line, fallbackSource)));
+    const suggestionsBase = clampSuggestionCategories(raw, catalog);
+    const inferredByFingerprint = new Map<string, LineSuggestion['catalogAttributeSnapshot']>();
+    for (const row of result.estimateDraft?.lineSuggestions ?? []) {
+      if (!row.reviewLineFingerprint) continue;
+      if (!row.inferredCatalogAttributeSnapshot || row.inferredCatalogAttributeSnapshot.length === 0) continue;
+      inferredByFingerprint.set(
+        row.reviewLineFingerprint,
+        row.inferredCatalogAttributeSnapshot.map((a) => ({
+          attributeType: a.attributeType,
+          attributeValue: a.attributeValue,
+          source: 'inferred' as const,
+          reason: a.reason,
+        }))
+      );
+    }
+    const suggestions = suggestionsBase.map((line) => {
+      const fp = line.reviewLineFingerprint;
+      if (!fp) return line;
+      const snap = inferredByFingerprint.get(fp);
+      if (!snap) return line;
+      return { ...line, catalogAttributeSnapshot: snap };
+    });
+
+    const ignoredFps = new Set<string>(
+      (result.estimateDraft?.lineSuggestions ?? [])
+        .filter((s) => s.applicationStatus === 'ignored')
+        .map((s) => s.reviewLineFingerprint)
+        .filter(Boolean)
+    );
+    const suggestionsWithIgnore = ignoredFps.size
+      ? suggestions.map((line) =>
+          line.reviewLineFingerprint && ignoredFps.has(line.reviewLineFingerprint) ? { ...line, include: false } : line
+        )
+      : suggestions;
+
+    setLineSuggestions(suggestionsWithIgnore);
+    setRoomSuggestions(buildIntakeRoomSuggestions(result, suggestionsWithIgnore));
     setIntakeWarnings(buildIntakeWarnings(result));
-      setParserReviewSummary(buildParserReviewSummary(result));
+    setParserReviewSummary(buildParserReviewSummary(result));
+    setLastIntakeParse(result);
+    if (result.estimateDraft) {
+      const init = buildInitialEstimateReviewState(result.estimateDraft, catalog);
+      setEstimateReviewLines(init.lineByFingerprint);
+      setEstimateReviewJobConditions(init.jobConditionById);
+      setEstimateReviewProjectMods(init.projectModifierById);
+    } else {
+      setEstimateReviewLines({});
+      setEstimateReviewJobConditions({});
+      setEstimateReviewProjectMods({});
+    }
     setProjectDraft((prev) => ({
       ...prev,
       selectedScopeCategories: prev.selectedScopeCategories && prev.selectedScopeCategories.length > 0
         ? prev.selectedScopeCategories
-        : mergeDetectedCategories(prev.selectedScopeCategories, suggestions.map((line) => line.category)),
+        : mergeDetectedScopeCategories(prev.selectedScopeCategories, suggestions.map((line) => line.category), allowed),
     }));
     return suggestions;
   }
@@ -1574,7 +1867,7 @@ export function ProjectIntake() {
             sourceKind: 'text-document',
             metadataSources: [],
             metadataFound: [],
-            metadataMissing: ['projectNumber', 'client', 'generalContractor', 'address', 'bidDate', 'proposalDate', 'estimator'],
+            metadataMissing: ['projectNumber', 'client', 'address', 'bidDate', 'proposalDate', 'estimator'],
             warnings: [],
             totalLines: 0,
             completeLines: 0,
@@ -1582,7 +1875,7 @@ export function ProjectIntake() {
             needsMatchLines: 0,
             modelUsed: 'review-state',
             confidenceSummary: { metadata: 1, lineExtraction: 0, matching: 0, overall: 0.33 },
-            confidenceNarrative: 'Review-state placeholder diagnostics.',
+            confidenceNarrative: 'Structured intake review — no automated parse was run for this path.',
             webEnrichmentUsed: false,
           },
         }, takeoffFileName || 'uploaded takeoff');
@@ -1604,6 +1897,11 @@ export function ProjectIntake() {
           ...prev,
           projectName: prev.projectName || takeoffStructuredProjectName,
           projectNumber: prev.projectNumber || dominantProjectNumber,
+          projectNumberSource: (() => {
+            if (String(prev.projectNumber || '').trim()) return prev.projectNumberSource;
+            if (String(dominantProjectNumber || '').trim()) return 'manual' as const;
+            return prev.projectNumberSource;
+          })(),
           clientName: prev.clientName || dominantClient,
           address: prev.address || dominantAddress,
           bidDate: prev.bidDate || dominantBidDate,
@@ -1668,8 +1966,17 @@ export function ProjectIntake() {
 
       setProjectDraft((prev) => ({
         ...prev,
-        projectName: prev.projectName || documentMetadata.projectName || (takeoffFileName ? takeoffFileName.replace(/\.[^/.]+$/, '') : 'Takeoff Imported Project'),
+        projectName:
+          prev.projectName ||
+          documentMetadata.projectName ||
+          plausibleTitleFromFileName(takeoffFileName || '') ||
+          'Takeoff Imported Project',
         projectNumber: prev.projectNumber || documentMetadata.projectNumber || prev.projectNumber,
+        projectNumberSource: (() => {
+          if (String(prev.projectNumber || '').trim()) return prev.projectNumberSource;
+          if (String(documentMetadata.projectNumber || '').trim()) return 'manual' as const;
+          return prev.projectNumberSource;
+        })(),
         clientName: prev.clientName || documentMetadata.clientName || prev.clientName,
         address: prev.address || documentMetadata.address || prev.address,
         bidDate: prev.bidDate || documentMetadata.bidDate || prev.bidDate,
@@ -1724,7 +2031,9 @@ export function ProjectIntake() {
         matched: !!match,
       } as LineSuggestion;
     });
-    setLineSuggestions(dedupeSuggestions([...importedFromProject, ...importedFromStructured, ...importedFromText]));
+    setLineSuggestions(
+      clampSuggestionCategories(dedupeSuggestions([...importedFromProject, ...importedFromStructured, ...importedFromText]), catalog)
+    );
   }
 
   async function handleTakeoffFileUpload(file: File): Promise<boolean> {
@@ -1760,7 +2069,7 @@ export function ProjectIntake() {
       applyIntakeParseToReview(result, file.name);
       setTakeoffParsedFromServer(true);
       setTakeoffStructuredLines(result.reviewLines.map((line) => buildIntakeParsedImportLine(line, file.name)));
-      setTakeoffStructuredProjectName(result.projectMetadata.projectName || '');
+      setTakeoffStructuredProjectName(coerceSafeProjectName(result.projectMetadata.projectName || '', '') || '');
       setTakeoffStructuredKind(mapIntakeSourceKind(result.sourceKind));
       setTakeoffHasRoomColumn(result.rooms.length > 0 || result.reviewLines.some((line) => !!line.roomName));
       setTakeoffFileText('');
@@ -1847,8 +2156,10 @@ export function ProjectIntake() {
     const metadata = adaptive.metadata;
     setProjectDraft((prev) => ({
       ...prev,
-      projectName: metadata.projectName || prev.projectName,
+      projectName:
+        coerceSafeProjectName(metadata.projectName || '', '') || prev.projectName || 'Imported Project',
       projectNumber: metadata.projectNumber || prev.projectNumber,
+      projectNumberSource: String(metadata.projectNumber || '').trim() ? ('manual' as const) : prev.projectNumberSource,
       clientName: metadata.clientName || prev.clientName,
       address: metadata.address || prev.address,
       bidDate: metadata.bidDate || prev.bidDate,
@@ -1893,7 +2204,82 @@ export function ProjectIntake() {
     setLineSuggestions(dedupeSuggestions(parsed));
   }
 
-  function applyExistingCatalogMatch(lineId: string, item: CatalogItem) {
+  function intakeMemoryFieldsForFingerprint(fingerprint: string | undefined): { itemCode?: string; itemName?: string; description?: string } {
+    if (fingerprint) {
+      const rl = lastIntakeParse?.reviewLines?.find((l) => l.reviewLineFingerprint === fingerprint);
+      if (rl) {
+        return { itemCode: rl.itemCode, itemName: rl.itemName, description: rl.description };
+      }
+      const line = lineSuggestions.find((l) => l.reviewLineFingerprint === fingerprint);
+      if (line) {
+        return { itemCode: line.sku || undefined, itemName: line.itemName, description: line.description };
+      }
+    }
+    return {};
+  }
+
+  function intakeMemoryFieldsForLineId(lineId: string): { itemCode?: string; itemName?: string; description?: string } {
+    const line = lineSuggestions.find((l) => l.id === lineId);
+    return intakeMemoryFieldsForFingerprint(line?.reviewLineFingerprint);
+  }
+
+  function rememberIntakeCatalogChoice(
+    catalogItemId: string,
+    fields: { itemCode?: string; itemName?: string; description?: string }
+  ) {
+    void api.postV1IntakeCatalogMemory({ catalogItemId, ...fields }).catch((err) => console.warn('intake catalog memory', err));
+  }
+
+  function dismissPeerIntakeHint() {
+    const c = String(projectDraft.clientName || '').trim();
+    const g = String(projectDraft.generalContractor || '').trim();
+    peerHintDismissedForKey.current = `${c.toLowerCase()}\t${g.toLowerCase()}`;
+    setPeerIntakeHint(null);
+  }
+
+  function applyPeerIntakeHint() {
+    if (!peerIntakeHint?.sourceProjectId || !peerIntakeHint.jobConditions) return;
+    setProjectDraft((prev) => ({
+      ...prev,
+      jobConditions: normalizeProjectJobConditions(peerIntakeHint.jobConditions!),
+      selectedScopeCategories:
+        peerIntakeHint.selectedScopeCategories?.length ? peerIntakeHint.selectedScopeCategories : prev.selectedScopeCategories,
+      pricingMode: peerIntakeHint.pricingMode ?? prev.pricingMode,
+      taxPercent: peerIntakeHint.taxPercent ?? prev.taxPercent,
+    }));
+    const label = peerIntakeHint.matchedBy === 'client' ? 'client' : 'general contractor';
+    setPeerSetupAssumptionNote(
+      `Job setup pre-filled from a recent project for the same ${label}. Review all fields before bidding.`
+    );
+    setPeerIntakeHint(null);
+  }
+
+  function buildStructuredAssumptionsForNewProject(): ProjectStructuredAssumption[] {
+    const fromIntake = (lastIntakeParse?.projectMetadata?.assumptions ?? []).map((a) => ({
+      id: crypto.randomUUID(),
+      source: 'intake' as const,
+      ruleId: `intake:${a.kind}`,
+      text: a.text,
+      confidence: a.confidence,
+      appliedFields: ['intake', 'proposal'],
+      createdAt: new Date().toISOString(),
+    }));
+    if (!peerSetupAssumptionNote) return fromIntake;
+    return [
+      ...fromIntake,
+      {
+        id: crypto.randomUUID(),
+        source: 'peer' as const,
+        ruleId: 'peer-intake-defaults',
+        text: peerSetupAssumptionNote,
+        confidence: 0.85,
+        appliedFields: ['jobConditions', 'pricing'],
+        createdAt: new Date().toISOString(),
+      },
+    ];
+  }
+
+  function applyCatalogToLineId(lineId: string, item: CatalogItem, matchReason = 'User-selected catalog item') {
     setLineSuggestions((prev) =>
       prev.map((line) => {
         if (line.id !== lineId) return line;
@@ -1911,25 +2297,324 @@ export function ProjectIntake() {
           notes: `${line.notes}; matched to catalog ${item.sku}`,
           laborIncluded: line.laborIncluded,
           materialIncluded: line.materialIncluded,
+          matchConfidence: 'strong',
+          matchReason,
+          catalogAttributeSnapshot: null,
         };
       })
     );
-    setCatalogPickerLineId(null);
+    rememberIntakeCatalogChoice(item.id, intakeMemoryFieldsForLineId(lineId));
+  }
+
+  function applyCatalogPickerSelection(item: CatalogItem) {
+    const target = catalogPickerTarget;
+    if (!target) return;
+    if (target.kind === 'line') {
+      applyCatalogToLineId(target.lineId, item);
+    } else {
+      const lineId = lineSuggestions.find((l) => l.reviewLineFingerprint === target.fingerprint)?.id;
+      if (lineId) {
+        applyCatalogToLineId(lineId, item, 'Estimate review catalog pick');
+      } else {
+        rememberIntakeCatalogChoice(item.id, intakeMemoryFieldsForFingerprint(target.fingerprint));
+      }
+      setEstimateReviewLines((prev) => ({
+        ...prev,
+        [target.fingerprint]: { applicationStatus: 'replaced', selectedCatalogItemId: item.id },
+      }));
+    }
+    setCatalogPickerTarget(null);
     setCatalogSearch('');
+  }
+
+  function patchEstimateReviewLine(fingerprint: string, patch: Partial<EstimateReviewLineState>) {
+    setEstimateReviewLines((prev) => {
+      const cur = prev[fingerprint] ?? { applicationStatus: 'suggested' as const, selectedCatalogItemId: null };
+      const merged: EstimateReviewLineState = { ...cur, ...patch };
+      if (merged.applicationStatus !== 'accepted') {
+        return {
+          ...prev,
+          [fingerprint]: {
+            applicationStatus: merged.applicationStatus,
+            selectedCatalogItemId: merged.selectedCatalogItemId,
+          },
+        };
+      }
+      return { ...prev, [fingerprint]: merged };
+    });
+  }
+
+  function maybeCaptureDiv10Training(
+    fingerprint: string,
+    action: 'accepted' | 'replaced' | 'ignored',
+    finalCatalogItemId: string | null
+  ) {
+    const draft = lastIntakeParse?.estimateDraft;
+    const row = draft?.lineSuggestions.find((r) => r.reviewLineFingerprint === fingerprint);
+    const reviewLine = lastIntakeParse?.reviewLines.find((r) => r.reviewLineFingerprint === fingerprint);
+    if (!row?.div10Brain?.catalogAssist && !row?.div10Brain?.classify) return;
+    const lineText = [reviewLine?.description, reviewLine?.itemName].filter(Boolean).join(' ').trim();
+    void api
+      .postV1IntakeDiv10TrainingCapture({
+        reviewLineFingerprint: fingerprint,
+        action,
+        finalCatalogItemId,
+        lineText,
+        deterministicSuggestedId: row.suggestedCatalogItemId,
+        div10BrainSnapshot: row.div10Brain,
+      })
+      .catch(() => {});
+  }
+
+  function handleAcceptEstimateLine(fingerprint: string) {
+    const draft = lastIntakeParse?.estimateDraft;
+    const row = draft?.lineSuggestions.find((r) => r.reviewLineFingerprint === fingerprint);
+    if (!row) return;
+    const st = estimateReviewLines[fingerprint] ?? {
+      applicationStatus: row.applicationStatus,
+      selectedCatalogItemId: row.suggestedCatalogItemId,
+    };
+    const catId = st.selectedCatalogItemId ?? row.suggestedCatalogItemId;
+    const item = catId ? catalog.find((c) => c.id === catId) : undefined;
+    patchEstimateReviewLine(fingerprint, { applicationStatus: 'accepted', selectedCatalogItemId: catId, acceptSource: 'manual' });
+    maybeCaptureDiv10Training(fingerprint, 'accepted', catId ?? null);
+    const lineId = lineSuggestions.find((l) => l.reviewLineFingerprint === fingerprint)?.id;
+    if (item && lineId) {
+      applyCatalogToLineId(lineId, item, 'Accepted estimate suggestion');
+    } else if (item) {
+      rememberIntakeCatalogChoice(item.id, intakeMemoryFieldsForFingerprint(fingerprint));
+    }
+  }
+
+  function handleReplaceEstimateLineWithCatalogId(fingerprint: string, catalogItemId: string) {
+    const item = catalog.find((c) => c.id === catalogItemId);
+    patchEstimateReviewLine(fingerprint, { applicationStatus: 'replaced', selectedCatalogItemId: catalogItemId });
+    maybeCaptureDiv10Training(fingerprint, 'replaced', catalogItemId);
+    const lineId = lineSuggestions.find((l) => l.reviewLineFingerprint === fingerprint)?.id;
+    if (item && lineId) {
+      applyCatalogToLineId(lineId, item, 'Replaced catalog candidate (estimate review)');
+    } else if (item) {
+      rememberIntakeCatalogChoice(item.id, intakeMemoryFieldsForFingerprint(fingerprint));
+    }
+  }
+
+  function handleIgnoreEstimateLine(fingerprint: string) {
+    const draft = lastIntakeParse?.estimateDraft;
+    const row = draft?.lineSuggestions.find((r) => r.reviewLineFingerprint === fingerprint);
+    patchEstimateReviewLine(fingerprint, { applicationStatus: 'ignored', selectedCatalogItemId: null });
+    maybeCaptureDiv10Training(fingerprint, 'ignored', null);
+    void api
+      .postV1IntakeReviewOverride({
+        reviewLineFingerprint: fingerprint,
+        status: 'ignored',
+        reviewLineContentKey: row?.reviewLineContentKey ?? null,
+      })
+      .catch(() => {});
+    const lineId = lineSuggestions.find((l) => l.reviewLineFingerprint === fingerprint)?.id;
+    if (lineId) ignoreLine(lineId);
+  }
+
+  function bulkAcceptHighConfidenceEstimateRows() {
+    const draft = lastIntakeParse?.estimateDraft;
+    if (!draft) return;
+    const nextReview: Record<string, EstimateReviewLineState> = { ...estimateReviewLines };
+    for (const row of draft.lineSuggestions) {
+      if (row.scopeBucket !== 'priced_base_scope') continue;
+      const st = nextReview[row.reviewLineFingerprint] ?? {
+        applicationStatus: row.applicationStatus,
+        selectedCatalogItemId: row.suggestedCatalogItemId,
+      };
+      if (!st || st.applicationStatus !== 'suggested') continue;
+      const m = getActiveCatalogMatchForRow(row, st);
+      if (m?.confidence === ESTIMATE_REVIEW_HIGH_CONFIDENCE) {
+        nextReview[row.reviewLineFingerprint] = {
+          applicationStatus: 'accepted',
+          selectedCatalogItemId: st.selectedCatalogItemId ?? row.suggestedCatalogItemId,
+          acceptSource: 'manual',
+        };
+      }
+    }
+    setEstimateReviewLines(nextReview);
+    setLineSuggestions((prev) =>
+      prev.map((line) => {
+        const fp = line.reviewLineFingerprint;
+        if (!fp) return line;
+        if (nextReview[fp]?.applicationStatus !== 'accepted') return line;
+        const row = draft.lineSuggestions.find((r) => r.reviewLineFingerprint === fp);
+        if (!row || row.scopeBucket !== 'priced_base_scope') return line;
+        const catId = nextReview[fp].selectedCatalogItemId ?? row.suggestedCatalogItemId;
+        const item = catId ? catalog.find((c) => c.id === catId) : undefined;
+        if (!item) return line;
+        return {
+          ...line,
+          include: true,
+          matched: true,
+          description: item.description,
+          category: item.category,
+          sku: item.sku,
+          unit: item.uom,
+          catalogItemId: item.id,
+          materialCost: item.baseMaterialCost,
+          laborMinutes: item.baseLaborMinutes,
+          matchConfidence: 'strong',
+          matchReason: 'Bulk accept high-confidence (estimate review)',
+        };
+      })
+    );
+  }
+
+  function bulkIgnoreLowConfidenceEstimateRows() {
+    const draft = lastIntakeParse?.estimateDraft;
+    if (!draft) return;
+    const nextReview: Record<string, EstimateReviewLineState> = { ...estimateReviewLines };
+    for (const row of draft.lineSuggestions) {
+      const st = nextReview[row.reviewLineFingerprint] ?? {
+        applicationStatus: row.applicationStatus,
+        selectedCatalogItemId: row.suggestedCatalogItemId,
+      };
+      if (!st || st.applicationStatus !== 'suggested') continue;
+      const m = getActiveCatalogMatchForRow(row, st);
+      const low =
+        !m ||
+        m.confidence === 'none' ||
+        (typeof m.score === 'number' && m.score < ESTIMATE_REVIEW_LOW_SCORE_THRESHOLD);
+      if (low) {
+        nextReview[row.reviewLineFingerprint] = { applicationStatus: 'ignored', selectedCatalogItemId: null };
+        void api
+          .postV1IntakeReviewOverride({
+            reviewLineFingerprint: row.reviewLineFingerprint,
+            status: 'ignored',
+            reviewLineContentKey: row.reviewLineContentKey,
+          })
+          .catch(() => {});
+      }
+    }
+    setEstimateReviewLines(nextReview);
+    setLineSuggestions((prev) =>
+      prev.map((line) => {
+        const fp = line.reviewLineFingerprint;
+        if (!fp || nextReview[fp]?.applicationStatus !== 'ignored') return line;
+        return { ...line, include: false, catalogItemId: null, sku: null, matched: false };
+      })
+    );
+  }
+
+  function bulkAcceptTierAStrongBEstimateRows() {
+    const draft = lastIntakeParse?.estimateDraft;
+    if (!draft) return;
+    const nextReview: Record<string, EstimateReviewLineState> = { ...estimateReviewLines };
+    for (const row of draft.lineSuggestions) {
+      if (row.scopeBucket !== 'priced_base_scope') continue;
+      const st = nextReview[row.reviewLineFingerprint] ?? {
+        applicationStatus: row.applicationStatus,
+        selectedCatalogItemId: row.suggestedCatalogItemId,
+      };
+      if (!st || st.applicationStatus !== 'suggested') continue;
+      const m = getActiveCatalogMatchForRow(row, st);
+      const tier = row.catalogAutoApplyTier || 'C';
+      // Accept:
+      // - Tier A rows still suggested (unit-compatible strong matches that were not server-auto-accepted).
+      // - Tier B rows that have any real catalog match (strong/possible). Tier B by construction has a
+      //   catalog or suggested match; this is the "near-safe" fallback for cases where unit compatibility
+      //   or score floor kept them out of Tier A.
+      const isTierB = tier === 'B';
+      const hasUsableMatch = !!m && m.confidence !== 'none';
+      const hasAnyCandidate = !!m || row.topCatalogCandidates.length > 0;
+      const eligible = tier === 'A' || (isTierB && (hasUsableMatch || hasAnyCandidate));
+      if (!eligible) continue;
+      const selectedId = st.selectedCatalogItemId ?? row.suggestedCatalogItemId ?? row.topCatalogCandidates[0]?.catalogItemId ?? null;
+      if (!selectedId) continue;
+      nextReview[row.reviewLineFingerprint] = {
+        applicationStatus: 'accepted',
+        selectedCatalogItemId: selectedId,
+        acceptSource: 'manual',
+      };
+    }
+    setEstimateReviewLines(nextReview);
+    setLineSuggestions((prev) =>
+      prev.map((line) => {
+        const fp = line.reviewLineFingerprint;
+        if (!fp) return line;
+        if (nextReview[fp]?.applicationStatus !== 'accepted') return line;
+        const row = draft.lineSuggestions.find((r) => r.reviewLineFingerprint === fp);
+        if (!row || row.scopeBucket !== 'priced_base_scope') return line;
+        const catId = nextReview[fp].selectedCatalogItemId ?? row.suggestedCatalogItemId;
+        const item = catId ? catalog.find((c) => c.id === catId) : undefined;
+        if (!item) return line;
+        const tier = row.catalogAutoApplyTier || 'C';
+        return {
+          ...line,
+          include: true,
+          matched: true,
+          description: item.description,
+          category: item.category,
+          sku: item.sku,
+          unit: item.uom,
+          catalogItemId: item.id,
+          materialCost: item.baseMaterialCost,
+          laborMinutes: item.baseLaborMinutes,
+          matchConfidence: tier === 'A' ? 'strong' : 'possible',
+          matchReason: `Bulk accept Tier ${tier} (estimate review)`,
+        };
+      })
+    );
+  }
+
+  function bulkAcceptAllSuggestedProjectModifiers() {
+    const ids = lastIntakeParse?.estimateDraft?.projectSuggestion.suggestedProjectModifierIds ?? [];
+    if (!ids.length) return;
+    setEstimateReviewProjectMods((prev) => {
+      const next = { ...prev };
+      for (const id of ids) next[id] = 'accepted';
+      return next;
+    });
+  }
+
+  function setJobConditionReviewStatus(id: string, status: IntakeApplicationStatus) {
+    setEstimateReviewJobConditions((prev) => ({ ...prev, [id]: status }));
+    if (status === 'accepted') {
+      const patch = lastIntakeParse?.estimateDraft?.projectSuggestion.suggestedJobConditionsPatch?.find((p) => p.id === id);
+      if (patch) patchDraftJobConditions(inferJobConditionPatchesFromText(patch));
+    }
+  }
+
+  function applyAllSuggestedJobConditionsToDraft() {
+    const patches = lastIntakeParse?.estimateDraft?.projectSuggestion.suggestedJobConditionsPatch ?? [];
+    const nextJc: Record<string, IntakeApplicationStatus> = { ...estimateReviewJobConditions };
+    let jcPatch: Partial<ProjectJobConditions> = {};
+    for (const p of patches) {
+      nextJc[p.id] = 'accepted';
+      Object.assign(jcPatch, inferJobConditionPatchesFromText(p));
+    }
+    setEstimateReviewJobConditions(nextJc);
+    patchDraftJobConditions(jcPatch);
+  }
+
+  function applySuggestedPricingModeFromAi() {
+    const pm = lastIntakeParse?.aiSuggestions?.pricingModeSuggested;
+    if (
+      pm === 'material_only' ||
+      pm === 'labor_only' ||
+      pm === 'labor_and_material' ||
+      pm === 'material_with_optional_install_quote'
+    ) {
+      patchProjectDraft({ pricingMode: pm });
+    }
   }
 
   function openNewCatalogFromLine(lineId: string) {
     const line = lineSuggestions.find((entry) => entry.id === lineId);
     if (!line) return;
 
+    const allowed = uniqueSortedCatalogCategories(catalog);
     setNewCatalogLineId(lineId);
     setNewCatalogDraft({
       description: line.description || line.rawText,
       sku: line.sku || `SKU-${Math.floor(Math.random() * 100000)}`,
-      category: line.category || 'Division 10',
+      category: resolveImportedCategory(line.category, allowed) ?? allowed[0] ?? '',
       unit: (line.unit || 'EA') as CatalogItem['uom'],
-      materialCost: line.materialCost || 0,
-      laborMinutes: line.laborMinutes || 0,
+      materialCost: Number.isFinite(line.materialCost) ? line.materialCost : null,
+      laborMinutes: Number.isFinite(line.laborMinutes) ? line.laborMinutes : null,
     });
   }
 
@@ -1942,8 +2627,8 @@ export function ProjectIntake() {
       category: newCatalogDraft.category,
       description: newCatalogDraft.description,
       uom: newCatalogDraft.unit,
-      baseMaterialCost: newCatalogDraft.materialCost,
-      baseLaborMinutes: newCatalogDraft.laborMinutes,
+      baseMaterialCost: newCatalogDraft.materialCost ?? 0,
+      baseLaborMinutes: newCatalogDraft.laborMinutes ?? 0,
       taxable: true,
       adaFlag: false,
       active: true,
@@ -1951,7 +2636,7 @@ export function ProjectIntake() {
     });
 
     setCatalog((prev) => [created, ...prev]);
-    applyExistingCatalogMatch(newCatalogLineId, created);
+    applyCatalogToLineId(newCatalogLineId, created);
     setNewCatalogLineId(null);
     setNewCatalogDraft(null);
   }
@@ -2055,19 +2740,249 @@ function applyRoomToVisible(roomName: string) {
     setRoomSuggestions(nextRooms.map((roomName) => ({ id: makeId('room-suggest'), include: true, roomName })));
     setLineSuggestions([]);
     setParserReviewSummary(null);
+    setLastIntakeParse(null);
+    setEstimateReviewLines({});
+    setEstimateReviewJobConditions({});
+    setEstimateReviewProjectMods({});
     setProjectDraft((prev) => ({
       ...prev,
       projectName: prev.projectName || 'New Project'
     }));
+    setBlankQuickAddText('');
+  }
+
+  function parseBlankQuickAddLines(text: string): ParsedImportLine[] {
+    const lines = String(text || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(0, 260);
+
+    return lines.map((line) => {
+      // Supported formats:
+      // - "SKU qty" or "qty x SKU"
+      // - "Room, SKU, qty" (CSV-ish)
+      // - "SKU" (qty defaults to 1)
+      const csvParts = line.split(',').map((p) => p.trim()).filter(Boolean);
+      if (csvParts.length >= 2) {
+        const [a, b, c] = csvParts;
+        const aQty = Number(String(a).replace(/,/g, ''));
+        const bQty = Number(String(b).replace(/,/g, ''));
+        const cQty = Number(String(c || '').replace(/,/g, ''));
+        const looksQty = (n: number) => Number.isFinite(n) && n > 0;
+
+        // If first cell is qty -> treat as qty, sku
+        if (looksQty(aQty)) {
+          return {
+            projectName: '',
+            category: '',
+            itemCode: b || '',
+            itemName: b || '',
+            description: b || '',
+            qty: aQty,
+            unit: 'EA',
+            laborIncluded: null,
+            materialIncluded: null,
+            notes: c || '',
+            roomName: '',
+            sourceReference: 'Blank quick add',
+          };
+        }
+
+        // If second cell is qty -> treat as sku, qty
+        if (looksQty(bQty)) {
+          return {
+            projectName: '',
+            category: '',
+            itemCode: a || '',
+            itemName: a || '',
+            description: a || '',
+            qty: bQty,
+            unit: 'EA',
+            laborIncluded: null,
+            materialIncluded: null,
+            notes: c || '',
+            roomName: '',
+            sourceReference: 'Blank quick add',
+          };
+        }
+
+        // If 3 cells and third is qty -> treat as room, sku, qty
+        if (csvParts.length >= 3 && looksQty(cQty)) {
+          return {
+            projectName: '',
+            category: '',
+            itemCode: b || '',
+            itemName: b || '',
+            description: b || '',
+            qty: cQty,
+            unit: 'EA',
+            laborIncluded: null,
+            materialIncluded: null,
+            notes: '',
+            roomName: a || '',
+            sourceReference: 'Blank quick add',
+          };
+        }
+      }
+
+      // Fallback: reuse the existing raw text parser (qty defaults to 1).
+      return parseRawTextLinesToRows([line], 'Blank quick add')[0]!;
+    });
+  }
+
+  function applyBlankQuickAddRows(input: {
+    rows: ParsedImportLine[];
+    metadata?: Partial<ProjectRecord> | null;
+  }) {
+    const parsed = input.rows;
+    if (parsed.length === 0) return;
+
+    if (input.metadata) {
+      setProjectDraft((prev) => ({
+        ...prev,
+        projectName: prev.projectName || input.metadata?.projectName || prev.projectName,
+        projectNumber: prev.projectNumber || (input.metadata as any)?.projectNumber || prev.projectNumber,
+        projectNumberSource: (() => {
+          const metaNum = String((input.metadata as any)?.projectNumber || '').trim();
+          if (String(prev.projectNumber || '').trim()) return prev.projectNumberSource;
+          if (metaNum) return 'manual' as const;
+          return prev.projectNumberSource;
+        })(),
+        clientName: prev.clientName || (input.metadata as any)?.clientName || prev.clientName,
+        address: prev.address || input.metadata?.address || prev.address,
+        bidDate: prev.bidDate || (input.metadata as any)?.bidDate || prev.bidDate,
+      }));
+    }
+
+    const nextRooms = new Set(roomSuggestions.map((r) => normalizeRoomName(r.roomName)));
+    const seededRoom = blankUsesRooms ? (roomSuggestions.find((r) => r.include)?.roomName || 'Room 101') : 'Project Scope';
+
+    const added = parsed.map((row) => {
+      const raw = `${row.itemCode || ''} ${row.description || row.itemName || ''}`.trim();
+      const match = suggestCatalogMatch(
+        { itemName: row.itemName, description: row.description, rawText: raw },
+        catalog
+      );
+      const resolvedRoom = normalizeRoomName(row.roomName || seededRoom || 'General Scope');
+      if (resolvedRoom && !nextRooms.has(resolvedRoom)) {
+        nextRooms.add(resolvedRoom);
+      }
+      return {
+        id: makeId('line-suggest'),
+        include: true,
+        roomName: resolvedRoom,
+        rawText: raw,
+        itemName: match?.description || row.itemName || row.description || row.itemCode || raw,
+        description: match?.description || row.description || row.itemName || row.itemCode || raw,
+        qty: Number.isFinite(Number(row.qty)) && Number(row.qty) > 0 ? Number(row.qty) : 1,
+        unit: match?.uom || row.unit || 'EA',
+        category: match?.category || null,
+        sourceReference: row.sourceReference || 'Blank quick add',
+        sku: match?.sku || (row.itemCode ? String(row.itemCode).trim() : null),
+        catalogItemId: match?.id || null,
+        materialCost: match?.baseMaterialCost || 0,
+        laborMinutes: match?.baseLaborMinutes || 0,
+        notes: row.notes || '',
+        bidBucket: (row as any).bidBucket || null,
+        laborIncluded: null,
+        materialIncluded: null,
+        matched: !!match,
+      } as LineSuggestion;
+    });
+
+    if (blankUsesRooms) {
+      const existing = new Set(roomSuggestions.map((r) => normalizeRoomName(r.roomName)));
+      const newRoomSuggestions = Array.from(nextRooms)
+        .filter((roomName) => roomName && !existing.has(roomName))
+        .map((roomName) => ({ id: makeId('room-suggest'), include: true, roomName }));
+      if (newRoomSuggestions.length > 0) {
+        setRoomSuggestions((prev) => [...prev, ...newRoomSuggestions]);
+      }
+    }
+
+    setLineSuggestions((prev) => clampSuggestionCategories(dedupeSuggestions([...prev, ...added]), catalog));
+    setBlankQuickAddText('');
+  }
+
+  function applyBlankQuickAdd() {
+    const parsed = parseBlankQuickAddLines(blankQuickAddText);
+    applyBlankQuickAddRows({ rows: parsed, metadata: null });
+  }
+
+  async function parsePreferredXlsxTemplate(file: File): Promise<{ rows: ParsedImportLine[]; metadata: Partial<ProjectRecord> }> {
+    const xlsx = await import('xlsx');
+    const buffer = await file.arrayBuffer();
+    const workbook = xlsx.read(buffer, { type: 'array' });
+    const sheet = workbook.Sheets['Import'] || workbook.Sheets[workbook.SheetNames[0]];
+    const rawRows = xlsx.utils.sheet_to_json<Array<string | number | null | undefined>>(sheet, { header: 1, raw: false, defval: '' });
+    const rows = (rawRows || []).map((r) => (r || []).map((c) => String(c ?? '').trim()));
+
+    const metadata: Partial<ProjectRecord> = {};
+    const getMeta = (label: string): string => {
+      const row = rows.find((r) => String(r[0] || '').trim().toLowerCase() === label.toLowerCase());
+      return row ? String(row[1] || '').trim() : '';
+    };
+    const projectName = getMeta('Project Name');
+    const projectNumber = getMeta('Project Number');
+    const clientName = getMeta('Client');
+    const address = getMeta('Address');
+    const bidDate = getMeta('Bid Date');
+    if (projectName) metadata.projectName = projectName;
+    if (address) metadata.address = address;
+    // ProjectIntake draft uses these fields; keep them as (any) so we don't fight type unions here.
+    (metadata as any).projectNumber = projectNumber || '';
+    (metadata as any).clientName = clientName || '';
+    (metadata as any).bidDate = bidDate || '';
+
+    const headerNeedle = ['item code', 'quantity', 'room', 'bid bucket', 'description (only if item code is blank)', 'notes'];
+    const headerRowIndex = rows.findIndex((r) => headerNeedle.every((h, idx) => String(r[idx] || '').trim().toLowerCase() === h));
+    if (headerRowIndex < 0) {
+      return { rows: [], metadata };
+    }
+
+    const out: ParsedImportLine[] = [];
+    for (let i = headerRowIndex + 1; i < rows.length; i += 1) {
+      const r = rows[i] || [];
+      const itemCode = String(r[0] || '').trim();
+      const qtyRaw = String(r[1] || '').trim();
+      const roomName = String(r[2] || '').trim();
+      const bidBucket = String(r[3] || '').trim();
+      const descriptionFallback = String(r[4] || '').trim();
+      const notes = String(r[5] || '').trim();
+      if (!itemCode && !descriptionFallback && !qtyRaw && !roomName && !notes) continue;
+      const qty = Number(String(qtyRaw).replace(/,/g, '')) || 1;
+      out.push({
+        projectName: '',
+        category: '',
+        itemCode,
+        itemName: itemCode || descriptionFallback,
+        description: descriptionFallback || itemCode,
+        qty: qty > 0 ? qty : 1,
+        unit: 'EA',
+        laborIncluded: null,
+        materialIncluded: null,
+        notes,
+        roomName,
+        sourceReference: file.name,
+        // extra (not on ParsedImportLine type used elsewhere, but consumed by applyBlankQuickAddRows via any)
+        ...(bidBucket ? ({ bidBucket } as any) : null),
+      } as any);
+    }
+    return { rows: out, metadata };
   }
 
   function loadTemplateDefaults() {
     setParserReviewSummary(null);
+    setLastIntakeParse(null);
+    setEstimateReviewLines({});
+    setEstimateReviewJobConditions({});
+    setEstimateReviewProjectMods({});
     setProjectDraft((prev) => ({
       ...prev,
       projectName: prev.projectName || 'Division 10 Template Project',
       projectType: 'Commercial',
-      projectSize: 'Medium',
+      projectSize: 'T3_standard',
       notes: 'Created from Division 10 starter template'
     }));
 
@@ -2102,7 +3017,13 @@ function applyRoomToVisible(roomName: string) {
         matched: !!match,
       } as LineSuggestion;
     });
-    setLineSuggestions(dedupeSuggestions(starter));
+    setLineSuggestions(clampSuggestionCategories(dedupeSuggestions(starter), catalog));
+  }
+
+  function applyManualTemplateFallback() {
+    setMode('template');
+    loadTemplateDefaults();
+    setStep(3);
   }
 
   function applyManualTemplateFallback() {
@@ -2174,29 +3095,21 @@ function applyRoomToVisible(roomName: string) {
     });
     if (dateErrors.length > 0) {
       setProjectDateErrors(mapProjectDateErrors(dateErrors));
-      reportValidation([{ text: dateErrors[0].message, targetId: 'intake-bid-date' }]);
+      alert(dateErrors[0].message);
       return;
     }
     if (basicsChecklist.length > 0) {
-      reportValidation([
-        { text: 'Complete the required project basics before continuing.' },
-        ...basicsChecklist.map((entry) => ({ text: `Missing: ${entry}`, targetId: targetIdForChecklistEntry(entry) })),
-      ]);
+      alert(`Complete the required project basics before continuing:\n- ${basicsChecklist.join('\n- ')}`);
       return;
     }
-    reportValidation([]);
     setStep(4);
   }
 
   function proceedToReviewItems() {
     if (pricingChecklist.length > 0) {
-      reportValidation([
-        { text: 'Complete the pricing and scope setup before reviewing items.' },
-        ...pricingChecklist.map((entry) => ({ text: `Missing: ${entry}`, targetId: targetIdForChecklistEntry(entry) })),
-      ]);
+      alert(`Complete the pricing and scope setup before reviewing items:\n- ${pricingChecklist.join('\n- ')}`);
       return;
     }
-    reportValidation([]);
     setStep(5);
   }
 
@@ -2209,7 +3122,15 @@ function applyRoomToVisible(roomName: string) {
     });
     if (dateErrors.length > 0) {
       setProjectDateErrors(mapProjectDateErrors(dateErrors));
-      reportValidation([{ text: dateErrors[0].message, targetId: 'intake-bid-date' }]);
+      alert(dateErrors[0].message);
+      return;
+    }
+    if (basicsChecklist.length > 0) {
+      alert(`Complete the required project basics before creating the project:\n- ${basicsChecklist.join('\n- ')}`);
+      return;
+    }
+    if (pricingChecklist.length > 0) {
+      alert(`Complete the pricing and scope setup before creating the project:\n- ${pricingChecklist.join('\n- ')}`);
       return;
     }
     if (basicsChecklist.length > 0) {
@@ -2232,7 +3153,26 @@ function applyRoomToVisible(roomName: string) {
 
     try {
       const uploadedSourceFile = mode === 'takeoff' ? takeoffUploadedFile : mode === 'document' ? uploadedDocumentFile : null;
-      const normalizedJobConditions = normalizeProjectJobConditions(projectDraft.jobConditions);
+      let normalizedJobConditions = normalizeProjectJobConditions(projectDraft.jobConditions);
+      for (const patch of lastIntakeParse?.estimateDraft?.projectSuggestion.suggestedJobConditionsPatch ?? []) {
+        const st = estimateReviewJobConditions[patch.id] ?? patch.applicationStatus;
+        if (st === 'accepted') {
+          normalizedJobConditions = normalizeProjectJobConditions({
+            ...normalizedJobConditions,
+            ...inferJobConditionPatchesFromText(patch),
+          });
+        }
+      }
+
+      const acceptedModNames = (lastIntakeParse?.estimateDraft?.projectSuggestion.suggestedProjectModifierIds ?? [])
+        .filter((id) => (estimateReviewProjectMods[id] ?? 'suggested') === 'accepted')
+        .map((id) => intakeModifiers.find((m) => m.id === id)?.name || id);
+      let specialNotesAppend = projectDraft.specialNotes || '';
+      if (acceptedModNames.length > 0) {
+        specialNotesAppend = mergeDistinctText(specialNotesAppend, [
+          `Accepted project modifiers (intake review): ${acceptedModNames.join(', ')}`,
+        ]);
+      }
       if ((projectDraft.address || '').trim() && normalizedJobConditions.travelDistanceMiles === null) {
         const distance = await refreshDraftDistance(projectDraft.address, true);
         if (distance !== null) {
@@ -2245,7 +3185,9 @@ function applyRoomToVisible(roomName: string) {
       }
 
       const createdProject = await api.createV1Project({
-        projectNumber: projectDraft.projectNumber || null,
+        id: String(projectDraft.id || '').trim() || undefined,
+        projectNumber:
+          projectDraft.projectNumberSource === 'auto' ? null : (projectDraft.projectNumber || null),
         projectName: projectDraft.projectName || 'Untitled Project',
         clientName: projectDraft.clientName || null,
         generalContractor: projectDraft.generalContractor || null,
@@ -2261,16 +3203,21 @@ function applyRoomToVisible(roomName: string) {
         installHeight: projectDraft.installHeight || null,
         materialHandling: projectDraft.materialHandling || null,
         wallSubstrate: projectDraft.wallSubstrate || null,
-        laborBurdenPercent: Number(projectDraft.laborBurdenPercent ?? settingsDefaults?.defaultLaborBurdenPercent ?? 25),
+        laborBurdenPercent: Number(projectDraft.laborBurdenPercent ?? settingsDefaults?.defaultLaborBurdenPercent ?? 0),
         overheadPercent: Number(projectDraft.overheadPercent ?? settingsDefaults?.defaultOverheadPercent ?? 15),
         profitPercent: Number(projectDraft.profitPercent ?? settingsDefaults?.defaultProfitPercent ?? 10),
+        laborOverheadPercent: Number(projectDraft.laborOverheadPercent ?? settingsDefaults?.defaultLaborOverheadPercent ?? 5),
+        laborProfitPercent: Number(projectDraft.laborProfitPercent ?? 0),
+        subLaborManagementFeeEnabled: Boolean(projectDraft.subLaborManagementFeeEnabled),
+        subLaborManagementFeePercent: Number(projectDraft.subLaborManagementFeePercent ?? 5),
         taxPercent: Number(projectDraft.taxPercent ?? settingsDefaults?.defaultTaxPercent ?? 8.25),
         pricingMode: (projectDraft.pricingMode as PricingMode) || 'labor_and_material',
         selectedScopeCategories: projectDraft.selectedScopeCategories || [],
         preferredBrands: projectDraft.preferredBrands || [],
         jobConditions: normalizedJobConditions,
         notes: projectDraft.notes || null,
-        specialNotes: projectDraft.specialNotes || null
+        specialNotes: specialNotesAppend || null,
+        structuredAssumptions: buildStructuredAssumptionsForNewProject(),
       });
 
       const includedRooms = roomSuggestions.filter((room) => room.include);
@@ -2290,24 +3237,47 @@ function applyRoomToVisible(roomName: string) {
         roomMap.set(normalizeRoomName(room.roomName), room.id);
       }
 
-      const linesToCreate = lineSuggestions.filter((line) => (createConfirmedOnly ? line.include : true));
+      const draftForResolve = lastIntakeParse?.estimateDraft;
+      const resolvedLineSuggestions = lineSuggestions.map((line) =>
+        resolveLineForProjectCreation(line, draftForResolve, estimateReviewLines, createConfirmedOnly)
+      );
+      const linesToCreate = resolvedLineSuggestions.filter((line) => (createConfirmedOnly ? line.include : true));
       if (linesToCreate.length > 0) {
-        const payload = linesToCreate.map((line) => ({
-          projectId: createdProject.id,
-          roomId: roomMap.get(normalizeRoomName(line.roomName)) || createdRooms[0].id,
-          sourceType: mode,
-          sourceRef: line.sourceReference || (mode === 'takeoff' ? (takeoffFileName || sourceProjectId || null) : (uploadedFileName || sourceProjectId || null)),
-          description: line.description,
-          sku: line.sku,
-          category: line.category,
-          qty: line.qty,
-          unit: line.unit,
-          materialCost: line.materialCost,
-          laborMinutes: line.laborMinutes,
-          laborCost: 0,
-          catalogItemId: line.catalogItemId,
-          notes: line.notes,
-        }));
+        const payload = linesToCreate.map((line) => {
+          const intakeFields = resolveIntakePersistFieldsForTakeoffLine({
+            draft: draftForResolve,
+            fingerprint: line.reviewLineFingerprint,
+            lineByFingerprint: estimateReviewLines,
+            catalogItemId: line.catalogItemId,
+          });
+          return {
+            projectId: createdProject.id,
+            roomId: roomMap.get(normalizeRoomName(line.roomName)) || createdRooms[0].id,
+            sourceType: mode,
+            sourceRef: line.sourceReference || (mode === 'takeoff' ? (takeoffFileName || sourceProjectId || null) : (uploadedFileName || sourceProjectId || null)),
+            description: line.description,
+            sku: line.sku,
+            category: line.category,
+            qty: line.qty ?? 0,
+            unit: line.unit,
+            materialCost: line.materialCost,
+            laborMinutes: line.laborMinutes,
+            laborCost: 0,
+            catalogItemId: line.catalogItemId,
+            catalogAttributeSnapshot: line.catalogAttributeSnapshot ?? null,
+            notes: line.notes,
+            intakeScopeBucket: intakeFields.intakeScopeBucket,
+            intakeMatchConfidence: intakeFields.intakeMatchConfidence,
+            isInstallableScope: intakeFields.isInstallableScope,
+            installScopeType: intakeFields.installScopeType,
+            installLaborFamily: intakeFields.installLaborFamily,
+            sourceManufacturer: intakeFields.sourceManufacturer,
+            sourceBidBucket: intakeFields.sourceBidBucket,
+            sourceSectionHeader: intakeFields.sourceSectionHeader,
+            generatedLaborMinutes: intakeFields.generatedLaborMinutes,
+            laborOrigin: intakeFields.laborOrigin,
+          };
+        });
         await api.finalizeV1ParserLines(payload);
       }
 
@@ -2326,7 +3296,7 @@ function applyRoomToVisible(roomName: string) {
         }
       }
 
-      navigate(`/project/${createdProject.id}?tab=takeoff`);
+      navigate(`/project/${createdProject.id}/estimate?view=quantities`);
     } catch (error) {
       console.error(error);
       setActionFeedback({ tone: 'error', message: 'Failed to create project from reviewed items.' });
@@ -2344,33 +3314,48 @@ function applyRoomToVisible(roomName: string) {
   }, [projectDraft.bidDate, projectDraft.proposalDate, projectDraft.dueDate]);
 
   return (
-    <div className="ui-page space-y-4 w-full max-w-full px-0">
-      <div className="flex items-center gap-3">
-        <button onClick={() => navigate('/')} className="ui-btn-secondary h-9 w-9 grid place-items-center px-0">
-          <ArrowLeft className="w-4 h-4" />
-        </button>
-        <div>
-          <p className="ui-label">New Project Workflow</p>
-          <h1 className="text-2xl font-semibold text-slate-900 mt-1">Create New Project</h1>
-          <p className="text-sm text-slate-500">Choose a creation path, parse source data, and confirm rooms/items before project creation.</p>
+    <div className="ui-page space-y-8">
+      <div className="mx-auto w-full max-w-[1600px]">
+        <div className="flex flex-wrap items-start gap-4">
+          <button type="button" onClick={() => navigate('/')} className="ui-btn-secondary h-9 w-9 shrink-0 grid place-items-center px-0" aria-label="Back to dashboard">
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <header className="min-w-0 flex-1 border-b border-slate-200/80 pb-4">
+            <div className="flex items-center gap-2.5">
+              <span className="ui-status-live">Live</span>
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                Brighten Builders <span className="mx-1 text-slate-300">/</span> Intake Station
+              </span>
+            </div>
+            <h1 className="mt-1.5 text-[24px] font-semibold leading-tight tracking-tight text-slate-950 md:text-[28px]">Create New Project</h1>
+            <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.06em] text-slate-500">
+              Start Type · Source · Basics · Estimate Setup · Review
+            </p>
+          </header>
         </div>
-      </div>
 
-      <div className="ui-surface p-2 flex flex-wrap items-center gap-2 text-xs font-medium">
-        {[
-          '1. Start Type',
-          '2. Source',
-          '3. Project Basics',
-          '4. Pricing + Scope',
-          '5. Review Items',
-        ].map((label, index) => {
-          const active = step >= index + 1;
-          return (
-            <span key={label} className={`px-2.5 py-1 rounded-md ${active ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600'}`}>
-              {label}
-            </span>
-          );
-        })}
+        <nav className="mt-5 flex flex-wrap gap-1" aria-label="Creation steps">
+          {[
+            'Start Type',
+            'Source',
+            'Project Basics',
+            'Estimate Setup',
+            'Review Items',
+          ].map((label, index) => {
+            const current = step === index + 1;
+            const done = step > index + 1;
+            const num = String(index + 1).padStart(2, '0');
+            return (
+              <span
+                key={label}
+                className={`ui-tab-numbered ${current ? 'ui-tab-numbered-active' : done ? '' : 'ui-tab-numbered-disabled'}`}
+              >
+                <span className="ui-tab-numbered-num">{num}</span>
+                <span>{label}</span>
+              </span>
+            );
+          })}
+        </nav>
       </div>
 
       <ValidationSummaryBanner
@@ -2387,21 +3372,26 @@ function applyRoomToVisible(roomName: string) {
       ) : null}
 
       {step === 1 && (
-        <section className="ui-surface p-5 space-y-4">
-          <h2 className="text-sm font-semibold text-slate-800">How do you want to start?</h2>
+        <section className="ui-surface mx-auto w-full max-w-[1600px] space-y-4 p-5">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Step 1</p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-900">How do you want to start?</h2>
+            <p className="mt-1 text-sm text-slate-600">Pick one path; you can still edit everything before the project is created.</p>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
             {[
-              { key: 'blank', label: 'Blank Project', desc: 'Start with a clean project and add rooms and lines manually.', icon: PlusCircle },
-              { key: 'takeoff', label: 'Create from Takeoff', desc: 'Upload a takeoff and review matched items before creating.', icon: FolderInput },
-              { key: 'document', label: 'Create from Document', desc: 'Upload a scope or bid document and review extracted items.', icon: FileUp },
-              { key: 'template', label: 'Use Template', desc: 'Start from a standard template and adjust during review.', icon: WandSparkles },
+              { key: 'blank', label: 'Blank Project', desc: 'Start clean and add scope manually.', icon: PlusCircle },
+              { key: 'takeoff', label: 'Create from Takeoff', desc: 'Upload takeoff and review matched items.', icon: FolderInput },
+              { key: 'document', label: 'Create from Document', desc: 'Upload source document and review extracted items.', icon: FileUp },
+              { key: 'template', label: 'Use Template', desc: 'Start from a template and adjust.', icon: WandSparkles },
             ].map((option) => {
               const active = mode === option.key;
               return (
                 <button
+                  type="button"
                   key={option.key}
                   onClick={() => setMode(option.key as CreationMode)}
-                  className={`text-left border rounded-lg p-3.5 transition ${active ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-slate-200 bg-slate-50/40 hover:border-slate-300'}`}
+                  className={`text-left rounded-lg border p-3.5 outline-none transition focus-visible:ring-2 focus-visible:ring-blue-500/35 focus-visible:ring-offset-2 ${active ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-slate-200 bg-slate-50/40 hover:border-slate-300'}`}
                 >
                   <div className="flex items-start gap-2">
                     <option.icon className={`w-4 h-4 mt-0.5 ${active ? 'text-blue-700' : 'text-slate-500'}`} />
@@ -2416,7 +3406,7 @@ function applyRoomToVisible(roomName: string) {
           </div>
 
           <div className="flex justify-end pt-1">
-            <button onClick={() => setStep(2)} className="h-9 px-4 rounded-md bg-blue-700 text-white text-sm font-medium hover:bg-blue-800">
+            <button type="button" onClick={() => setStep(2)} className="ui-btn-primary h-9 px-4">
               Next
             </button>
           </div>
@@ -2424,8 +3414,12 @@ function applyRoomToVisible(roomName: string) {
       )}
 
       {step === 2 && (
-        <section className="ui-surface p-5 space-y-5">
-          <h2 className="text-sm font-semibold text-slate-800">Source Details</h2>
+        <section className="ui-surface mx-auto w-full max-w-[1600px] space-y-5 p-5">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Step 2</p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-900">Source details</h2>
+            <p className="mt-1 text-sm text-slate-600">Upload or paste based on the start type you chose.</p>
+          </div>
 
           {mode === 'takeoff' && (
             <>
@@ -2445,14 +3439,21 @@ function applyRoomToVisible(roomName: string) {
                     const file = e.dataTransfer.files?.[0];
                     if (file) void handleTakeoffFileUpload(file);
                   }}
-                  className={`border-2 border-dashed rounded-lg p-5 bg-slate-50 ${takeoffDragOver ? 'border-blue-400 bg-blue-50' : 'border-slate-300'}`}
+                  className={`ui-dashed-card p-5 ${takeoffDragOver ? 'ring-2 ring-blue-500/25' : ''}`}
                 >
                   <div className="flex items-center gap-2 mb-2">
                     <Upload className="w-4 h-4 text-slate-500" />
                     <p className="text-sm font-medium text-slate-800">Upload Takeoff File</p>
                   </div>
-                  <p className="text-xs text-slate-500 mb-2">Upload a PDF, Excel, or CSV takeoff file.</p>
-                  <p className="text-xs text-slate-500 mb-3">Drag and drop here, or browse for a file.</p>
+                  <p className="text-xs text-slate-500 mb-2">Upload PDF, Excel, or CSV.</p>
+                  <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="rounded-full bg-slate-100 px-2 py-1 font-medium text-slate-700">Preferred</span>
+                    <a className="font-semibold text-blue-700 underline-offset-2 hover:underline" href="/api/v1/intake/templates/preferred-import.xlsx">
+                      Download our import template (XLSX)
+                    </a>
+                    <span className="text-slate-500">— files matching this format import with exact column mapping (no guessing).</span>
+                  </div>
+                  <p className="text-xs text-slate-500 mb-3">Drag and drop, or browse.</p>
                   <input
                     type="file"
                     accept=".pdf,.xlsx,.xls,.csv"
@@ -2463,7 +3464,9 @@ function applyRoomToVisible(roomName: string) {
                     className="block w-full text-sm"
                   />
                   {takeoffFileName && (
-                    <p className={`text-xs mt-3 ${takeoffUploadState === 'error' ? 'text-red-700' : takeoffUploadState === 'ready' ? 'text-emerald-700' : 'text-amber-700'}`}>
+                    <p
+                      className={`mt-3 text-xs ${takeoffUploadState === 'error' ? 'text-red-700' : takeoffUploadState === 'ready' ? 'text-[var(--success)]' : 'text-[var(--warn)]'}`}
+                    >
                       {takeoffUploadState === 'processing' ? `Processing file: ${takeoffFileName}` : takeoffUploadState === 'error' ? `File needs attention: ${takeoffFileName}` : `Source file loaded: ${takeoffFileName}`}
                     </p>
                   )}
@@ -2472,11 +3475,13 @@ function applyRoomToVisible(roomName: string) {
                     <p className="text-xs text-slate-600 mt-1">Detected structure: {takeoffStructuredKind.replace(/-/g, ' ')}</p>
                   )}
                   {intakeWarnings.length > 0 && (
-                    <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-2">
-                      <p className="text-xs font-semibold text-amber-800">Extraction warnings</p>
+                    <div className="ui-callout-warn mt-3">
+                      <p className="text-xs font-semibold">Extraction warnings</p>
                       <ul className="mt-1 space-y-1">
                         {intakeWarnings.map((warning, index) => (
-                          <li key={`${warning}-${index}`} className="text-xs text-amber-800">- {warning}</li>
+                          <li key={`${warning}-${index}`} className="text-xs">
+                            - {warning}
+                          </li>
                         ))}
                       </ul>
                     </div>
@@ -2529,11 +3534,13 @@ function applyRoomToVisible(roomName: string) {
                 {uploadedFileName ? `Source file loaded: ${uploadedFileName}` : 'No file uploaded yet.'}
               </p>
               {intakeWarnings.length > 0 && (
-                <div className="rounded border border-amber-300 bg-amber-50 p-2">
-                  <p className="text-xs font-semibold text-amber-800">Extraction warnings</p>
+                <div className="ui-callout-warn">
+                  <p className="text-xs font-semibold">Extraction warnings</p>
                   <ul className="mt-1 space-y-1">
                     {intakeWarnings.map((warning, index) => (
-                      <li key={`${warning}-${index}`} className="text-xs text-amber-800">- {warning}</li>
+                      <li key={`${warning}-${index}`} className="text-xs">
+                        - {warning}
+                      </li>
                     ))}
                   </ul>
                 </div>
@@ -2543,10 +3550,10 @@ function applyRoomToVisible(roomName: string) {
 
           {mode === 'blank' && (
             <div className="space-y-4">
-              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
+              <div className="ui-panel-muted space-y-3 p-4">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Rooms / Areas</p>
-                  <h3 className="text-sm font-semibold text-slate-900 mt-1">Decide how the project will be organized before you create it.</h3>
+                  <h3 className="text-sm font-semibold text-slate-900 mt-1">Choose how to organize this project.</h3>
                 </div>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input type="checkbox" checked={blankUsesRooms} onChange={(e) => setBlankUsesRooms(e.target.checked)} />
@@ -2560,13 +3567,77 @@ function applyRoomToVisible(roomName: string) {
                       value={blankRoomNames}
                       onChange={(e) => setBlankRoomNames(e.target.value)}
                       placeholder={'Lobby\nMain Restroom\nBreak Room'}
-                      className="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
+                      className="ui-textarea mt-1"
                     />
-                    <span className="block text-[11px] text-slate-500">Enter one room per line. If left blank, a starter room will be created for you.</span>
+                    <span className="block text-[11px] text-slate-500">One room per line. Leave blank to auto-create one room.</span>
                   </label>
                 ) : (
-                  <p className="text-xs text-slate-500">The project will start with one project-wide scope bucket instead of room-by-room organization.</p>
+                  <p className="text-xs text-slate-500">Project starts with one project-wide scope bucket.</p>
                 )}
+              </div>
+
+              <div className="ui-panel space-y-3 p-4">
+                <div className="flex flex-wrap items-end justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Quick add items</p>
+                    <h3 className="text-sm font-semibold text-slate-900 mt-1">Paste or drag/drop SKUs</h3>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Fast path for blank projects. Each line can be <span className="font-medium text-slate-700">SKU qty</span> (or <span className="font-medium text-slate-700">qty x SKU</span>), or <span className="font-medium text-slate-700">Room, SKU, qty</span>.
+                      Room is optional. SKUs are matched against your catalog first.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="ui-btn-secondary h-9 px-3 text-xs font-semibold disabled:opacity-50"
+                    onClick={applyBlankQuickAdd}
+                    disabled={!blankQuickAddText.trim()}
+                  >
+                    Add to draft
+                  </button>
+                </div>
+
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setBlankQuickAddDragOver(true);
+                  }}
+                  onDragLeave={() => setBlankQuickAddDragOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setBlankQuickAddDragOver(false);
+                    const file = e.dataTransfer.files?.[0];
+                    if (file) {
+                      const name = file.name.toLowerCase();
+                      if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+                        void parsePreferredXlsxTemplate(file).then(({ rows, metadata }) => {
+                          if (rows.length === 0) {
+                            void file.text().then((t) => setBlankQuickAddText((prev) => (prev ? `${prev}\n${t}` : t)));
+                            return;
+                          }
+                          applyBlankQuickAddRows({ rows, metadata });
+                        });
+                        return;
+                      }
+                      void file.text().then((t) => setBlankQuickAddText((prev) => (prev ? `${prev}\n${t}` : t)));
+                      return;
+                    }
+                    const text = e.dataTransfer.getData('text/plain');
+                    if (text) setBlankQuickAddText((prev) => (prev ? `${prev}\n${text}` : text));
+                  }}
+                  className={`ui-dashed-card p-3 ${blankQuickAddDragOver ? 'ring-2 ring-blue-500/25' : ''}`}
+                >
+                  <textarea
+                    rows={5}
+                    value={blankQuickAddText}
+                    onChange={(e) => setBlankQuickAddText(e.target.value)}
+                    placeholder={'PT-HDPE-36 2\n1 x GRAB-36\nRestroom A, MIRROR-1836, 1'}
+                    className="ui-textarea w-full resize-y"
+                  />
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+                    <span>Tip: you can drop a `.txt` or `.csv` file here.</span>
+                    <span>{blankQuickAddText.trim() ? `${blankQuickAddText.trim().split(/\r?\n/).filter(Boolean).length} line(s)` : '0 lines'}</span>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -2576,31 +3647,69 @@ function applyRoomToVisible(roomName: string) {
           )}
 
           <div className="flex justify-between pt-1">
-            <button onClick={() => setStep(1)} className="h-9 px-4 rounded-md border border-slate-300 text-sm font-medium hover:bg-slate-50">Back</button>
-            <button onClick={() => void proceedToBasics()} disabled={takeoffUploadState === 'processing'} className="ui-btn-primary h-9 px-4 disabled:opacity-50">{takeoffUploadState === 'processing' ? 'Processing Upload...' : 'Continue to Basics'}</button>
+            <button type="button" onClick={() => setStep(1)} className="h-9 px-4 rounded-md border border-slate-300 text-sm font-medium hover:bg-slate-50">Back</button>
+            <button type="button" onClick={() => void proceedToBasics()} disabled={takeoffUploadState === 'processing'} className="ui-btn-primary h-9 px-4 disabled:opacity-50">{takeoffUploadState === 'processing' ? 'Processing Upload...' : 'Continue to Basics'}</button>
           </div>
         </section>
       )}
 
       {(step === 3 || step === 4 || step === 5) && (
-        <section className="space-y-5">
+        <section className="mx-auto w-full max-w-[1600px] space-y-5">
           {(step === 3 || step === 4) && (
-            <div className="ui-surface p-5 space-y-3">
-              <h2 className="text-sm font-semibold text-slate-800">{step === 3 ? 'Project Basics' : 'Pricing + Scope Setup'}</h2>
-              <p className="text-xs text-slate-500">{step === 3 ? 'Capture the required intake details before pricing and review.' : 'Set pricing basis, active scope categories, and job conditions before project creation.'}</p>
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.9fr)]">
+            <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm space-y-4">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">{step === 3 ? 'Step 3' : 'Step 4'}</p>
+                <h2 className="mt-1 text-lg font-semibold text-slate-900">{step === 3 ? 'Project basics' : 'Estimate setup'}</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  {step === 3
+                    ? 'Identity, schedule, and site address — required before estimate setup.'
+                    : 'Aligns with Project Setup: core inputs first, light job-condition toggles, pricing defaults collapsed unless you need them.'}
+                </p>
+              </div>
+              {peerIntakeHint?.sourceProjectId ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-sky-200 bg-sky-50/90 px-3 py-2.5 text-sm text-slate-800">
+                  <p className="min-w-0 flex-1">
+                    <span className="font-semibold">Similar project in your library</span>
+                    <span className="text-slate-600">
+                      {' '}
+                      — apply scope categories, pricing mode, tax, and job conditions from a recent job for this{' '}
+                      {peerIntakeHint.matchedBy === 'client' ? 'client' : 'general contractor'}.
+                    </span>
+                  </p>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <button type="button" className="ui-btn-primary h-8 px-3 text-xs" onClick={applyPeerIntakeHint}>
+                      Apply defaults
+                    </button>
+                    <button type="button" className="ui-btn-secondary h-8 px-3 text-xs" onClick={dismissPeerIntakeHint}>
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              <div
+                className={
+                  step === 4
+                    ? 'grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(240px,280px)]'
+                    : 'grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.9fr)]'
+                }
+              >
                 <div className="space-y-4">
                   {step === 3 ? (
-                <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Job Basics</p>
+                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/50 p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Job basics</p>
                   <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <label className="text-xs text-slate-600">Project Name<input id="intake-project-name" className="ui-input mt-1" value={projectDraft.projectName || ''} onChange={(e) => patchProjectDraft({ projectName: e.target.value })} /></label>
-                    <label className="text-xs text-slate-600">Bid Package / Job #<input className="ui-input mt-1" value={projectDraft.projectNumber || ''} onChange={(e) => patchProjectDraft({ projectNumber: e.target.value })} /></label>
-                    <label className="text-xs text-slate-600">Client<input id="intake-client" className="ui-input mt-1" value={projectDraft.clientName || ''} onChange={(e) => patchProjectDraft({ clientName: e.target.value })} /></label>
-                    <label className="text-xs text-slate-600">GC<input className="ui-input mt-1" value={projectDraft.generalContractor || ''} onChange={(e) => patchProjectDraft({ generalContractor: e.target.value })} /></label>
+                    <label className="text-xs text-slate-600">Project Name<input className="ui-input mt-1" value={projectDraft.projectName || ''} onChange={(e) => patchProjectDraft({ projectName: e.target.value })} /></label>
+                    <label className="text-xs text-slate-600">Bid Package / Job #<input className="ui-input mt-1" value={projectDraft.projectNumber || ''} onChange={(e) => {
+                        const v = e.target.value;
+                        patchProjectDraft({
+                          projectNumber: v,
+                          projectNumberSource: isBlankOrPlaceholderBidNumber(v) ? 'auto' : 'manual',
+                        });
+                      }} /></label>
+                    <label className="text-xs text-slate-600">Client<input className="ui-input mt-1" value={projectDraft.clientName || ''} onChange={(e) => patchProjectDraft({ clientName: e.target.value })} /></label>
                     <label className="text-xs text-slate-600">Estimator<input className="ui-input mt-1" value={projectDraft.estimator || ''} onChange={(e) => patchProjectDraft({ estimator: e.target.value })} /></label>
-                    <label className="text-xs text-slate-600">Project Type
-                      <select id="intake-project-type" className="ui-input mt-1" value={projectDraft.projectType || 'Commercial'} onChange={(e) => patchProjectDraft({ projectType: e.target.value })}>
+                    <label className="text-xs text-slate-600 md:col-span-2">Project Type
+                      <select className="ui-input mt-1" value={projectDraft.projectType || 'Commercial'} onChange={(e) => patchProjectDraft({ projectType: e.target.value })}>
                         <option value="Commercial">Commercial</option>
                         <option value="Residential">Residential</option>
                         <option value="Industrial">Industrial</option>
@@ -2608,17 +3717,18 @@ function applyRoomToVisible(roomName: string) {
                         <option value="Multi-Family">Multi-Family</option>
                       </select>
                     </label>
-                    <label className="text-xs text-slate-600 md:col-span-2">Bid Due Date<input id="intake-bid-date" type="date" className={`ui-input mt-1 ${projectDateErrors.bidDate ? 'border-red-300 ring-1 ring-red-200' : ''}`} value={unifiedProjectDate} onChange={(e) => patchProjectDate(e.target.value)} />{projectDateErrors.bidDate ? <span className="mt-1 block text-[11px] text-red-600">{projectDateErrors.bidDate}</span> : null}</label>
+                    <label className="text-xs text-slate-600 md:col-span-2">Bid Due Date<input type="date" className={`ui-input mt-1 ${projectDateErrors.bidDate ? 'border-red-300 ring-1 ring-red-200' : ''}`} value={unifiedProjectDate} onChange={(e) => patchProjectDate(e.target.value)} />{projectDateErrors.bidDate ? <span className="mt-1 block text-[11px] text-red-600">{projectDateErrors.bidDate}</span> : null}</label>
                     <label className="text-xs text-slate-600 md:col-span-2">Site Address
-                      <textarea
-                        rows={2}
-                        id="intake-site-address"
-                        className="ui-input mt-1 min-h-[84px] py-2"
+                      <span className="mt-1 block text-[11px] font-normal text-slate-500">
+                        Type a few characters — pick a suggestion to fill the full address, or keep typing manually.
+                      </span>
+                      <SiteAddressAutocomplete
+                        className="mt-1"
                         value={projectDraft.address || ''}
-                        onChange={(e) => {
-                          patchProjectDraft({ address: e.target.value });
+                        onChange={(v) => {
+                          patchProjectDraft({ address: v });
                           setDistanceError(null);
-                          setDistanceMessage('Address updated. Recalculate travel distance.');
+                          setDistanceMessage('Address updated. Calculating travel distance...');
                           patchDraftJobConditions({ travelDistanceMiles: null });
                         }}
                       />
@@ -2629,66 +3739,299 @@ function applyRoomToVisible(roomName: string) {
 
                   {step === 4 ? (
                     <>
-                <CollapsibleSectionCard
-                  title="Pricing"
-                  description="Set markups, crew assumptions, and adders."
-                  defaultOpen
-                >
-                  <div className="mb-3">
-                    <span className="rounded-full bg-white px-3 py-1 text-[11px] font-medium text-slate-600 shadow-sm ring-1 ring-slate-200">Settings defaults loaded</span>
-                  </div>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    <label className="text-xs text-slate-600">Price Mode
-                      <select id="intake-pricing-mode" className="ui-input mt-1" value={(projectDraft.pricingMode as PricingMode) || 'labor_and_material'} onChange={(e) => patchProjectDraft({ pricingMode: e.target.value as PricingMode })}>
-                        <option value="material_only">Material Only</option>
-                        <option value="labor_only">Install Only</option>
-                        <option value="labor_and_material">Material + Install</option>
-                      </select>
-                    </label>
-                    <label className="text-xs text-slate-600">Burden %<input type="number" step="0.01" className="ui-input mt-1" value={projectDraft.laborBurdenPercent ?? ''} onChange={(e) => patchProjectDraft({ laborBurdenPercent: Number(e.target.value) || 0 })} /></label>
-                    <label className="text-xs text-slate-600">Overhead %<input type="number" step="0.01" className="ui-input mt-1" value={projectDraft.overheadPercent ?? ''} onChange={(e) => patchProjectDraft({ overheadPercent: Number(e.target.value) || 0 })} /></label>
-                    <label className="text-xs text-slate-600">Profit %<input type="number" step="0.01" className="ui-input mt-1" value={projectDraft.profitPercent ?? ''} onChange={(e) => patchProjectDraft({ profitPercent: Number(e.target.value) || 0 })} /></label>
-                    <label className="text-xs text-slate-600">Tax %<input type="number" step="0.01" className="ui-input mt-1" value={projectDraft.taxPercent ?? ''} onChange={(e) => patchProjectDraft({ taxPercent: Number(e.target.value) || 0 })} /></label>
-                    <label className="text-xs text-slate-600">Labor Factor<input type="number" step="0.01" className="ui-input mt-1" value={normalizeProjectJobConditions(projectDraft.jobConditions).laborRateMultiplier} onChange={(e) => patchDraftJobConditions({ laborRateMultiplier: Number(e.target.value) || 1 })} /></label>
-                    <label className="text-xs text-slate-600">Adder %<input type="number" step="0.01" className="ui-input mt-1" value={normalizeProjectJobConditions(projectDraft.jobConditions).estimateAdderPercent} onChange={(e) => patchDraftJobConditions({ estimateAdderPercent: Number(e.target.value) || 0 })} /></label>
-                    <label className="text-xs text-slate-600">Adder $<input type="number" step="0.01" className="ui-input mt-1" value={normalizeProjectJobConditions(projectDraft.jobConditions).estimateAdderAmount} onChange={(e) => patchDraftJobConditions({ estimateAdderAmount: Number(e.target.value) || 0 })} /></label>
-                    <label className="text-xs text-slate-600">Crew Size<input id="intake-crew-size" type="number" min={1} className="ui-input mt-1" value={normalizeProjectJobConditions(projectDraft.jobConditions).installerCount} onChange={(e) => patchDraftJobConditions({ installerCount: Number(e.target.value) || 1 })} /></label>
-                  </div>
-                </CollapsibleSectionCard>
+                      <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm space-y-6">
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Section 1</p>
+                          <h3 className="mt-1 text-lg font-semibold text-slate-900">Project inputs</h3>
+                          <p className="mt-2 text-sm text-slate-600">Price mode, scope, floors, substrate, and delivery — optional site and sizing fields stay collapsed unless you need them.</p>
+                          <IntakeFieldLegend />
+                        </div>
 
-                <CollapsibleSectionCard
-                  title="Scope and Manufacturers"
-                  description="Choose active scope categories and manufacturer preferences for matching."
-                  defaultOpen
-                >
-                  <div id="intake-scope-categories" className="flex flex-wrap gap-2">
-                    {scopeCategoryOptions.map((category) => {
-                      const active = (projectDraft.selectedScopeCategories || []).includes(category);
-                      return (
-                        <button
-                          key={category}
-                          type="button"
-                          onClick={() => patchProjectDraft({
-                            selectedScopeCategories: active
-                              ? (projectDraft.selectedScopeCategories || []).filter((entry) => entry !== category)
-                              : [...(projectDraft.selectedScopeCategories || []), category].sort(),
-                          })}
-                          className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${active ? 'bg-blue-700 text-white shadow-sm' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'}`}
-                        >
-                          {category}
-                        </button>
-                      );
-                    })}
-                    {scopeCategoryOptions.length === 0 ? <p className="text-xs text-slate-500">Categories appear after review lines load.</p> : null}
-                  </div>
-                  <div className="mt-3">
-                    <PreferredBrandsSelector
-                      value={projectDraft.preferredBrands || []}
-                      options={brandOptions}
-                      onChange={(next) => patchProjectDraft({ preferredBrands: next })}
-                    />
-                  </div>
-                </CollapsibleSectionCard>
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                          <label className="text-[11px] font-medium text-slate-800">
+                            <span className="inline-flex items-center">
+                              Price mode
+                              <IntakeFieldBadge kind="required" />
+                            </span>
+                            <select
+                              className="ui-input mt-1.5 h-10"
+                              value={(projectDraft.pricingMode as PricingMode) || 'labor_and_material'}
+                              onChange={(e) => patchProjectDraft({ pricingMode: e.target.value as PricingMode })}
+                            >
+                              <option value="material_only">Material only</option>
+                              <option value="labor_only">Install only</option>
+                              <option value="labor_and_material">Material + install</option>
+                              <option value="material_with_optional_install_quote">Material + install (quoted separately)</option>
+                            </select>
+                            <span className="mt-1 block text-[10px] text-slate-500">Controls material vs labor in the bid.</span>
+                          </label>
+
+                          <label className="text-[11px] font-medium text-slate-800">
+                            <span className="inline-flex items-center">
+                              Floor level
+                              <IntakeFieldBadge kind="optional" />
+                            </span>
+                            <select className="ui-input mt-1.5 h-10" value={projectDraft.floorLevel || 'Ground'} onChange={(e) => patchProjectDraft({ floorLevel: e.target.value })}>
+                              <option value="Ground">Ground</option>
+                              <option value="2-3">2–3</option>
+                              <option value="4+">4+</option>
+                            </select>
+                          </label>
+
+                          <label className="text-[11px] font-medium text-slate-800">
+                            <span className="inline-flex items-center">
+                              Floors (building)
+                              <IntakeFieldBadge kind="optional" />
+                            </span>
+                            <input type="number" min={1} className="ui-input mt-1.5 h-10" value={draftJob.floors} onChange={(e) => patchDraftJobConditions({ floors: Number(e.target.value) || 1 })} />
+                          </label>
+
+                          <label className="text-[11px] font-medium text-slate-800">
+                            <span className="inline-flex items-center">
+                              Wall substrate
+                              <IntakeFieldBadge kind="optional" />
+                            </span>
+                            <select className="ui-input mt-1.5 h-10" value={projectDraft.wallSubstrate || 'Drywall'} onChange={(e) => patchProjectDraft({ wallSubstrate: e.target.value })}>
+                              <option value="Drywall">Drywall</option>
+                              <option value="CMU">CMU</option>
+                              <option value="Concrete">Concrete</option>
+                              <option value="Tile">Tile</option>
+                            </select>
+                          </label>
+
+                        </div>
+
+                        <details className="group rounded-xl border border-slate-200/90 bg-slate-50/50 shadow-sm">
+                          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-[11px] font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
+                            <span>Optional job size &amp; region</span>
+                            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-500 transition group-open:rotate-180" aria-hidden />
+                          </summary>
+                          <div className="space-y-3 border-t border-slate-200/80 px-3 pb-3 pt-2">
+                            <label className="block text-[11px] font-medium text-slate-800">
+                              <span className="inline-flex items-center">
+                                Project size
+                                <IntakeFieldBadge kind="optional" />
+                              </span>
+                              <select
+                                className="ui-input mt-1.5 h-10"
+                                value={normalizeProjectSizeSelectValue(projectDraft.projectSize)}
+                                onChange={(e) => patchProjectDraft({ projectSize: e.target.value })}
+                              >
+                                {PROJECT_JOB_SIZE_OPTIONS.map((opt) => (
+                                  <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <span className="mt-1 block text-[10px] text-slate-500">Typical crew-duration / bid size tier.</span>
+                            </label>
+                            <label className="block text-[11px] font-medium text-slate-800">
+                              <span className="inline-flex items-center">
+                                Location / region note
+                                <IntakeFieldBadge kind="optional" />
+                              </span>
+                              <input
+                                className="ui-input mt-1.5 h-10"
+                                value={draftJob.locationLabel || ''}
+                                onChange={(e) => patchDraftJobConditions({ locationLabel: e.target.value })}
+                                placeholder="e.g. Austin metro"
+                              />
+                            </label>
+                          </div>
+                        </details>
+
+                        <details className="group rounded-xl border border-slate-200/90 bg-slate-50/50 shadow-sm">
+                          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-[11px] font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
+                            <span>Optional site context (access, lifts, handling)</span>
+                            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-500 transition group-open:rotate-180" aria-hidden />
+                          </summary>
+                          <div className="border-t border-slate-200/80 px-3 pb-3 pt-2">
+                            <p className="text-xs text-slate-500">Helps metadata and assumptions; leave closed if this job matches a normal site.</p>
+                            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                              <label className="text-[11px] font-medium text-slate-700">
+                                Access difficulty
+                                <select className="ui-input mt-1 h-9" value={projectDraft.accessDifficulty || 'Easy'} onChange={(e) => patchProjectDraft({ accessDifficulty: e.target.value })}>
+                                  <option value="Easy">Easy</option>
+                                  <option value="Moderate">Moderate</option>
+                                  <option value="Difficult">Difficult</option>
+                                </select>
+                              </label>
+                              <label className="text-[11px] font-medium text-slate-700">
+                                Install height
+                                <select className="ui-input mt-1 h-9" value={projectDraft.installHeight || 'Standard'} onChange={(e) => patchProjectDraft({ installHeight: e.target.value })}>
+                                  <option value="Standard">Standard</option>
+                                  <option value="Ladder">Ladder</option>
+                                  <option value="Lift">Lift</option>
+                                  <option value="Scaffold">Scaffold</option>
+                                </select>
+                              </label>
+                              <label className="text-[11px] font-medium text-slate-700">
+                                Material handling
+                                <select className="ui-input mt-1 h-9" value={projectDraft.materialHandling || 'Standard'} onChange={(e) => patchProjectDraft({ materialHandling: e.target.value })}>
+                                  <option value="Standard">Standard</option>
+                                  <option value="Manual">Manual</option>
+                                  <option value="Multiple Moves">Multiple moves</option>
+                                </select>
+                              </label>
+                            </div>
+                          </div>
+                        </details>
+
+                        <div>
+                          <p className="text-[11px] font-semibold text-slate-800">
+                            <span className="inline-flex items-center">
+                              Scope categories
+                              <IntakeFieldBadge kind="required" />
+                            </span>
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">Which catalog trades are in play for this bid.</p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {scopeCategoryOptions.map((category) => {
+                              const active = (projectDraft.selectedScopeCategories || []).includes(category);
+                              return (
+                                <button
+                                  key={category}
+                                  type="button"
+                                  onClick={() =>
+                                    patchProjectDraft({
+                                      selectedScopeCategories: active
+                                        ? (projectDraft.selectedScopeCategories || []).filter((entry) => entry !== category)
+                                        : [...(projectDraft.selectedScopeCategories || []), category].sort(),
+                                    })
+                                  }
+                                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                                    active ? 'border-blue-400 bg-blue-50 text-blue-900 shadow-sm' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {category}
+                                </button>
+                              );
+                            })}
+                            {scopeCategoryOptions.length === 0 ? <p className="text-xs text-slate-500">Categories load after catalog sync.</p> : null}
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+                          <label className="flex cursor-pointer items-start gap-3 text-sm text-slate-800">
+                            <input
+                              type="checkbox"
+                              className="mt-1 h-4 w-4 rounded border-slate-300"
+                              checked={draftJob.deliveryRequired}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  const miles = draftJob.travelDistanceMiles;
+                                  if (miles !== null && miles !== undefined && Number.isFinite(miles)) {
+                                    patchDraftJobConditions({
+                                      ...recommendDeliveryPlan(miles, draftJob.deliveryDifficulty),
+                                      deliveryRequired: true,
+                                      deliveryAutoCalculated: true,
+                                    });
+                                  } else {
+                                    patchDraftJobConditions({ deliveryRequired: true, deliveryAutoCalculated: false });
+                                  }
+                                } else {
+                                  patchDraftJobConditions({
+                                    deliveryRequired: false,
+                                    deliveryQuotedSeparately: false,
+                                    deliveryAutoCalculated: false,
+                                  });
+                                }
+                              }}
+                            />
+                            <span>
+                              <span className="font-semibold">Delivery required / included in this estimate</span>
+                              <span className="mt-0.5 block text-xs font-normal text-slate-600">Turn on to price freight or jobsite delivery. Details stay hidden until this is on.</span>
+                            </span>
+                          </label>
+                          {draftJob.deliveryRequired ? (
+                            <div className="mt-4 grid grid-cols-1 gap-3 border-t border-slate-200/80 pt-4 sm:grid-cols-3">
+                              <label className="text-[11px] font-medium text-slate-700">
+                                Delivery mode
+                                <select
+                                  className="ui-input mt-1 h-9"
+                                  value={draftJob.deliveryPricingMode}
+                                  onChange={(e) => patchDraftJobConditions({ deliveryPricingMode: e.target.value as ProjectJobConditions['deliveryPricingMode'], deliveryAutoCalculated: false })}
+                                >
+                                  <option value="included">Included / no charge</option>
+                                  <option value="flat">Flat amount</option>
+                                  <option value="percent">Percent of base</option>
+                                </select>
+                              </label>
+                              <label className="text-[11px] font-medium text-slate-700">
+                                Delivery $ or %
+                                <input type="number" step="0.01" className="ui-input mt-1 h-9" value={draftJob.deliveryValue} onChange={(e) => patchDraftJobConditions({ deliveryValue: Number(e.target.value) || 0, deliveryAutoCalculated: false })} />
+                              </label>
+                              <label className="text-[11px] font-medium text-slate-700">
+                                Lead time (days)
+                                <input type="number" min={0} className="ui-input mt-1 h-9" value={draftJob.deliveryLeadDays} onChange={(e) => patchDraftJobConditions({ deliveryLeadDays: Number(e.target.value) || 0 })} />
+                              </label>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Section 2</p>
+                        <h3 className="mt-1 text-lg font-semibold text-slate-900">Job conditions</h3>
+                        <p className="mt-2 text-sm text-slate-600">Toggle what applies. Delivery is set under project inputs.</p>
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {(
+                            [
+                              ['occupiedBuilding', 'Occupied building', draftJob.occupiedBuilding],
+                              ['restrictedAccess', 'Restricted access', draftJob.restrictedAccess],
+                              ['nightWork', 'Night work', draftJob.nightWork],
+                              ['phasedWork', 'Phased work', draftJob.phasedWork],
+                              ['remoteTravel', 'Remote travel', draftJob.remoteTravel],
+                              ['scheduleCompression', 'Schedule compression', draftJob.scheduleCompression],
+                              ['smallJobFactor', 'Small job factor', draftJob.smallJobFactor],
+                            ] as const
+                          ).map(([key, label, on]) => (
+                            <button
+                              key={key}
+                              type="button"
+                              role="switch"
+                              aria-checked={on}
+                              onClick={() => {
+                                if (key === 'phasedWork') {
+                                  promptForPhasedWorkDraft(!on);
+                                  return;
+                                }
+                                patchDraftJobConditions({ [key]: !on } as Partial<ProjectJobConditions>);
+                              }}
+                              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                                on ? 'border-slate-800 bg-slate-900 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="mt-4 flex items-start gap-2 text-[11px] text-slate-500">
+                          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                          Markups, crew, and field allowances live under <strong className="font-medium text-slate-700">Advanced pricing &amp; field conditions</strong> on the right.
+                        </p>
+                        {draftJob.phasedWork ? (
+                          <div className="mt-4 grid grid-cols-1 gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2">
+                            <label className="text-[11px] font-medium text-slate-700">
+                              Phase count
+                              <input
+                                type="number"
+                                min={2}
+                                className="ui-input mt-1 h-9"
+                                value={draftJob.phasedWorkPhases}
+                                onChange={(e) => {
+                                  const phaseCount = Math.max(2, Number(e.target.value) || 2);
+                                  patchDraftJobConditions({ phasedWorkPhases: phaseCount, phasedWorkMultiplier: recommendedPhasedWorkMultiplier(phaseCount) });
+                                }}
+                              />
+                            </label>
+                            <label className="text-[11px] font-medium text-slate-700">
+                              Phased labor multiplier
+                              <input type="number" step="0.01" className="ui-input mt-1 h-9" value={draftJob.phasedWorkMultiplier} onChange={(e) => patchDraftJobConditions({ phasedWorkMultiplier: Number(e.target.value) || 0 })} />
+                            </label>
+                          </div>
+                        ) : null}
+                      </div>
                     </>
                   ) : null}
                 </div>
@@ -2697,14 +4040,16 @@ function applyRoomToVisible(roomName: string) {
                   {step === 3 ? (
                     <>
                       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Required Before Pricing</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-500">Required Before Pricing</p>
                         <div className="mt-3 space-y-2">
                           {['Project name', 'Client', 'Site address', 'Project type', 'Bid due date'].map((label) => {
                             const missing = basicsChecklist.includes(label);
                             return (
                               <div key={label} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 text-sm">
                                 <span className="text-slate-700">{label}</span>
-                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${missing ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                                <span
+                                  className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${missing ? 'ui-status-warn' : 'ui-status-ok'}`}
+                                >
                                   {missing ? 'Required' : 'Ready'}
                                 </span>
                               </div>
@@ -2714,7 +4059,7 @@ function applyRoomToVisible(roomName: string) {
                       </div>
 
                       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Source Summary</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-500">Source Summary</p>
                         <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                             <p className="text-slate-500">Creation mode</p>
@@ -2739,150 +4084,252 @@ function applyRoomToVisible(roomName: string) {
 
                   {step === 4 ? (
                     <>
-                <CollapsibleSectionCard title="Site Logistics" description={`Office: ${OFFICE_ADDRESS}`} defaultOpen={false}>
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="text-xs text-slate-500">Travel and on-site constraints feed labor and delivery assumptions.</p>
-                    <button type="button" onClick={() => void refreshDraftDistance()} className="ui-btn-secondary h-9 px-3 text-[11px]" disabled={distanceCalculating}>{distanceCalculating ? 'Calculating...' : 'Calc Miles'}</button>
-                  </div>
-                  <div className="mt-3 rounded-2xl bg-slate-50/80 p-3 text-sm text-slate-700 ring-1 ring-slate-200/80">
-                    <p className="font-medium text-slate-900">{normalizeProjectJobConditions(projectDraft.jobConditions).travelDistanceMiles !== null ? `${formatNumberSafe(normalizeProjectJobConditions(projectDraft.jobConditions).travelDistanceMiles, 1)} miles from office.` : distanceMessage}</p>
-                    {distanceError ? <p className="mt-1 text-xs text-red-600">{distanceError}</p> : null}
-                  </div>
-                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <label className="text-xs text-slate-600">Project Size
-                      <select className="ui-input mt-1" value={projectDraft.projectSize || 'Medium'} onChange={(e) => patchProjectDraft({ projectSize: e.target.value })}>
-                        <option value="Small">Small</option>
-                        <option value="Medium">Medium</option>
-                        <option value="Large">Large</option>
-                      </select>
-                    </label>
-                    <label className="text-xs text-slate-600">Floor Level
-                      <select className="ui-input mt-1" value={projectDraft.floorLevel || 'Ground'} onChange={(e) => patchProjectDraft({ floorLevel: e.target.value })}>
-                        <option value="Ground">Ground</option>
-                        <option value="2-3">2-3</option>
-                        <option value="4+">4+</option>
-                      </select>
-                    </label>
-                    <label className="text-xs text-slate-600">Access Difficulty
-                      <select className="ui-input mt-1" value={projectDraft.accessDifficulty || 'Easy'} onChange={(e) => patchProjectDraft({ accessDifficulty: e.target.value })}>
-                        <option value="Easy">Easy</option>
-                        <option value="Moderate">Moderate</option>
-                        <option value="Difficult">Difficult</option>
-                      </select>
-                    </label>
-                    <label className="text-xs text-slate-600">Install Height
-                      <select className="ui-input mt-1" value={projectDraft.installHeight || 'Standard'} onChange={(e) => patchProjectDraft({ installHeight: e.target.value })}>
-                        <option value="Standard">Standard</option>
-                        <option value="Ladder">Ladder</option>
-                        <option value="Lift">Lift</option>
-                        <option value="Scaffold">Scaffold</option>
-                      </select>
-                    </label>
-                    <label className="text-xs text-slate-600">Material Handling
-                      <select className="ui-input mt-1" value={projectDraft.materialHandling || 'Standard'} onChange={(e) => patchProjectDraft({ materialHandling: e.target.value })}>
-                        <option value="Standard">Standard</option>
-                        <option value="Manual">Manual</option>
-                        <option value="Multiple Moves">Multiple Moves</option>
-                      </select>
-                    </label>
-                    <label className="text-xs text-slate-600">Wall Substrate
-                      <select className="ui-input mt-1" value={projectDraft.wallSubstrate || 'Drywall'} onChange={(e) => patchProjectDraft({ wallSubstrate: e.target.value })}>
-                        <option value="Drywall">Drywall</option>
-                        <option value="CMU">CMU</option>
-                        <option value="Concrete">Concrete</option>
-                        <option value="Tile">Tile</option>
-                      </select>
-                    </label>
-                    <label className="text-xs text-slate-600">Floors<input type="number" min={1} className="ui-input mt-1" value={normalizeProjectJobConditions(projectDraft.jobConditions).floors} onChange={(e) => patchDraftJobConditions({ floors: Number(e.target.value) || 1 })} /></label>
-                    <label className="text-xs text-slate-600">Tax / Location Note<input className="ui-input mt-1" value={normalizeProjectJobConditions(projectDraft.jobConditions).locationLabel || ''} onChange={(e) => patchDraftJobConditions({ locationLabel: e.target.value })} /></label>
-                    <label className="text-xs text-slate-600">Tax Override %<input type="number" step="0.01" className="ui-input mt-1" value={normalizeProjectJobConditions(projectDraft.jobConditions).locationTaxPercent ?? ''} onChange={(e) => patchDraftJobConditions({ locationTaxPercent: e.target.value === '' ? null : Number(e.target.value) })} /></label>
-                  </div>
-                  <p className="mt-4 ui-eyebrow">Job Adders</p>
-                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {[
-                      ['prevailingWage', 'Prevailing wage'],
-                      ['occupiedBuilding', 'Occupied building'],
-                      ['restrictedAccess', 'Restricted access'],
-                      ['nightWork', 'Night work'],
-                      ['phasedWork', 'Phased work'],
-                      ['remoteTravel', 'Remote travel'],
-                      ['scheduleCompression', 'Schedule compression'],
-                      ['smallJobFactor', 'Small job factor'],
-                      ['deliveryRequired', 'Delivery required'],
-                    ].map(([key, label]) => {
-                      const active = Boolean(normalizeProjectJobConditions(projectDraft.jobConditions)[key as keyof ProjectJobConditions]);
-                      return (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => {
-                            if (key === 'phasedWork') {
-                              promptForPhasedWorkDraft(!active);
-                              return;
-                            }
+                      <div className="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Travel</p>
+                            <p className="mt-1 text-xs text-slate-500">Office: {OFFICE_ADDRESS}</p>
+                          </div>
+                          {distanceCalculating ? <span className="text-[11px] font-semibold text-blue-700">Calculating…</span> : null}
+                        </div>
+                        <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/80 p-3 text-sm text-slate-700">
+                          <p className="font-medium text-slate-900">
+                            {draftJob.travelDistanceMiles !== null
+                              ? `${formatNumberSafe(draftJob.travelDistanceMiles, 1)} miles from office.`
+                              : distanceMessage}
+                          </p>
+                          {distanceError ? <p className="mt-1 text-xs text-red-600">{distanceError}</p> : null}
+                        </div>
+                        {draftJob.deliveryRequired ? (
+                          <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-[11px] text-slate-600">
+                            <p className="font-medium text-slate-800">Delivery summary</p>
+                            <p className="mt-1 text-slate-500">
+                              Under 50 mi — typically no fee; 50–100 mi — $100 flat; over 100 mi — often priced separately. Adjust under project inputs if needed.
+                            </p>
+                            <p className="mt-1 text-slate-700">
+                              {!draftJob.deliveryQuotedSeparately
+                                ? `${formatNumberSafe(draftJob.travelDistanceMiles || 0, 1)} mi · ${draftJob.deliveryLeadDays} day lead · ${draftJob.deliveryPricingMode === 'flat' ? `${formatCurrencySafe(draftJob.deliveryValue)} flat` : draftJob.deliveryPricingMode === 'percent' ? `${formatNumberSafe(draftJob.deliveryValue, 2)}%` : 'included'}`
+                                : `${formatNumberSafe(draftJob.travelDistanceMiles || 0, 1)} mi — quoted separately (not in estimate total).`}
+                            </p>
+                          </div>
+                        ) : null}
+                      </div>
 
-                            if (key === 'deliveryRequired') {
-                              if (active) {
-                                patchDraftJobConditions({ deliveryRequired: false, deliveryAutoCalculated: false });
-                                return;
-                              }
-
-                              applyDraftDeliveryRecommendation(normalizeProjectJobConditions(projectDraft.jobConditions).travelDistanceMiles, { force: true });
-                              return;
-                            }
-
-                            patchDraftJobConditions({ [key]: !active } as Partial<ProjectJobConditions>);
-                          }}
-                          className={`flex items-center justify-between rounded-2xl px-3 py-3 text-left text-sm transition ${active ? 'bg-blue-50 text-blue-800 ring-1 ring-blue-200' : 'bg-slate-50 text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100'}`}
-                        >
-                          <span>{label}</span>
-                          <span className={`h-2.5 w-2.5 rounded-full ${active ? 'bg-blue-700' : 'bg-slate-300'}`} />
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <label className="text-xs text-slate-600">Delivery Mode
-                      <select className="ui-input mt-1" value={normalizeProjectJobConditions(projectDraft.jobConditions).deliveryPricingMode} onChange={(e) => patchDraftJobConditions({ deliveryPricingMode: e.target.value as ProjectJobConditions['deliveryPricingMode'], deliveryAutoCalculated: false })}>
-                        <option value="included">Included</option>
-                        <option value="flat">Flat</option>
-                        <option value="percent">Percent</option>
-                      </select>
-                    </label>
-                    <label className="text-xs text-slate-600">Delivery $<input type="number" step="0.01" className="ui-input mt-1" value={normalizeProjectJobConditions(projectDraft.jobConditions).deliveryValue} onChange={(e) => patchDraftJobConditions({ deliveryValue: Number(e.target.value) || 0, deliveryAutoCalculated: false })} /></label>
-                    <label className="text-xs text-slate-600">Delivery Lead Time (business days)<input type="number" min={0} className="ui-input mt-1" value={normalizeProjectJobConditions(projectDraft.jobConditions).deliveryLeadDays} onChange={(e) => patchDraftJobConditions({ deliveryLeadDays: Number(e.target.value) || 0, deliveryAutoCalculated: false })} /></label>
-                    <div className="rounded-2xl bg-slate-50 px-3 py-3 text-xs text-slate-600 ring-1 ring-slate-200">
-                      <p className="font-medium text-slate-900">Delivery recommendation</p>
-                      <p className="mt-1">{normalizeProjectJobConditions(projectDraft.jobConditions).deliveryRequired ? `${formatNumberSafe(normalizeProjectJobConditions(projectDraft.jobConditions).travelDistanceMiles || 0, 1)} miles mapped to ${normalizeProjectJobConditions(projectDraft.jobConditions).deliveryLeadDays} business day${normalizeProjectJobConditions(projectDraft.jobConditions).deliveryLeadDays === 1 ? '' : 's'} and ${normalizeProjectJobConditions(projectDraft.jobConditions).deliveryPricingMode === 'flat' ? formatNumberSafe(normalizeProjectJobConditions(projectDraft.jobConditions).deliveryValue, 2) : normalizeProjectJobConditions(projectDraft.jobConditions).deliveryPricingMode}.` : 'Import or add the job address to auto-fill delivery cost and lead time.'}</p>
-                      <button type="button" className="mt-2 text-[11px] font-semibold text-blue-700 hover:text-blue-800" onClick={() => applyDraftDeliveryRecommendation(normalizeProjectJobConditions(projectDraft.jobConditions).travelDistanceMiles, { force: true })}>Refresh delivery recommendation</button>
-                    </div>
-                  </div>
-
-                  {normalizeProjectJobConditions(projectDraft.jobConditions).phasedWork ? (
-                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <label className="text-xs text-slate-600">Phase Count<input type="number" min={2} className="ui-input mt-1" value={normalizeProjectJobConditions(projectDraft.jobConditions).phasedWorkPhases} onChange={(e) => {
-                        const phaseCount = Math.max(2, Number(e.target.value) || 2);
-                        patchDraftJobConditions({ phasedWorkPhases: phaseCount, phasedWorkMultiplier: recommendedPhasedWorkMultiplier(phaseCount) });
-                      }} /></label>
-                      <label className="text-xs text-slate-600">Phased Labor Multiplier<input type="number" step="0.01" className="ui-input mt-1" value={normalizeProjectJobConditions(projectDraft.jobConditions).phasedWorkMultiplier} onChange={(e) => patchDraftJobConditions({ phasedWorkMultiplier: Number(e.target.value) || 0 })} /></label>
-                    </div>
-                  ) : null}
-                </CollapsibleSectionCard>
-
-                <CollapsibleSectionCard title="Notes" description="Keep proposal and internal notes scoped to this project." defaultOpen={false}>
-                  <div className="space-y-3">
-                    <label className="text-xs text-slate-600">Proposal Notes
-                      <textarea rows={4} className="ui-input mt-1 min-h-[112px] py-2" value={projectDraft.specialNotes || ''} onChange={(e) => patchProjectDraft({ specialNotes: e.target.value })} />
-                    </label>
-                    <label className="text-xs text-slate-600">Internal Notes
-                      <textarea rows={4} className="ui-input mt-1 min-h-[112px] py-2" value={projectDraft.notes || ''} onChange={(e) => patchProjectDraft({ notes: e.target.value })} />
-                    </label>
-                  </div>
-                </CollapsibleSectionCard>
+                      <details className="group rounded-2xl border border-slate-300/80 bg-slate-50/50 shadow-sm open:bg-white">
+                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 [&::-webkit-details-marker]:hidden">
+                          <div>
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Section 3</p>
+                            <p className="text-sm font-semibold text-slate-900">Advanced pricing &amp; field conditions</p>
+                            <p className="mt-0.5 text-xs text-slate-500">Only open if this bid differs from normal company assumptions.</p>
+                          </div>
+                          <ChevronDown className="h-4 w-4 shrink-0 text-slate-500 transition group-open:rotate-180" aria-hidden />
+                        </summary>
+                        <div className="space-y-4 border-t border-slate-200 px-4 pb-4 pt-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-xs text-slate-600">Open when this bid differs from office norms.</p>
+                            <button
+                              type="button"
+                              onClick={resetIntakeAdvancedPricingToOfficeDefaults}
+                              disabled={!settingsDefaults}
+                              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                            >
+                              Reset to office defaults
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                            <label className="text-[11px] font-medium text-slate-700">
+                              Labor burden % (sub)
+                              {matchesIntakeOffice('burden') ? <IntakeFieldBadge kind="office" /> : <IntakeFieldBadge kind="optional" />}
+                              <input type="number" step="0.01" className="ui-input mt-1 h-9" value={projectDraft.laborBurdenPercent ?? ''} onChange={(e) => patchProjectDraft({ laborBurdenPercent: Number(e.target.value) || 0 })} />
+                              <span className="mt-1 block max-w-xl text-[10px] font-normal leading-snug text-slate-500">
+                                Use 0 when your $/hr already includes burden.
+                              </span>
+                            </label>
+                            <label className="text-[11px] font-medium text-slate-700 md:col-span-2">
+                              Material O&amp;P % (after tax on material)
+                              {matchesIntakeOffice('materialOandP') ? <IntakeFieldBadge kind="office" /> : <IntakeFieldBadge kind="optional" />}
+                              <input
+                                type="number"
+                                step="0.01"
+                                className="ui-input mt-1 h-9 max-w-[8rem]"
+                                value={projectDraft.overheadPercent ?? ''}
+                                onChange={(e) =>
+                                  patchProjectDraft({ overheadPercent: Number(e.target.value) || 0, profitPercent: 0 })
+                                }
+                              />
+                              <span className="mt-1 block max-w-xl text-[10px] font-normal leading-snug text-slate-500">
+                                Single sell-side markup on material. Hourly install rate is already loaded with typical labor margin.
+                              </span>
+                            </label>
+                            {(projectDraft.pricingMode as PricingMode) !== 'labor_only' ? (
+                              <label className="text-[11px] font-medium text-slate-700">
+                                Material tax %
+                                {matchesIntakeOffice('tax') ? <IntakeFieldBadge kind="office" /> : <IntakeFieldBadge kind="optional" />}
+                                <input type="number" step="0.01" className="ui-input mt-1 h-9" value={projectDraft.taxPercent ?? ''} onChange={(e) => patchProjectDraft({ taxPercent: Number(e.target.value) || 0 })} />
+                              </label>
+                            ) : null}
+                            <label className="text-[11px] font-medium text-slate-700">
+                              Location tax override %
+                              <IntakeFieldBadge kind="optional" />
+                              <input
+                                type="number"
+                                step="0.01"
+                                className="ui-input mt-1 h-9"
+                                value={draftJob.locationTaxPercent ?? ''}
+                                onChange={(e) => patchDraftJobConditions({ locationTaxPercent: e.target.value === '' ? null : Number(e.target.value) })}
+                                placeholder="Blank = use material tax"
+                              />
+                            </label>
+                            <label className="text-[11px] font-medium text-slate-700">
+                              Labor factor
+                              <IntakeFieldBadge kind="optional" />
+                              <input type="number" step="0.01" className="ui-input mt-1 h-9" value={draftJob.laborRateMultiplier} onChange={(e) => patchDraftJobConditions({ laborRateMultiplier: Number(e.target.value) || 1 })} />
+                            </label>
+                            <label className="text-[11px] font-medium text-slate-700">
+                              Crew size
+                              <IntakeFieldBadge kind="optional" />
+                              <input type="number" min={1} className="ui-input mt-1 h-9" value={draftJob.installerCount} onChange={(e) => patchDraftJobConditions({ installerCount: Number(e.target.value) || 1 })} />
+                            </label>
+                            <details className="group rounded-xl border border-slate-200 bg-white/90 px-3 py-2 md:col-span-2">
+                              <summary className="cursor-pointer list-none text-[11px] font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
+                                Advanced: stacked material profit, sub labor markup (usually 0%)
+                              </summary>
+                              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                                <label className="text-[11px] font-medium text-slate-700">
+                                  Material profit % (after material O&amp;P)
+                                  {matchesIntakeOffice('profit') ? <IntakeFieldBadge kind="office" /> : <IntakeFieldBadge kind="optional" />}
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    className="ui-input mt-1 h-9"
+                                    value={projectDraft.profitPercent ?? ''}
+                                    onChange={(e) => patchProjectDraft({ profitPercent: Number(e.target.value) || 0 })}
+                                  />
+                                </label>
+                                <label className="text-[11px] font-medium text-slate-700">
+                                  Labor overhead % (sub)
+                                  {matchesIntakeOffice('laborOverhead') ? <IntakeFieldBadge kind="office" /> : <IntakeFieldBadge kind="optional" />}
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    className="ui-input mt-1 h-9"
+                                    value={projectDraft.laborOverheadPercent ?? ''}
+                                    onChange={(e) => patchProjectDraft({ laborOverheadPercent: Number(e.target.value) || 0 })}
+                                  />
+                                </label>
+                                <label className="text-[11px] font-medium text-slate-700">
+                                  Labor profit % (sub)
+                                  {matchesIntakeOffice('laborProfit') ? <IntakeFieldBadge kind="office" /> : <IntakeFieldBadge kind="optional" />}
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    className="ui-input mt-1 h-9"
+                                    value={projectDraft.laborProfitPercent ?? ''}
+                                    onChange={(e) => patchProjectDraft({ laborProfitPercent: Number(e.target.value) || 0 })}
+                                  />
+                                </label>
+                              </div>
+                            </details>
+                            <div className="sm:col-span-2 rounded-lg border border-amber-200/80 bg-amber-50/50 p-3">
+                              <p className="text-[12px] font-semibold text-slate-900">Performance / surety bond</p>
+                              <p className="mt-1 text-[11px] text-slate-600">
+                                If the job requires bonding, include an allowance as a percent of the base bid (before job-wide tax and markups).
+                              </p>
+                              <label className="mt-2 flex items-center gap-2 text-[11px] font-medium text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={draftJob.performanceBondRequired}
+                                  onChange={(e) => patchDraftJobConditions({ performanceBondRequired: e.target.checked })}
+                                />
+                                Bond required on this project
+                              </label>
+                              <label className="mt-2 block text-[11px] font-medium text-slate-700">
+                                Bond allowance % of base bid
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min={0}
+                                  className="ui-input mt-1 h-9 max-w-[8rem]"
+                                  value={draftJob.performanceBondPercent}
+                                  onChange={(e) => patchDraftJobConditions({ performanceBondPercent: Number(e.target.value) || 0 })}
+                                  disabled={!draftJob.performanceBondRequired}
+                                />
+                              </label>
+                            </div>
+                            <label className="text-[11px] font-medium text-slate-700">
+                              Project adder %
+                              <input type="number" step="0.01" className="ui-input mt-1 h-9" value={draftJob.estimateAdderPercent} onChange={(e) => patchDraftJobConditions({ estimateAdderPercent: Number(e.target.value) || 0 })} />
+                            </label>
+                            <label className="text-[11px] font-medium text-slate-700">
+                              Project adder $
+                              <input type="number" step="0.01" className="ui-input mt-1 h-9" value={draftJob.estimateAdderAmount} onChange={(e) => patchDraftJobConditions({ estimateAdderAmount: Number(e.target.value) || 0 })} />
+                            </label>
+                          </div>
+                          <div className="rounded-xl border border-slate-200 bg-white p-3">
+                            <p className="text-xs font-semibold text-slate-900">Sub labor management fee</p>
+                            <label className="mt-2 flex items-center gap-2 text-[11px] text-slate-700">
+                              <input type="checkbox" checked={Boolean(projectDraft.subLaborManagementFeeEnabled)} onChange={(e) => patchProjectDraft({ subLaborManagementFeeEnabled: e.target.checked })} />
+                              Enable on loaded subcontractor labor
+                            </label>
+                            <label className="mt-2 block text-[11px] font-medium text-slate-700">
+                              Fee %
+                              <input type="number" step="0.01" className="ui-input mt-1 h-9 max-w-[200px]" value={projectDraft.subLaborManagementFeePercent ?? 5} onChange={(e) => patchProjectDraft({ subLaborManagementFeePercent: Number(e.target.value) || 0 })} />
+                            </label>
+                          </div>
+                          <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+                            <p className="text-xs font-semibold text-slate-900">Delivery logistics (for auto rules)</p>
+                            <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                              <label className="text-[11px] font-medium text-slate-700">
+                                Delivery difficulty
+                                <select className="ui-input mt-1 h-9" value={draftJob.deliveryDifficulty} onChange={(e) => patchDraftJobConditions({ deliveryDifficulty: e.target.value as ProjectJobConditions['deliveryDifficulty'] })}>
+                                  <option value="standard">Standard</option>
+                                  <option value="constrained">Constrained</option>
+                                  <option value="difficult">Difficult</option>
+                                </select>
+                              </label>
+                              <label className="text-[11px] font-medium text-slate-700">
+                                Floor labor add / floor
+                                <input type="number" step="0.01" className="ui-input mt-1 h-9" value={draftJob.floorMultiplierPerFloor} onChange={(e) => patchDraftJobConditions({ floorMultiplierPerFloor: Number(e.target.value) || 0 })} />
+                              </label>
+                              <label className="text-[11px] font-medium text-slate-700">
+                                Mobilization
+                                <select className="ui-input mt-1 h-9" value={draftJob.mobilizationComplexity} onChange={(e) => patchDraftJobConditions({ mobilizationComplexity: e.target.value as ProjectJobConditions['mobilizationComplexity'] })}>
+                                  <option value="low">Low</option>
+                                  <option value="medium">Medium</option>
+                                  <option value="high">High</option>
+                                </select>
+                              </label>
+                              <label className="flex items-center gap-2 text-[11px] text-slate-700 md:col-span-2">
+                                <input type="checkbox" checked={draftJob.elevatorAvailable} onChange={(e) => patchDraftJobConditions({ elevatorAvailable: e.target.checked })} />
+                                Elevator available
+                              </label>
+                            </div>
+                          </div>
+                          <div className="rounded-xl border border-slate-200 bg-white p-3">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Notes</p>
+                            <h3 className="mt-1 text-sm font-semibold text-slate-900">Proposal &amp; internal</h3>
+                            <div className="mt-3 space-y-3">
+                              <label className="text-[11px] font-medium text-slate-700">
+                                Proposal notes
+                                <textarea rows={4} className="ui-input mt-1 min-h-[100px] py-2" value={projectDraft.specialNotes || ''} onChange={(e) => patchProjectDraft({ specialNotes: e.target.value })} />
+                              </label>
+                              <label className="text-[11px] font-medium text-slate-700">
+                                Internal notes
+                                <textarea rows={4} className="ui-input mt-1 min-h-[100px] py-2" value={projectDraft.notes || ''} onChange={(e) => patchProjectDraft({ notes: e.target.value })} />
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                      </details>
                     </>
                   ) : null}
                 </div>
+
+              <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-2">
+                <button type="button" onClick={() => setStep(step === 3 ? 2 : 3)} className="ui-btn-secondary">Back</button>
+                <button type="button" onClick={() => (step === 3 ? proceedToPricingSetup() : proceedToReviewItems())} className="ui-btn-primary h-9 px-4">
+                  {step === 3 ? 'Continue to estimate setup' : 'Continue to review'}
+                </button>
               </div>
 
               <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-2">
@@ -3123,15 +4570,284 @@ function applyRoomToVisible(roomName: string) {
                 </tbody>
               </table>
             </div>
-          </div>
-          <details className="ui-surface p-4">
-            <summary className="cursor-pointer text-sm font-semibold text-slate-800">Detailed Card Editor (advanced)</summary>
-            <p className="mt-1 text-xs text-slate-500">Use this expanded card view for full-context edits on individual lines.</p>
-            <div className="mt-3">
-          <div className="grid grid-cols-1 xl:grid-cols-[300px_minmax(0,1fr)] gap-4">
-            <div className="ui-surface p-4">
-              <h3 className="text-sm font-semibold text-slate-800 mb-3">Rooms / Areas</h3>
-              <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+          )}
+
+          {step === 5 && (
+            <>
+          {parserReviewSummary && parserReviewDisplayConfidence ? (
+            <div
+              className={`rounded-xl border p-4 shadow-sm ${
+                parserReviewSummary.recommendedAction === 'manual-template'
+                  ? 'border-red-200 bg-red-50/80'
+                  : parserReviewSummary.validationErrors.length === 0 && parserReviewDisplayConfidence.overall >= 0.82
+                    ? 'border-blue-200/70 bg-[var(--brand-soft)]/70'
+                    : parserReviewSummary.recommendedAction === 'auto-import'
+                      ? 'border-blue-200/70 bg-[var(--brand-soft)]/70'
+                      : 'border-slate-200 bg-slate-50/90'
+              }`}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-600">Parser review</p>
+                  <h3 className="mt-0.5 text-base font-semibold text-slate-950">
+                    {formatRecommendedAction(parserReviewSummary.recommendedAction)}
+                  </h3>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-700">
+                    <span className="font-medium text-slate-800">{formatParserStrategy(parserReviewSummary.parserStrategy)}</span>
+                    <span className="text-slate-400"> · </span>
+                    <span className="uppercase">{parserReviewSummary.fileType || 'unknown'}</span>
+                    <span className="text-slate-400"> · </span>
+                    <span className="font-semibold text-slate-900">{formatConfidencePercent(parserReviewDisplayConfidence.overall)}</span>
+                    {parserReviewDisplayConfidence.adjustedFromReview ? (
+                      <span className="ml-1 font-normal text-[var(--brand-strong)]">after catalog picks</span>
+                    ) : null}
+                    <span className="text-slate-400"> · </span>
+                    Qty <span className="font-medium">{formatNumberSafe(parsedQuantityTotal)}</span>
+                    <span className="text-slate-400"> · </span>
+                    <span className={parserReviewSummary.validationErrors.length ? 'font-medium text-red-700' : ''}>
+                      {parserReviewSummary.validationErrors.length} err
+                    </span>
+                    <span className="text-slate-400"> · </span>
+                    {parserReviewSummary.validationWarnings.length +
+                      parserReviewSummary.parseWarnings.length +
+                      intakeWarnings.length}{' '}
+                    warn
+                  </p>
+                  <p
+                    className="mt-0.5 truncate text-[11px] text-slate-500"
+                    title={[
+                      parserReviewSummary.sourceSummary?.fileName || takeoffFileName || uploadedFileName || 'Current upload',
+                      parserReviewSummary.sourceSummary?.sheetsProcessed?.length
+                        ? `Sheets: ${parserReviewSummary.sourceSummary.sheetsProcessed.join(', ')}`
+                        : '',
+                      parserReviewSummary.sourceSummary?.pagesProcessed?.length
+                        ? `Pages: ${parserReviewSummary.sourceSummary.pagesProcessed.join(', ')}`
+                        : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  >
+                    {parserReviewSummary.sourceSummary?.fileName || takeoffFileName || uploadedFileName || 'Current upload'}
+                    {parserReviewSummary.sourceSummary?.sheetsProcessed?.length
+                      ? ` · Sheets: ${parserReviewSummary.sourceSummary.sheetsProcessed.join(', ')}`
+                      : ''}
+                    {parserReviewSummary.sourceSummary?.pagesProcessed?.length
+                      ? ` · Pages: ${parserReviewSummary.sourceSummary.pagesProcessed.join(', ')}`
+                      : ''}
+                  </p>
+                </div>
+                {parserReviewSummary.recommendedAction === 'manual-template' ? (
+                  <button
+                    type="button"
+                    onClick={applyManualTemplateFallback}
+                    className="inline-flex h-9 shrink-0 items-center rounded-full bg-red-600 px-3 text-[11px] font-semibold text-white outline-none hover:bg-red-700 focus-visible:ring-2 focus-visible:ring-red-400/50"
+                  >
+                    Use Manual Template
+                  </button>
+                ) : null}
+              </div>
+
+              {parserReviewSummary.aiSuggestions ? (
+                <details className="group mt-3 rounded-lg border border-indigo-200/70 bg-indigo-50/40 open:bg-white/90">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-left [&::-webkit-details-marker]:hidden">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-indigo-800">AI decision hints</p>
+                      <p className="text-[11px] text-indigo-950/90">
+                        Document type, pricing role, and project hints from the model — <span className="font-medium">review only</span>; nothing here is auto-applied to
+                        catalog or job conditions yet.
+                      </p>
+                    </div>
+                    <ChevronDown className="h-4 w-4 shrink-0 text-indigo-600 transition group-open:rotate-180" aria-hidden />
+                  </summary>
+                  <div className="space-y-3 border-t border-indigo-100/80 px-3 pb-3 pt-2 text-xs text-slate-800">
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Document type</p>
+                        <p className="mt-0.5 font-medium capitalize text-slate-900">
+                          {parserReviewSummary.aiSuggestions.documentType.replace(/_/g, ' ') || '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Suggested pricing mode</p>
+                        <p className="mt-0.5 font-medium text-slate-900">
+                          {parserReviewSummary.aiSuggestions.pricingModeSuggested
+                            ? parserReviewSummary.aiSuggestions.pricingModeSuggested.replace(/_/g, ' ')
+                            : '—'}
+                        </p>
+                      </div>
+                      {parserReviewSummary.aiSuggestions.documentConfidence > 0 ? (
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Document confidence</p>
+                          <p className="mt-0.5 font-medium tabular-nums text-slate-900">
+                            {formatConfidencePercent(parserReviewSummary.aiSuggestions.documentConfidence)}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                    {parserReviewSummary.aiSuggestions.documentRationale ? (
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Why (document)</p>
+                        <p className="mt-0.5 leading-snug text-slate-800">{parserReviewSummary.aiSuggestions.documentRationale}</p>
+                      </div>
+                    ) : null}
+                    {parserReviewSummary.aiSuggestions.documentEvidence ? (
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Evidence</p>
+                        <p className="mt-0.5 max-h-24 overflow-y-auto rounded border border-slate-100 bg-slate-50/90 p-2 font-mono text-[11px] leading-snug text-slate-700">
+                          {parserReviewSummary.aiSuggestions.documentEvidence}
+                        </p>
+                      </div>
+                    ) : null}
+                    {parserReviewSummary.aiSuggestions.suggestedProjectModifierHints.length > 0 ? (
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Suggested project-level conditions (phrases)</p>
+                        <ul className="mt-1 space-y-2">
+                          {parserReviewSummary.aiSuggestions.suggestedProjectModifierHints.map((hint, idx) => (
+                            <li key={`${hint.phrase}-${idx}`} className="rounded-md border border-slate-200/80 bg-white p-2">
+                              <p className="font-semibold text-slate-900">{hint.phrase}</p>
+                              {hint.rationale ? <p className="mt-0.5 text-[11px] text-slate-600">{hint.rationale}</p> : null}
+                              {hint.evidenceText ? (
+                                <p className="mt-1 text-[10px] text-slate-500">&ldquo;{hint.evidenceText}&rdquo;</p>
+                              ) : null}
+                              <p className="mt-1 text-[10px] text-slate-400">Confidence {formatConfidencePercent(hint.confidence)}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {parserReviewSummary.aiSuggestions.requiresGrounding.length > 0 ? (
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-800">Flagged for external grounding</p>
+                        <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] text-amber-950/90">
+                          {parserReviewSummary.aiSuggestions.requiresGrounding.map((r) => (
+                            <li key={r}>{r}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {parserReviewSummary.aiSuggestions.lineClassifications.length > 0 ? (
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                          Line ontology ({parserReviewSummary.aiSuggestions.lineClassifications.length} rows)
+                        </p>
+                        <div className="mt-1 max-h-48 overflow-y-auto rounded border border-slate-200/80 bg-white">
+                          <table className="w-full text-left text-[11px]">
+                            <thead className="sticky top-0 bg-slate-100/95 text-[10px] uppercase tracking-wide text-slate-600">
+                              <tr>
+                                <th className="px-2 py-1.5">#</th>
+                                <th className="px-2 py-1.5">Preview</th>
+                                <th className="px-2 py-1.5">Kind</th>
+                                <th className="px-2 py-1.5">Pricing role</th>
+                                <th className="px-2 py-1.5">Conf.</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {parserReviewSummary.aiSuggestions.lineClassifications.map((row) => (
+                                <tr key={row.lineIndex} className="border-t border-slate-100 align-top">
+                                  <td className="px-2 py-1.5 tabular-nums text-slate-500">{row.lineIndex + 1}</td>
+                                  <td className="px-2 py-1.5 text-slate-800">{row.descriptionPreview}</td>
+                                  <td className="px-2 py-1.5 capitalize text-slate-700">{row.documentLineKind.replace(/_/g, ' ') || '—'}</td>
+                                  <td className="px-2 py-1.5 capitalize text-slate-700">{row.pricingRole.replace(/_/g, ' ') || '—'}</td>
+                                  <td className="px-2 py-1.5 tabular-nums text-slate-600">{formatConfidencePercent(row.lineConfidence)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <p className="mt-1 text-[10px] text-slate-500">Expand rows in a future pass to show rationale and evidence per line.</p>
+                      </div>
+                    ) : null}
+                  </div>
+                </details>
+              ) : null}
+
+              {parserReviewSummary.validationErrors.length > 0 ? (
+                <ul className="mt-3 space-y-1 border-t border-slate-200/60 pt-3 text-xs text-red-700">
+                  {parserReviewSummary.validationErrors.map((entry) => (
+                    <li key={entry}>• {entry}</li>
+                  ))}
+                </ul>
+              ) : null}
+
+              {groupedWarningSummaries.length > 0 ? (
+                <div className="mt-3 border-t border-slate-200/60 pt-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-500">
+                    Warnings · {groupedWarningSummaries.length} group{groupedWarningSummaries.length === 1 ? '' : 's'}
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    {groupedWarningSummaries.map((group) => {
+                      const toneClass =
+                        group.tone === 'danger'
+                          ? 'border-red-200 bg-red-50/60 text-red-900'
+                          : group.tone === 'warning'
+                            ? 'border border-[rgba(234,179,8,0.35)] bg-[var(--warn-soft)] text-[var(--warn)]'
+                            : 'border-slate-200 bg-slate-50/80 text-slate-800';
+                      const toneLabel = group.tone === 'danger' ? 'Error' : group.tone === 'warning' ? 'Warning' : 'Info';
+                      return (
+                        <div key={group.key} className={`rounded-lg border px-3 py-2 ${toneClass}`}>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-xs font-semibold">{group.label}</p>
+                            <span className="shrink-0 rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                              {toneLabel} · {group.count}×
+                            </span>
+                          </div>
+                          <ul className="mt-1.5 space-y-0.5 text-[11px] opacity-90">
+                            {group.examples.map((example) => (
+                              <li key={example}>• {example}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : parserReviewSummary.validationWarnings.length +
+                  parserReviewSummary.parseWarnings.length +
+                  intakeWarnings.length >
+                0 ? (
+                <ul className="mt-3 space-y-1 border-t border-slate-200/60 pt-3 text-xs text-slate-700">
+                  {[...parserReviewSummary.validationWarnings, ...parserReviewSummary.parseWarnings, ...intakeWarnings].map((entry) => (
+                    <li key={entry}>• {entry}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
+          {lastIntakeParse?.estimateDraft ? (
+            <div className="mx-auto w-full max-w-[1600px]">
+              <IntakeEstimateReviewPanel
+                draft={lastIntakeParse.estimateDraft}
+                reviewLines={lastIntakeParse.reviewLines}
+                catalog={catalog}
+                aiSuggestions={lastIntakeParse.aiSuggestions ?? null}
+                modifiers={intakeModifiers}
+                lineByFingerprint={estimateReviewLines}
+                onAcceptLine={handleAcceptEstimateLine}
+                onReplaceLineWithCatalogId={handleReplaceEstimateLineWithCatalogId}
+                onIgnoreLine={handleIgnoreEstimateLine}
+                onBulkAcceptHighConfidence={bulkAcceptHighConfidenceEstimateRows}
+                onBulkAcceptTierAStrongB={bulkAcceptTierAStrongBEstimateRows}
+                onBulkIgnoreLowConfidence={bulkIgnoreLowConfidenceEstimateRows}
+                onBulkAcceptAllSuggestedProjectModifiers={bulkAcceptAllSuggestedProjectModifiers}
+                onOpenCatalogPicker={(fingerprint) => setCatalogPickerTarget({ kind: 'fingerprint', fingerprint })}
+                jobConditionById={estimateReviewJobConditions}
+                onSetJobConditionStatus={setJobConditionReviewStatus}
+                onApplyAllSuggestedJobConditions={applyAllSuggestedJobConditionsToDraft}
+                projectModifierById={estimateReviewProjectMods}
+                onSetProjectModifierStatus={(modifierId, status) =>
+                  setEstimateReviewProjectMods((prev) => ({ ...prev, [modifierId]: status }))
+                }
+                pricingModeDraft={String(projectDraft.pricingMode || '')}
+                onApplySuggestedPricingMode={applySuggestedPricingModeFromAi}
+                div10ProposalClauseHints={lastIntakeParse.div10ProposalClauseHints ?? null}
+              />
+            </div>
+          ) : null}
+          <div className="mx-auto grid w-full max-w-[1600px] grid-cols-1 gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
+            <div className="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Step 5</p>
+              <h3 className="mt-1 text-sm font-semibold text-slate-900">Rooms / areas</h3>
+              <div className="mt-3 space-y-2 max-h-[55vh] overflow-y-auto pr-1">
                 {roomSuggestions.map((room) => (
                   <div key={room.id} className="flex items-center gap-2">
                     <input type="checkbox" checked={room.include} onChange={(e) => setRoomSuggestions((prev) => prev.map((item) => item.id === room.id ? { ...item, include: e.target.checked } : item))} />
@@ -3142,13 +4858,13 @@ function applyRoomToVisible(roomName: string) {
               </div>
             </div>
 
-            <div className="ui-surface p-4 space-y-4">
+            <div className="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm space-y-4">
               <div>
-                <h3 className="text-sm font-semibold text-slate-800 mb-2">Matched Items</h3>
+                <h3 className="text-sm font-semibold text-slate-900">Matched items</h3>
                 <p className="text-xs text-slate-500 mb-3">These items were auto-linked to your catalog first. Suggested matches are prefilled but labeled for quick review.</p>
                 <div className="space-y-2 max-h-[36vh] overflow-y-auto pr-1">
                   {matchedSuggestions.map((line) => (
-                    <div key={line.id} className="border border-emerald-200 bg-emerald-50/30 rounded-md p-2">
+                    <div key={line.id} className="rounded-md border border-blue-200/50 bg-[var(--brand-soft)]/35 p-2">
                       <div className="flex items-start gap-2">
                         <input
                           type="checkbox"
@@ -3173,7 +4889,11 @@ function applyRoomToVisible(roomName: string) {
                               <input className="ui-input mt-1 h-8" value={line.roomName || ''} onChange={(e) => patchLineSuggestion(line.id, { roomName: e.target.value })} />
                             </label>
                             <label className="text-[11px] text-slate-600">Category
-                              <input className="ui-input mt-1 h-8" value={line.category || ''} onChange={(e) => patchLineSuggestion(line.id, { category: e.target.value || null })} />
+                              <CatalogCategorySelect
+                                value={line.category}
+                                options={scopeCategoryOptions}
+                                onChange={(v) => patchLineSuggestion(line.id, { category: v })}
+                              />
                             </label>
                             <label className="text-[11px] text-slate-600">Item
                               <input className="ui-input mt-1 h-8" value={line.itemName || ''} onChange={(e) => patchLineSuggestion(line.id, { itemName: e.target.value })} />
@@ -3185,7 +4905,17 @@ function applyRoomToVisible(roomName: string) {
                               <input className="ui-input mt-1 h-8" value={line.description} onChange={(e) => patchLineSuggestion(line.id, { description: e.target.value })} />
                             </label>
                             <label className="text-[11px] text-slate-600">Quantity
-                              <input type="number" className="ui-input mt-1 h-8" value={line.qty} onChange={(e) => patchLineSuggestion(line.id, { qty: Number(e.target.value) || 0 })} />
+                              <input
+                                type="number"
+                                className="ui-input mt-1 h-8"
+                                value={numericInputValue(line.qty)}
+                                onChange={(e) => patchLineSuggestion(line.id, { qty: parseNumericInput(e.target.value) })}
+                                onBlur={() =>
+                                  setLineSuggestions((prev) =>
+                                    prev.map((entry) => (entry.id === line.id ? { ...entry, qty: entry.qty ?? 0 } : entry))
+                                  )
+                                }
+                              />
                             </label>
                             <label className="text-[11px] text-slate-600">Unit
                               <input className="ui-input mt-1 h-8" value={line.unit} onChange={(e) => patchLineSuggestion(line.id, { unit: e.target.value })} />
@@ -3195,10 +4925,17 @@ function applyRoomToVisible(roomName: string) {
                             </label>
                           </div>
                           <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                            <span className={`inline-flex rounded-full px-2 py-0.5 font-medium ${line.matchConfidence === 'possible' ? 'border border-amber-200 bg-amber-50 text-amber-700' : 'border border-emerald-200 bg-emerald-50 text-emerald-700'}`}>
+                            <span
+                              className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${line.matchConfidence === 'possible' ? 'ui-status-warn' : 'ui-status-ok'}`}
+                            >
                               {line.matchConfidence === 'possible' ? 'Suggested Match' : 'Matched'}
                             </span>
                             {line.matchReason ? <span className="text-slate-500">{line.matchReason}</span> : null}
+                            {line.catalogAttributeSnapshot && line.catalogAttributeSnapshot.length > 0 ? (
+                              <span className="text-slate-500">
+                                Inferred options: {line.catalogAttributeSnapshot.map((a) => `${a.attributeType}:${a.attributeValue}`).join(', ')}
+                              </span>
+                            ) : null}
                             <span className="text-slate-500">{line.catalogItemId ? `Catalog ID ${line.catalogItemId}` : 'No catalog ID stored'}</span>
                             <span className="text-slate-500">Source {line.sourceReference || 'unknown'}</span>
                           </div>
@@ -3215,7 +4952,7 @@ function applyRoomToVisible(roomName: string) {
                 <p className="text-xs text-slate-500 mb-3">Choose Match, Add to Catalog, or Ignore for each item.</p>
                 <div className="space-y-2 max-h-[42vh] overflow-y-auto pr-1">
                   {unmatchedSuggestions.map((line) => (
-                    <div key={line.id} className="border border-amber-200 bg-amber-50/35 rounded-md p-2.5">
+                    <div key={line.id} className="rounded-md border border-slate-200 bg-slate-50/90 p-2.5">
                       <div className="text-xs text-slate-700 mb-2 space-y-2">
                         <BeautifiedLineHeader
                           rawText={line.rawText || line.description || line.itemName || ''}
@@ -3228,7 +4965,11 @@ function applyRoomToVisible(roomName: string) {
                             <input className="ui-input mt-1 h-8" value={line.roomName || ''} onChange={(e) => patchLineSuggestion(line.id, { roomName: e.target.value })} />
                           </label>
                           <label className="text-[11px] text-slate-600">Category
-                            <input className="ui-input mt-1 h-8" value={line.category || ''} onChange={(e) => patchLineSuggestion(line.id, { category: e.target.value || null })} />
+                            <CatalogCategorySelect
+                              value={line.category}
+                              options={scopeCategoryOptions}
+                              onChange={(v) => patchLineSuggestion(line.id, { category: v })}
+                            />
                           </label>
                           <label className="text-[11px] text-slate-600">Item
                             <input className="ui-input mt-1 h-8" value={line.itemName || ''} onChange={(e) => patchLineSuggestion(line.id, { itemName: e.target.value })} />
@@ -3240,7 +4981,17 @@ function applyRoomToVisible(roomName: string) {
                             <input className="ui-input mt-1 h-8" value={line.description} onChange={(e) => patchLineSuggestion(line.id, { description: e.target.value })} />
                           </label>
                           <label className="text-[11px] text-slate-600">Quantity
-                            <input type="number" className="ui-input mt-1 h-8" value={line.qty} onChange={(e) => patchLineSuggestion(line.id, { qty: Number(e.target.value) || 0 })} />
+                            <input
+                              type="number"
+                              className="ui-input mt-1 h-8"
+                              value={numericInputValue(line.qty)}
+                              onChange={(e) => patchLineSuggestion(line.id, { qty: parseNumericInput(e.target.value) })}
+                              onBlur={() =>
+                                setLineSuggestions((prev) =>
+                                  prev.map((entry) => (entry.id === line.id ? { ...entry, qty: entry.qty ?? 0 } : entry))
+                                )
+                              }
+                            />
                           </label>
                           <label className="text-[11px] text-slate-600">Unit
                             <input className="ui-input mt-1 h-8" value={line.unit} onChange={(e) => patchLineSuggestion(line.id, { unit: e.target.value })} />
@@ -3249,17 +5000,19 @@ function applyRoomToVisible(roomName: string) {
                             <input className="ui-input mt-1 h-8" value={line.notes || ''} onChange={(e) => patchLineSuggestion(line.id, { notes: e.target.value })} />
                           </label>
                         </div>
-                        {!line.include && <p className="text-amber-700 font-semibold">Ignored</p>}
+                        {!line.include && <p className="font-semibold text-[var(--warn)]">Ignored</p>}
                       </div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[11px] text-slate-500 mr-auto">Source {line.sourceReference || 'unknown'}</span>
                         <button
-                          onClick={() => setCatalogPickerLineId(line.id)}
+                          type="button"
+                          onClick={() => setCatalogPickerTarget({ kind: 'line', lineId: line.id })}
                           className="ui-btn-secondary h-7 px-2 text-xs"
                         >
                           Match
                         </button>
                         <button
+                          type="button"
                           onClick={() => openNewCatalogFromLine(line.id)}
                           className="ui-btn-secondary h-7 px-2 text-xs"
                         >
@@ -3267,6 +5020,7 @@ function applyRoomToVisible(roomName: string) {
                         </button>
                         {line.include ? (
                           <button
+                            type="button"
                             onClick={() => ignoreLine(line.id)}
                             className="h-7 px-2 rounded border border-red-200 text-red-700 bg-white text-xs hover:bg-red-50"
                           >
@@ -3274,8 +5028,9 @@ function applyRoomToVisible(roomName: string) {
                           </button>
                         ) : (
                           <button
+                            type="button"
                             onClick={() => reincludeLine(line.id)}
-                            className="h-7 px-2 rounded border border-emerald-200 text-emerald-700 bg-white text-xs hover:bg-emerald-50"
+                            className="h-7 rounded border border-blue-200 bg-white px-2 text-xs text-[var(--brand-strong)] hover:bg-[var(--brand-soft)]"
                           >
                             Include
                           </button>
@@ -3291,7 +5046,7 @@ function applyRoomToVisible(roomName: string) {
             </div>
           </details>
 
-          <div className="ui-surface p-4 sticky bottom-3 z-10 flex items-center justify-between gap-3">
+          <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-3 rounded-2xl border border-slate-200/70 bg-white p-4 shadow-md sticky bottom-3 z-10">
             <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
               <label className="flex items-center gap-2">
                 <input type="checkbox" checked={createConfirmedOnly} onChange={(e) => setCreateConfirmedOnly(e.target.checked)} />
@@ -3302,8 +5057,8 @@ function applyRoomToVisible(roomName: string) {
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={() => setStep(4)} className="ui-btn-secondary">Back</button>
-              <button onClick={() => void handleCreateProject()} disabled={creating} className="ui-btn-primary h-9 px-4 disabled:opacity-50 inline-flex items-center gap-2">
+              <button type="button" onClick={() => setStep(4)} className="ui-btn-secondary">Back</button>
+              <button type="button" onClick={() => void handleCreateProject()} disabled={creating} className="ui-btn-primary h-9 px-4 disabled:opacity-50 inline-flex items-center gap-2">
                 <Save className="w-4 h-4" />
                 {creating ? 'Creating...' : 'Create Project'}
               </button>
@@ -3314,12 +5069,14 @@ function applyRoomToVisible(roomName: string) {
         </section>
       )}
 
-      {catalogPickerLineId && (
+      {catalogPickerTarget && (
         <div className="fixed inset-0 bg-black/40 z-50 p-6 flex items-center justify-center">
           <div className="bg-white w-full max-w-4xl rounded-lg border border-slate-200 overflow-hidden">
             <div className="h-11 px-4 border-b border-slate-200 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-800">Match Item</h3>
-              <button onClick={() => setCatalogPickerLineId(null)} className="h-7 px-2 rounded border border-slate-300 text-xs hover:bg-slate-50">Close</button>
+              <h3 className="text-sm font-semibold text-slate-800">
+                {catalogPickerTarget.kind === 'fingerprint' ? 'Match item (estimate review)' : 'Match Item'}
+              </h3>
+              <button type="button" onClick={() => setCatalogPickerTarget(null)} className="h-7 px-2 rounded border border-slate-300 text-xs hover:bg-slate-50">Close</button>
             </div>
             <div className="p-3 border-b border-slate-200">
               <div className="relative">
@@ -3327,17 +5084,22 @@ function applyRoomToVisible(roomName: string) {
                 <input
                   value={catalogSearch}
                   onChange={(e) => setCatalogSearch(e.target.value)}
-                  placeholder="Search SKU, description, or category"
-                  className="w-full h-9 pl-8 pr-2 rounded border border-slate-300 text-sm"
+                  placeholder="Search SKU, description, category, family, manufacturer, model, tags…"
+                  className="w-full h-9 pl-10 pr-2 rounded border border-slate-300 text-sm"
                 />
               </div>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Showing {filteredCatalog.length} of {catalog.length} catalog {catalog.length === 1 ? 'item' : 'items'}
+                {catalogSearch.trim() ? ' (filtered)' : ''}.
+              </p>
             </div>
             <div className="p-3 max-h-[60vh] overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-2">
               {filteredCatalog.map((item) => (
                 <button
+                  type="button"
                   key={item.id}
-                  onClick={() => applyExistingCatalogMatch(catalogPickerLineId, item)}
-                  className="text-left border border-slate-200 rounded p-2 hover:border-blue-400 hover:bg-blue-50/50"
+                  onClick={() => applyCatalogPickerSelection(item)}
+                  className="text-left rounded border border-slate-200 p-2 outline-none hover:border-blue-400 hover:bg-blue-50/50 focus-visible:ring-2 focus-visible:ring-blue-400/40"
                 >
                   <p className="text-xs text-slate-500">{item.category} · {item.sku}</p>
                   <p className="text-sm font-medium text-slate-900">{item.description}</p>
@@ -3354,8 +5116,37 @@ function applyRoomToVisible(roomName: string) {
           <div className="bg-white w-full max-w-2xl rounded-lg border border-slate-200 overflow-hidden">
             <div className="h-11 px-4 border-b border-slate-200 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-slate-800">Add to Catalog</h3>
-              <button onClick={() => { setNewCatalogLineId(null); setNewCatalogDraft(null); }} className="h-7 px-2 rounded border border-slate-300 text-xs hover:bg-slate-50">Close</button>
+              <button type="button" onClick={() => { setNewCatalogLineId(null); setNewCatalogDraft(null); }} className="h-7 px-2 rounded border border-slate-300 text-xs hover:bg-slate-50">Close</button>
             </div>
+            {newCatalogPeerSuggestion ? (
+              <div className="border-b border-blue-100 bg-blue-50/90 px-4 py-3 text-xs text-slate-700">
+                <p className="leading-relaxed">
+                  <span className="font-semibold text-slate-900">Catalog hint:</span>{' '}
+                  Other items matching &ldquo;{newCatalogPeerSuggestion.keywordsLabel}&rdquo; in this category —{' '}
+                  {newCatalogPeerSuggestion.peerCount === 1 ? '1 item' : `${newCatalogPeerSuggestion.peerCount} items`}
+                  {newCatalogPeerSuggestion.narrowedByUom ? ` (same unit: ${newCatalogDraft.unit})` : ''} average{' '}
+                  <span className="font-medium tabular-nums">{formatCurrencySafe(newCatalogPeerSuggestion.avgMaterialCost)}</span> material and{' '}
+                  <span className="font-medium tabular-nums">{formatNumberSafe(newCatalogPeerSuggestion.avgLaborMinutes, 1)}</span> min labor.
+                </p>
+                <button
+                  type="button"
+                  className="mt-2 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-blue-800 shadow-sm hover:bg-blue-50"
+                  onClick={() =>
+                    setNewCatalogDraft((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            materialCost: newCatalogPeerSuggestion.avgMaterialCost,
+                            laborMinutes: newCatalogPeerSuggestion.avgLaborMinutes,
+                          }
+                        : prev
+                    )
+                  }
+                >
+                  Use average material and labor
+                </button>
+              </div>
+            ) : null}
             <div className="p-4 grid grid-cols-2 gap-2">
               <label className="text-xs text-slate-600 col-span-2">Description
                 <input className="mt-1 h-8 w-full rounded border border-slate-300 px-2 text-sm" value={newCatalogDraft.description} onChange={(e) => setNewCatalogDraft({ ...newCatalogDraft, description: e.target.value })} />
@@ -3364,7 +5155,12 @@ function applyRoomToVisible(roomName: string) {
                 <input className="mt-1 h-8 w-full rounded border border-slate-300 px-2 text-sm" value={newCatalogDraft.sku} onChange={(e) => setNewCatalogDraft({ ...newCatalogDraft, sku: e.target.value })} />
               </label>
               <label className="text-xs text-slate-600">Category
-                <input className="mt-1 h-8 w-full rounded border border-slate-300 px-2 text-sm" value={newCatalogDraft.category} onChange={(e) => setNewCatalogDraft({ ...newCatalogDraft, category: e.target.value })} />
+                <CatalogCategorySelect
+                  className="mt-1 h-8 w-full rounded border border-slate-300 px-2 text-sm"
+                  value={newCatalogDraft.category}
+                  options={scopeCategoryOptions}
+                  onChange={(v) => setNewCatalogDraft({ ...newCatalogDraft, category: v || '' })}
+                />
               </label>
               <label className="text-xs text-slate-600">Unit
                 <select className="mt-1 h-8 w-full rounded border border-slate-300 px-2 text-sm" value={newCatalogDraft.unit} onChange={(e) => setNewCatalogDraft({ ...newCatalogDraft, unit: e.target.value as CatalogItem['uom'] })}>
@@ -3376,15 +5172,31 @@ function applyRoomToVisible(roomName: string) {
                 </select>
               </label>
               <label className="text-xs text-slate-600">Material Cost
-                <input type="number" className="mt-1 h-8 w-full rounded border border-slate-300 px-2 text-sm" value={newCatalogDraft.materialCost} onChange={(e) => setNewCatalogDraft({ ...newCatalogDraft, materialCost: Number(e.target.value) || 0 })} />
+                <input
+                  type="number"
+                  className="mt-1 h-8 w-full rounded border border-slate-300 px-2 text-sm"
+                  value={numericInputValue(newCatalogDraft.materialCost)}
+                  onChange={(e) => setNewCatalogDraft({ ...newCatalogDraft, materialCost: parseNumericInput(e.target.value) })}
+                  onBlur={() =>
+                    setNewCatalogDraft((d) => (d ? { ...d, materialCost: d.materialCost ?? 0 } : d))
+                  }
+                />
               </label>
               <label className="text-xs text-slate-600">Labor Minutes
-                <input type="number" className="mt-1 h-8 w-full rounded border border-slate-300 px-2 text-sm" value={newCatalogDraft.laborMinutes} onChange={(e) => setNewCatalogDraft({ ...newCatalogDraft, laborMinutes: Number(e.target.value) || 0 })} />
+                <input
+                  type="number"
+                  className="mt-1 h-8 w-full rounded border border-slate-300 px-2 text-sm"
+                  value={numericInputValue(newCatalogDraft.laborMinutes)}
+                  onChange={(e) => setNewCatalogDraft({ ...newCatalogDraft, laborMinutes: parseNumericInput(e.target.value) })}
+                  onBlur={() =>
+                    setNewCatalogDraft((d) => (d ? { ...d, laborMinutes: d.laborMinutes ?? 0 } : d))
+                  }
+                />
               </label>
             </div>
             <div className="p-3 border-t border-slate-200 flex justify-end gap-2">
-              <button onClick={() => { setNewCatalogLineId(null); setNewCatalogDraft(null); }} className="h-8 px-3 rounded border border-slate-300 text-xs hover:bg-slate-50">Cancel</button>
-              <button onClick={() => void createCatalogItemFromLine()} className="h-8 px-3 rounded bg-blue-700 text-white text-xs hover:bg-blue-800">Add & Match</button>
+              <button type="button" onClick={() => { setNewCatalogLineId(null); setNewCatalogDraft(null); }} className="h-8 px-3 rounded border border-slate-300 text-xs hover:bg-slate-50">Cancel</button>
+              <button type="button" onClick={() => void createCatalogItemFromLine()} className="h-8 px-3 rounded bg-blue-700 text-white text-xs hover:bg-blue-800">Add & Match</button>
             </div>
           </div>
         </div>

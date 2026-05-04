@@ -1,0 +1,69 @@
+source,id,modifier_key,active,applies_to_categories_json
+modifiers_v1,mod-ada,ADA,1,"[""Toilet Accessories/Lockers""]"
+modifiers_v1,mod-recessed,RECESSED,1,"[""Cabinets/Accessories""]"
+modifiers_v1,mod-stainless,STAINLESS,1,"[""Toilet Accessories"",""Partitions"",""Accessories""]"
+modifiers_v1,sheet-mod-0b42309118d58ce73f3b,PEENED,1,"[""Toilet Accessories""]"
+modifiers_v1,sheet-mod-5741241de51b1608a585,POWDER-COATED,1,"[""Partitions"",""Lockers""]"
+modifiers_v1,sheet-mod-4171d465bd531e5e945d,PHENOLIC,1,"[""Partitions""]"
+modifiers_v1,sheet-mod-68c122f23761729b7a52,SOLID-PLASTIC,1,"[""Partitions""]"
+modifiers_v1,sheet-mod-a3d283e997c40f61e5e9,SEMI-RECESSED,1,"[""Cabinets/Accessories""]"
+modifiers_v1,sheet-mod-c163ba42c8653c86ac79,SURFACE-MOUNT,1,"[""Toilet Accessories"",""Wall Protection"",""Accessories""]"
+modifiers_v1,sheet-mod-7ef9b55c649dc8ce4350,DECK-MOUNTED,1,"[""Toilet Accessories""]"
+modifiers_v1,sheet-mod-06583011441ee97ddab3,WALL-MOUNTED,1,"[""Toilet Accessories"",""Accessories""]"
+modifiers_v1,sheet-mod-1c3ba16ea75ad5bd13da,HIGH-RISE,1,"[""Toilet Accessories"",""Partitions"",""Lockers"",""Visual Display Boards""]"
+modifiers_v1,sheet-mod-2ea728a129f3c82dfc35,RESTRICTED-ACCESS,1,"[""Toilet Accessories"",""Partitions"",""Lockers"",""Wall Protection""]"
+modifiers_v1,sheet-mod-93dae3fe313ef514d390,AFTER-HOURS,1,"[""Toilet Accessories"",""Partitions"",""Lockers"",""Accessories""]"
+modifiers_v1,sheet-mod-67ad5a07a2b999e38f22,UNION,1,"[""All Division 10""]"
+modifiers_v1,sheet-mod-68b3a84cbfe67086d6df,TILE-WALL,1,"[""Toilet Accessories""]"
+modifiers_v1,sheet-mod-9cd45739fe02c324eb7e,CMU-WALL,1,"[""Cabinets/Protection""]"
+modifiers_v1,sheet-mod-aec5c8ead67a724bad5d,CONCRETE,1,"[""Toilet Accessories"",""Cabinets"",""Wall Protection""]"
+modifiers_v1,sheet-mod-6ff2f2dc493444ab54ce,WOOD-BLOCKING,1,"[""Toilet Accessories"",""Accessories""]"
+modifiers_v1,sheet-mod-4632dd9a4772ee2c57f5,OUT-OF-PLUMB,1,"[""Partitions/Lockers""]"
+modifiers_v1,sheet-mod-d589c03c1e644ffa3e0f,CUSTOM-COLOR,1,"[""Partitions"",""Lockers"",""Visual Display Boards""]"
+modifiers_v1,sheet-mod-1658e344c71c05383d4c,CORNER-INSTALL,1,"[""Wall Protection"",""Accessories""]"
+modifiers_v1,sheet-mod-643bfc83c93a8352cd0f,LONG-CARRY,1,"[""Lockers/Mailboxes""]"
+modifiers_v1,sheet-mod-720f75911fd4b54908f5,FORKLIFT-REQUIRED,1,"[""Lockers"",""Visual Display Boards""]"
+modifiers_v1,sheet-mod-1e8148906ddaf414c32b,FIELD-VERIFY,1,"[""Toilet Accessories"",""Partitions"",""Lockers"",""Cabinets""]"
+modifiers_v1,sheet-mod-f410e0466ae4b065bfa4,STANDARD,1,"[""Toilet Accessories"",""Partitions"",""Accessories""]"
+modifiers_v1,sheet-mod-91cad5bc1ad3d65d46c7,MULTI-STALL,1,"[""Toilet Accessories"",""Partitions"",""Accessories""]"
+modifiers_v1,sheet-mod-e36c0cf7cbc6f0073094,WOMENS,1,"[""Toilet Accessories""]"
+modifiers_v1,sheet-mod-ca99e909796fb06f42e7,MENS,1,"[""Toilet Accessories""]"
+modifiers_v1,sheet-mod-b654c03ad82a72b442c3,LOCKER-ROOM,1,"[""Lockers"",""Accessories""]"
+modifiers_v1,sheet-mod-d25187dc137f35c88bc8,TEAM,1,"[""Lockers"",""Accessories""]"
+modifiers_v1,sheet-mod-13a15538d5de6bed7901,PVC,1,"[""Wall Protection""]"
+modifiers_v1,sheet-mod-8884fd30d64e5cf97054,UTILITY,1,"[""Toilet Accessories"",""Accessories""]"
+modifiers_v1,sheet-mod-de1c929e39c84ded253f,MATTE-BLACK,1,"[""Accessories/Partitions""]"
+modifiers_v1,sheet-mod-5dac803f5a75c1a1b032,MARBLE-WALL,1,"[""Accessories/Cabinets""]"
+modifiers_v1,sheet-mod-c77953d641f0eec08a86,GRANITE-WALL,1,"[""Accessories/Cabinets""]"
+modifiers_v1,sheet-mod-4e26fc3d21e9f01e8e47,QUARTZ-WALL,1,"[""Accessories/Cabinets""]"
+modifiers_v1,sheet-mod-7765573387223199d313,GLASS-MOUNT,1,"[""Accessories""]"
+modifiers_v1,sheet-mod-706a8a5c64f2b6135b6b,ANTIMICROBIAL,1,"[""Accessories""]"
+modifiers_v1,sheet-mod-50e82243a6f866ac14c3,SMART-SYNC,1,"[""Electronics""]"
+modifiers_v1,sheet-mod-3a4c6eef68f512bdaf2e,GENDER-NEUTRAL,1,"[""Signage/Partitions""]"
+modifiers_v1,sheet-mod-21f5d42dcf0290115d2d,HIGH-RECYCLED,1,"[""Partitions/Accessories""]"
+modifiers_v1,sheet-mod-1683d75960072edffa4a,ANTI-GRAFFITI,1,"[""Partitions/Wall Protection""]"
+modifiers_v1,sheet-mod-3c8218938b94b4a69391,FIRE-RATED-ADD,1,"[""Cabinets""]"
+modifiers_v1,sheet-mod-3ba9c6f40f8a990d8bc8,MULTIPLE-ITEM-LC,1,"[""All Division 10""]"
+modifiers_v1_aggregate,,category:Toilet Accessories,1,active_modifier_defs_touching_category=17
+modifiers_v1_aggregate,,category:Accessories,1,active_modifier_defs_touching_category=13
+modifiers_v1_aggregate,,category:Partitions,1,active_modifier_defs_touching_category=11
+modifiers_v1_aggregate,,category:Lockers,1,active_modifier_defs_touching_category=9
+modifiers_v1_aggregate,,category:Wall Protection,1,active_modifier_defs_touching_category=5
+modifiers_v1_aggregate,,category:Visual Display Boards,1,active_modifier_defs_touching_category=3
+modifiers_v1_aggregate,,category:Cabinets,1,active_modifier_defs_touching_category=3
+modifiers_v1_aggregate,,category:Accessories/Cabinets,1,active_modifier_defs_touching_category=3
+modifiers_v1_aggregate,,category:Cabinets/Accessories,1,active_modifier_defs_touching_category=2
+modifiers_v1_aggregate,,category:All Division 10,1,active_modifier_defs_touching_category=2
+modifiers_v1_aggregate,,category:Toilet Accessories/Lockers,1,active_modifier_defs_touching_category=1
+modifiers_v1_aggregate,,category:Cabinets/Protection,1,active_modifier_defs_touching_category=1
+modifiers_v1_aggregate,,category:Partitions/Lockers,1,active_modifier_defs_touching_category=1
+modifiers_v1_aggregate,,category:Lockers/Mailboxes,1,active_modifier_defs_touching_category=1
+modifiers_v1_aggregate,,category:Accessories/Partitions,1,active_modifier_defs_touching_category=1
+modifiers_v1_aggregate,,category:Electronics,1,active_modifier_defs_touching_category=1
+modifiers_v1_aggregate,,category:Signage/Partitions,1,active_modifier_defs_touching_category=1
+modifiers_v1_aggregate,,category:Partitions/Accessories,1,active_modifier_defs_touching_category=1
+modifiers_v1_aggregate,,category:Partitions/Wall Protection,1,active_modifier_defs_touching_category=1
+estimator_parametric_modifiers,epm-surface,MOUNT-SURFACE,1,"[""Toilet Accessories"",""Washroom Accessories"",""Fire Specialties""]"
+estimator_parametric_modifiers,epm-recessed,MOUNT-RECESSED,1,"[""Toilet Accessories"",""Partitions"",""Fire Specialties""]"
+estimator_parametric_modifiers,epm-stainless-uplift,FINISH-STAINLESS,1,"[""Toilet Accessories"",""Partitions""]"
+estimator_parametric_modifiers,epm-ada,REG-ADA,1,"[""Toilet Accessories"",""Partitions"",""Restroom""]"

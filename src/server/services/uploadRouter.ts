@@ -1,4 +1,5 @@
 import { listActiveCatalogItems } from '../repos/catalogRepo.ts';
+import { listModifiers } from '../repos/modifiersRepo.ts';
 import type {
   IntakeParseRequest,
   IntakeParseResult,
@@ -10,6 +11,7 @@ import type {
   UploadParseResult,
   UploadParseStatus,
 } from '../../shared/types/intake.ts';
+import { listBundles } from '../repos/bundlesRepo.ts';
 import { classifyIntakeSourceType } from './fileClassifierService.ts';
 import { buildParseConfidenceSummary } from './intake/confidence.ts';
 import { candidateToIntakeCatalogMatch, enrichItemsWithCatalogMatches } from './intake/catalogMatcher.ts';
@@ -22,6 +24,7 @@ import { buildRoomCandidates, toReviewLines } from './matchPreparationService.ts
 import { mergeResolvedMetadata } from './metadataExtractorService.ts';
 import { buildProposalAssist, extractAssumptionsFromText } from './proposalAssistService.ts';
 import { parseIntakeRequest } from './intakePipeline.ts';
+import { buildIntakeEstimateDraft } from './intakeMatcherService.ts';
 
 function detectUploadFileType(fileName: string, mimeType: string): UploadFileType {
   const lowerName = String(fileName || '').toLowerCase();
@@ -74,20 +77,12 @@ function toLegacyNormalizedLines(items: NormalizedIntakeItem[]) {
     catalogMatch: (() => {
       const bestCandidate = (item.catalogMatchCandidates || [])[0];
       if (!bestCandidate || bestCandidate.confidence < 0.75) return null;
-      return candidateToIntakeCatalogMatch(bestCandidate, {
-        description: item.description,
-        notes: item.notes,
-        modifiers: item.modifiers,
-      });
+      return candidateToIntakeCatalogMatch(bestCandidate);
     })(),
     suggestedMatch: (() => {
       const bestCandidate = (item.catalogMatchCandidates || [])[0];
       if (!bestCandidate || bestCandidate.confidence >= 0.75) return null;
-      return candidateToIntakeCatalogMatch(bestCandidate, {
-        description: item.description,
-        notes: item.notes,
-        modifiers: item.modifiers,
-      });
+      return candidateToIntakeCatalogMatch(bestCandidate);
     })(),
   }));
 }
@@ -151,15 +146,18 @@ function toUploadParseResult(input: {
   };
 }
 
-function toLegacyIntakeResult(input: {
+async function toLegacyIntakeResult(input: {
   request: IntakeParseRequest;
   upload: UploadParseResult;
   extractedMetadata: Partial<IntakeProjectMetadata>;
-}): IntakeParseResult {
-  const catalog = listActiveCatalogItems();
+}): Promise<IntakeParseResult> {
+  const catalog = await listActiveCatalogItems();
+  const modifiers = await listModifiers();
+  const bundles = await listBundles();
   const items = input.upload.validation.correctedItems || input.upload.extractedItems;
   const metadata = buildMetadata({ extractedMetadata: input.extractedMetadata, items, fileName: input.request.fileName });
-  const reviewLines = toReviewLines(toLegacyNormalizedLines(items), catalog, input.request.matchCatalog !== false);
+  const matchCatalog = input.request.matchCatalog !== false;
+  const reviewLines = await toReviewLines(toLegacyNormalizedLines(items), catalog, matchCatalog, bundles);
   const warnings = Array.from(new Set([...input.upload.parseWarnings, ...input.upload.validation.warnings]));
   const sourceKind = deriveSourceKind(input.upload.fileType, items);
   const proposalAssist = buildProposalAssist({
@@ -194,6 +192,17 @@ function toLegacyIntakeResult(input: {
       webEnrichmentUsed: false,
     }),
     proposalAssist,
+    ...(matchCatalog && catalog.length
+      ? (() => {
+          const estimateDraft = buildIntakeEstimateDraft({
+            reviewLines,
+            catalog,
+            modifiers,
+            aiSuggestions: null,
+          });
+          return estimateDraft ? { estimateDraft } : {};
+        })()
+      : {}),
   };
 }
 
@@ -203,7 +212,7 @@ async function parseWithHybridUploadRouter(input: IntakeParseRequest): Promise<{
 
   if ((fileType === 'excel' || fileType === 'csv') && input.dataBase64) {
     const excel = parseExcelUpload({ fileName: input.fileName, mimeType: input.mimeType, dataBase64: input.dataBase64 });
-    const catalog = listActiveCatalogItems();
+    const catalog = await listActiveCatalogItems();
     const items = enrichItemsWithCatalogMatches(
       normalizeSpreadsheetRows({ fileType: excel.fileType, fileName: input.fileName, rows: excel.extractedRows, metadata: excel.metadata }),
       catalog
@@ -279,5 +288,5 @@ export async function parseUploadedWithRouter(input: IntakeParseRequest): Promis
   if (upload.fileType === 'unknown' || (upload.extractedItems.length === 0 && explicitType === 'document')) {
     return parseIntakeRequest(input);
   }
-  return toLegacyIntakeResult({ request: input, upload, extractedMetadata: metadata });
+  return await toLegacyIntakeResult({ request: input, upload, extractedMetadata: metadata });
 }

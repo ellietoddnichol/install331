@@ -13,6 +13,7 @@ export default defineConfig(({mode}) => {
   };
 
   return {
+    envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
     plugins: [react(), tailwindcss()],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),

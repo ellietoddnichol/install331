@@ -2,16 +2,23 @@ import * as xlsx from 'xlsx';
 import { randomUUID } from 'crypto';
 import { parse as parseCsv } from 'csv-parse/sync';
 import type { CatalogItem } from '../../types.ts';
+import type { ModifierRecord, SettingsRecord } from '../../shared/types/estimator.ts';
 import type {
+  IntakeAiSuggestions,
+  IntakeDiscardedLineSnapshot,
   IntakeParseRequest,
   IntakeParseResult,
   IntakeProjectAssumption,
   IntakeProjectMetadata,
+  IntakeReasoningEnvelope,
   IntakeReviewLine,
   IntakeRoomCandidate,
   IntakeSourceKind,
   IntakeSourceType,
 } from '../../shared/types/intake.ts';
+import { listModifiers } from '../repos/modifiersRepo.ts';
+import { buildIntakeEstimateDraft } from './intakeMatcherService.ts';
+import { listBundles } from '../repos/bundlesRepo.ts';
 import { listActiveCatalogItems } from '../repos/catalogRepo.ts';
 import { buildIntakeDiagnostics } from './intakeDiagnosticsService.ts';
 import { buildProposalAssist, extractAssumptionsFromText, inferPricingBasis, mergeAssumptions } from './proposalAssistService.ts';
@@ -19,11 +26,34 @@ import { detectSpreadsheetHeaderRow, extractSpreadsheetPreludeText } from './spr
 import { INTAKE_GEMINI_MODEL } from './structuredExtractionSchemas.ts';
 import { classifyIntakeSourceType, deriveDocumentSourceKind } from './fileClassifierService.ts';
 import { extractDocumentWithGemini, extractSpreadsheetWithGemini } from './geminiExtractionService.ts';
-import { mergeResolvedMetadata as mergeResolvedMetadataFromService, extractMetadataFromText as extractMetadataFromTextFromService, normalizeDateValue as normalizeDateValueFromService } from './metadataExtractorService.ts';
-import { buildRoomCandidates as buildRoomCandidatesFromService, toReviewLines as toReviewLinesFromService } from './matchPreparationService.ts';
-import { prepareCatalogMatch } from './catalogMatchService.ts';
+import { buildIntakeAiSuggestionsFromGemini } from './intakeAiSuggestions.ts';
+import { getErrorMessage } from '../../shared/utils/errorMessage.ts';
+import { getSettings } from '../repos/settingsRepo.ts';
+import {
+  coerceSafeProjectName,
+  isPlausibleProjectTitle,
+  looksLikeIntakePricingSummaryOrDisclaimerLine,
+} from '../../shared/utils/intakeTextGuards.ts';
+import { normalizeIntakeUnit } from '../../shared/utils/intakeNormalization.ts';
+import {
+  mergeResolvedMetadata as mergeResolvedMetadataFromService,
+  extractMetadataFromText as extractMetadataFromTextFromService,
+  normalizeDateValue as normalizeDateValueFromService,
+} from './metadataExtractorService.ts';
+import {
+  buildRoomCandidates as buildRoomCandidatesFromService,
+  finalizeIntakeReviewLines,
+  toReviewLines as toReviewLinesFromService,
+} from './matchPreparationService.ts';
 import { classifyParsedChunk as classifyParsedChunkFromService, normalizeExtractedCategory as normalizeExtractedCategoryFromService, shouldKeepNormalizedLine as shouldKeepNormalizedLineFromService } from './rowClassifierService.ts';
 import { parseSpreadsheetInput, extractSpreadsheetStructuredMetadata, type NormalizedIntakeLine as NormalizedIntakeLineFromService } from './spreadsheetInterpreterService.ts';
+import { detectBundleCandidates } from './intake/normalizer.ts';
+import { enrichIntakeServiceLineNotes } from './intake/intakeSemantics.ts';
+import {
+  buildIntakeReasoningEnvelopeForLine,
+  formatDiv10ReasoningNote,
+  inferBidReasoningAssumptionsFromDocumentText,
+} from './bidReasoning/div10BidReasoningService.ts';
 
 interface NormalizedIntakeLine {
   roomName: string;
@@ -42,6 +72,14 @@ interface NormalizedIntakeLine {
   warnings: string[];
   quantityWasDefaulted?: boolean;
   unitWasDefaulted?: boolean;
+  semanticTags?: string[];
+  bundleCandidates?: string[];
+  reasoning?: IntakeReasoningEnvelope;
+  sourceManufacturer?: string;
+  sourceBidBucket?: string;
+  sourceSectionHeader?: string;
+  isInstallableScope?: boolean;
+  installScopeType?: string | null;
 }
 
 interface StructuredSpreadsheetResult {
@@ -54,7 +92,16 @@ interface StructuredSpreadsheetResult {
 
 const SPREADSHEET_GEMINI_TIMEOUT_MS = Number.parseInt(process.env.INTAKE_SPREADSHEET_GEMINI_TIMEOUT_MS || '12000', 10);
 
-type ParsedChunkType = 'project_metadata' | 'header_row' | 'section_header' | 'actual_scope_line' | 'ignore';
+type ParsedChunkType =
+  | 'project_metadata'
+  | 'header_row'
+  | 'section_header'
+  | 'actual_scope_line'
+  | 'bundle_item'
+  | 'pricing_notice'
+  | 'adder_option'
+  | 'logistics_note'
+  | 'ignore';
 
 interface ParsedChunkClassification {
   kind: ParsedChunkType;
@@ -208,8 +255,9 @@ function extractMetadataFromCells(cells: string[]): Partial<IntakeProjectMetadat
   const compactCells = cells.map((cell) => asText(cell)).filter(Boolean);
   const assignValue = (label: string, value: string) => {
     if (!value) return;
-    if (/^(project|project name|job|job name)$/.test(label)) output.projectName = output.projectName || value;
-    else if (/^(project number|project no|job number|bid package|package|pkg)$/.test(label)) output.projectNumber = output.projectNumber || value;
+    if (/^(project|project name|job|job name)$/.test(label)) {
+      if (!output.projectName && isPlausibleProjectTitle(value)) output.projectName = value;
+    } else if (/^(project number|project no|job number|bid package|package|pkg)$/.test(label)) output.projectNumber = output.projectNumber || value;
     else if (/^(client|owner)$/.test(label)) output.client = output.client || value;
     else if (/^(gc|general contractor)$/.test(label)) output.generalContractor = output.generalContractor || value;
     else if (/^(client gc|client general contractor|client contractor|client owner gc)$/.test(label)) {
@@ -234,7 +282,10 @@ function extractMetadataFromCells(cells: string[]): Partial<IntakeProjectMetadat
   const lineText = compactCells.join(' ');
   if (!hasProjectMetadataValue(output)) {
     output = mergeMetadataHint(output, {
-      projectName: detectLabeledValue([lineText], [/^project(?:\s+name)?\s*[:\-]?/i, /^job(?:\s+name)?\s*[:\-]?/i]),
+      projectName: (() => {
+        const candidate = detectLabeledValue([lineText], [/^project(?:\s+name)?\s*[:\-]?/i, /^job(?:\s+name)?\s*[:\-]?/i]);
+        return candidate && isPlausibleProjectTitle(candidate) ? candidate : '';
+      })(),
       projectNumber: detectLabeledValue([lineText], [/^project\s*(?:#|number)\s*[:\-]?/i, /^job\s*(?:#|number)\s*[:\-]?/i, /^bid\s*(?:package|pkg)\s*[:\-]?/i]),
       client: detectLabeledValue([lineText], [/^client\s*[:\-]?/i, /^owner\s*[:\-]?/i]),
       generalContractor: detectLabeledValue([lineText], [/^gc\s*[:\-]?/i, /^general contractor\s*[:\-]?/i]),
@@ -313,8 +364,24 @@ function classifyParsedChunk(cells: string[], lineIndex: number, knownMetadata?:
   const metadata = extractMetadataFromCells(compactCells);
 
   if (!text) return { kind: 'ignore', metadata };
+  if (looksLikeIntakePricingSummaryOrDisclaimerLine(text)) return { kind: 'pricing_notice', metadata };
   if (looksLikeHeaderChunk(compactCells)) return { kind: 'header_row', metadata };
   if (hasProjectMetadataValue(metadata) || looksLikeProjectMetadataChunk(text, lineIndex, knownMetadata)) return { kind: 'project_metadata', metadata };
+  {
+    const normalized = normalizeComparableText(text);
+    if (/\b(material total|sub ?total|grand total|total material|total labor|if labor (is )?needed|labor (is )?by (quote|others)|quote(d)? separately|call for (a )?quote)\b/.test(normalized)) {
+      return { kind: 'pricing_notice', metadata };
+    }
+    if (/^(add (for|to)|bond|performance bond|bid bond|surety)\b/.test(normalized) || (/\b(y\s*\/\s*n|yes\s*\/\s*no|if required)\b/.test(normalized) && normalized.length <= 120)) {
+      return { kind: 'adder_option', metadata };
+    }
+    if (/\b(customer to (receive|unload|store|sign)|receive and unload|ship (to )?(jobsite|site)|freight (on|included|separate)|delivery (included|separate|not included))\b/.test(normalized)) {
+      return { kind: 'logistics_note', metadata };
+    }
+    if ((/\bset\s*:\s*\d/.test(normalized) || /\b\d+\s*(in|")\b.*,\s*\d+\s*(in|")\b/.test(normalized)) && /\b(grab bar|set|kit|bundle)\b/.test(normalized)) {
+      return { kind: 'bundle_item', metadata };
+    }
+  }
   if (looksLikeIgnoreChunk(text)) return { kind: 'ignore', metadata };
   if (compactCells.length === 1 && looksLikeSectionHeader(text)) return { kind: 'section_header', metadata };
 
@@ -337,11 +404,12 @@ function shouldKeepNormalizedLine(line: NormalizedIntakeLine, lineIndex: number,
     line.notes,
   ], lineIndex, knownMetadata);
 
-  if (classification.kind !== 'actual_scope_line') return false;
+  if (classification.kind !== 'actual_scope_line' && classification.kind !== 'bundle_item') return false;
   const identity = asText(line.description || line.itemName);
   if (!identity) return false;
   if (looksLikeHeaderChunk([line.itemName, line.description, line.category, line.unit, line.notes])) return false;
   if (looksLikeProjectMetadataChunk(identity, lineIndex, knownMetadata)) return false;
+  if (looksLikeIntakePricingSummaryOrDisclaimerLine(identity)) return false;
   return true;
 }
 
@@ -486,7 +554,8 @@ function extractTextFromPdfBuffer(buffer: Buffer): string {
     .map((token) => token.slice(1, -1))
     .map((token) => token.replace(/\\[rn]/g, ' '))
     .join('\n');
-  return extracted || latin;
+  // Never return raw `latin` (entire file as Latin-1) — that becomes mojibake "project names" and fake lines.
+  return extracted.trim();
 }
 
 function decodeDocumentText(dataBase64: string, fileName: string, mimeType: string): string {
@@ -589,7 +658,7 @@ function parseSpreadsheetRows(rows: Array<Array<string | number | boolean | null
     const classification = classifyParsedChunk(row, index);
     return classification.kind === 'project_metadata' ? mergeMetadataHint(metadata, classification.metadata) : metadata;
   }, { sourceFiles: [], assumptions: [], pricingBasis: '' });
-  const preludeMetadata = mergeMetadataHint(extractMetadataFromText(preludeText), classifiedMetadata);
+  const preludeMetadata = mergeMetadataHint(extractMetadataFromTextFromService(preludeText), classifiedMetadata);
 
   if (sourceKind === 'spreadsheet-unstructured') return null;
 
@@ -635,7 +704,14 @@ function parseSpreadsheetRows(rows: Array<Array<string | number | boolean | null
       const classification = classifyParsedChunk(row, headerRowIndex + relativeIndex + 1, preludeMetadata);
       const line = row.filter(Boolean).join(' ').trim();
       if (!line) return;
-      if (classification.kind === 'project_metadata' || classification.kind === 'header_row' || classification.kind === 'ignore') return;
+      if (
+        classification.kind === 'project_metadata' ||
+        classification.kind === 'header_row' ||
+        classification.kind === 'ignore' ||
+        classification.kind === 'pricing_notice' ||
+        classification.kind === 'adder_option' ||
+        classification.kind === 'logistics_note'
+      ) return;
       if (classification.kind === 'section_header' || (row.filter(Boolean).length === 1 && line.length < 48)) {
         currentCategory = line;
         return;
@@ -751,41 +827,9 @@ function detectLabeledValue(lines: string[], patterns: RegExp[]): string {
   return '';
 }
 
-function detectProjectName(lines: string[]): string {
-  const labeled = detectLabeledValue(lines, [/^project(?:\s+name)?\s*[:\-]?/i, /^job(?:\s+name)?\s*[:\-]?/i]);
-  if (labeled) return labeled;
-
-  return (
-    lines.slice(0, 18).find((line) => {
-      const text = asText(line);
-      if (text.length < 6 || text.length > 96) return false;
-      if (/^(client|gc|general contractor|address|location|site|date|bid date|project number|job number|scope of work|proposal|invitation to bid|section|division)\b/i.test(text)) return false;
-      if (looksLikeDate(text) || /^\d+$/.test(text)) return false;
-      return tokenize(text).length >= 2;
-    }) || ''
-  );
-}
-
-function extractMetadataFromText(text: string): Partial<IntakeProjectMetadata> {
-  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 120);
-  return {
-    projectName: detectProjectName(lines),
-    projectNumber: detectLabeledValue(lines, [/^project\s*(?:#|number)\s*[:\-]?/i, /^job\s*(?:#|number)\s*[:\-]?/i, /^bid\s*(?:package|pkg)\s*[:\-]?/i]),
-    client: detectLabeledValue(lines, [/^client\s*[:\-]?/i, /^owner\s*[:\-]?/i]),
-    generalContractor: detectLabeledValue(lines, [/^gc\s*[:\-]?/i, /^general contractor\s*[:\-]?/i]),
-    address: detectAddress(lines),
-    bidDate: normalizeDate(detectLabeledValue(lines, [/^bid\s*date\s*[:\-]?/i, /^proposal\s*date\s*[:\-]?/i, /^due\s*date\s*[:\-]?/i, /^date\s*[:\-]?/i])),
-    proposalDate: normalizeDate(detectLabeledValue(lines, [/^proposal\s*date\s*[:\-]?/i, /^date\s*[:\-]?/i])),
-    estimator: detectLabeledValue(lines, [/^estimator\s*[:\-]?/i, /^prepared by\s*[:\-]?/i]),
-    sourceFiles: [],
-    assumptions: extractAssumptionsFromText(text),
-    pricingBasis: inferPricingBasis(text, []),
-  };
-}
-
 function detectScopeLinesFromText(text: string, sourceReference: string): NormalizedIntakeLine[] {
   const rawLines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 2).slice(0, 240);
-  const knownMetadata = extractMetadataFromText(text);
+  const knownMetadata = extractMetadataFromTextFromService(text);
   let currentSection = '';
 
   return rawLines.flatMap((line, index) => {
@@ -838,7 +882,7 @@ function filterSpreadsheetGeminiWarnings(warnings: string[]): string[] {
 }
 
 function mergeMetadata(primary: Partial<IntakeProjectMetadata>, secondary: Partial<IntakeProjectMetadata>, sources: string[]): IntakeProjectMetadata {
-  const projectName = primary.projectName || secondary.projectName || 'Imported Project';
+  const projectName = coerceSafeProjectName(primary.projectName || secondary.projectName || '', 'Imported Project');
   const projectNumber = primary.projectNumber || secondary.projectNumber || '';
   const client = primary.client || secondary.client || '';
   const generalContractor = primary.generalContractor || secondary.generalContractor || '';
@@ -888,51 +932,57 @@ function buildRoomCandidates(lines: IntakeReviewLine[]): IntakeRoomCandidate[] {
     .sort((left, right) => right.lineCount - left.lineCount || left.roomName.localeCompare(right.roomName));
 }
 
-function toReviewLines(lines: NormalizedIntakeLine[], catalog: CatalogItem[], matchCatalog: boolean): IntakeReviewLine[] {
-  return lines.map((line) => {
-    const description = line.description || line.itemName;
-    const { catalogMatch, suggestedMatch } = matchCatalog
-      ? prepareCatalogMatch({
-          itemCode: line.itemCode,
-          itemName: line.itemName,
-          description,
-          category: line.category,
-          notes: line.notes,
-          unit: line.unit,
-        }, catalog)
-      : { catalogMatch: null, suggestedMatch: null };
-
-    const resolvedCategory = line.category || catalogMatch?.category || suggestedMatch?.category || '';
-    const completeness = description && line.quantity > 0 && line.unit ? 'complete' : 'partial';
-    const warnings = [...line.warnings];
-    if (!resolvedCategory) warnings.push('Category could not be confidently inferred.');
-    if (!catalogMatch && !suggestedMatch) warnings.push('No catalog match identified.');
-    const matchStatus = catalogMatch ? 'matched' : suggestedMatch ? 'suggested' : 'needs_match';
-    const matchExplanation = catalogMatch?.reason || suggestedMatch?.reason || 'No confident catalog candidate was found.';
-
-    return {
-      lineId: randomUUID(),
-      roomName: normalizeRoomName(line.roomName),
-      itemName: line.itemName || description,
-      description,
-      category: resolvedCategory,
-      itemCode: line.itemCode,
-      quantity: line.quantity,
-      unit: line.unit || 'EA',
-      notes: line.notes,
-      sourceReference: line.sourceReference,
-      laborIncluded: line.laborIncluded,
-      materialIncluded: line.materialIncluded,
-      confidence: Number(line.confidence.toFixed(2)),
-      completeness,
-      matchStatus,
-      matchedCatalogItemId: catalogMatch?.catalogItemId || suggestedMatch?.catalogItemId || null,
-      matchExplanation,
-      catalogMatch,
-      suggestedMatch,
-      warnings: Array.from(new Set(warnings)),
-    };
+function attachEstimateDraft(
+  matchCatalog: boolean,
+  catalog: CatalogItem[],
+  modifiers: ModifierRecord[],
+  reviewLines: IntakeReviewLine[],
+  aiSuggestions?: IntakeAiSuggestions | null,
+  intakeSettings?: SettingsRecord | null
+): Pick<IntakeParseResult, 'estimateDraft'> {
+  if (!matchCatalog || !catalog.length) return {};
+  const estimateDraft = buildIntakeEstimateDraft({
+    reviewLines,
+    catalog,
+    modifiers,
+    aiSuggestions: aiSuggestions ?? null,
+    intakeAutomation: intakeSettings
+      ? { mode: intakeSettings.intakeCatalogAutoApplyMode, tierAMinScore: intakeSettings.intakeCatalogTierAMinScore }
+      : undefined,
   });
+  return estimateDraft ? { estimateDraft } : {};
+}
+
+function emitIntakeParseMetrics(result: IntakeParseResult, started: number, intakeSettings: SettingsRecord) {
+  const lines = result.reviewLines;
+  const tierCounts = { A: 0, B: 0, C: 0 };
+  for (const l of lines) {
+    const k = l.catalogAutoApplyTier || 'C';
+    if (k === 'A' || k === 'B' || k === 'C') tierCounts[k] += 1;
+  }
+  const autoLinked = lines.filter((l) => l.catalogAutoLinked).length;
+  const draft = result.estimateDraft;
+  let draftPreAcceptedLines = 0;
+  if (draft) {
+    for (const row of draft.lineSuggestions) {
+      if (row.applicationStatus === 'accepted') draftPreAcceptedLines += 1;
+    }
+  }
+  console.log(
+    JSON.stringify({
+      event: 'intake_parse_complete',
+      sourceType: result.sourceType,
+      sourceKind: result.sourceKind,
+      lineCount: lines.length,
+      tierCounts,
+      autoLinkedCatalogLines: autoLinked,
+      draftPreAcceptedLines,
+      automationMode: intakeSettings.intakeCatalogAutoApplyMode,
+      tierAMinScore: intakeSettings.intakeCatalogTierAMinScore,
+      assumptionCount: result.projectMetadata?.assumptions?.length ?? 0,
+      durationMs: Date.now() - started,
+    })
+  );
 }
 
 function buildDiagnostics(sourceKind: IntakeSourceKind, parserStrategy: string, metadata: IntakeProjectMetadata, reviewLines: IntakeReviewLine[], warnings: string[]) {
@@ -956,11 +1006,20 @@ function deriveSourceKindFromDocument(fileName: string, mimeType: string, text: 
 }
 
 export async function parseIntakeRequest(input: IntakeParseRequest): Promise<IntakeParseResult> {
+  const parseStarted = Date.now();
+  const intakeSettings = await getSettings();
+  const intakeAutomation = {
+    mode: intakeSettings.intakeCatalogAutoApplyMode,
+    tierAMinScore: intakeSettings.intakeCatalogTierAMinScore,
+  };
+
   const fileName = asText(input.fileName) || 'upload';
   const mimeType = asText(input.mimeType) || 'application/octet-stream';
   const sourceType = classifyIntakeSourceType(fileName, mimeType, input.sourceType);
   const matchCatalog = input.matchCatalog !== false;
-  const catalog = matchCatalog ? listActiveCatalogItems() : [];
+  const catalog = matchCatalog ? await listActiveCatalogItems() : [];
+  const modifiers = await listModifiers();
+  const bundles = await listBundles();
   const warnings: string[] = [];
 
   if (sourceType === 'spreadsheet') {
@@ -973,13 +1032,14 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
       const fallbackText = flattenedText || decodeDocumentText(input.dataBase64, fileName, mimeType);
       const fallbackLines = detectScopeLinesFromText(fallbackText, fileName);
       const metadata = mergeResolvedMetadataFromService(extractMetadataFromTextFromService(fallbackText), structuredMetadata, ['spreadsheet-fallback', 'text-heuristics']);
-      const reviewLines = toReviewLinesFromService(fallbackLines as unknown as NormalizedIntakeLineFromService[], catalog, matchCatalog);
+      const reviewLines = await toReviewLinesFromService(fallbackLines as unknown as NormalizedIntakeLineFromService[], catalog, matchCatalog, bundles);
+      finalizeIntakeReviewLines(reviewLines, intakeAutomation);
       const proposalAssist = buildProposalAssist({
         metadata,
         assumptions: metadata.assumptions,
         lineDescriptions: reviewLines.map((line) => line.description),
       });
-      return {
+      const out: IntakeParseResult = {
         sourceType,
         sourceKind: 'spreadsheet-unstructured',
         project: metadata,
@@ -990,7 +1050,10 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
         warnings,
         diagnostics: buildDiagnostics('spreadsheet-unstructured', 'spreadsheet-fallback', metadata, reviewLines, warnings),
         proposalAssist,
+        ...attachEstimateDraft(matchCatalog, catalog, modifiers, reviewLines, null, intakeSettings),
       };
+      emitIntakeParseMetrics(out, parseStarted, intakeSettings);
+      return out;
     }
 
     let normalizedLines = deterministicRows as unknown as NormalizedIntakeLineFromService[];
@@ -1019,27 +1082,78 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
       );
 
       warnings.push(...filterSpreadsheetGeminiWarnings(gemini.warnings));
-      const geminiLines = gemini.parsedLines.map((line) => ({
-        roomName: normalizeRoomName(line.roomArea || 'General'),
-        category: normalizeExtractedCategoryFromService(line.category, `${line.itemName} ${line.description}`),
-        itemCode: line.itemCode || '',
-        itemName: line.itemName || line.description || '',
-        description: line.description || line.itemName || '',
-        quantity: parsePositiveNumber(line.quantity, 1),
-        unit: line.unit || 'EA',
-        notes: line.notes || '',
-        sourceReference: fileName,
-        laborIncluded: null,
-        materialIncluded: null,
-        confidence: 0.88,
-        parserTag: 'gemini-spreadsheet',
-        warnings: [],
-      })).filter((line, index) => shouldKeepNormalizedLineFromService(line, index, structuredMetadata));
+      const discardedSpreadsheetSnapshots: IntakeDiscardedLineSnapshot[] = [];
+      const mappedGeminiSheet: NormalizedIntakeLine[] = gemini.parsedLines.map((line) => {
+        const description = line.description || line.itemName || '';
+        const enriched = enrichIntakeServiceLineNotes({
+          description,
+          itemName: line.itemName || '',
+          category: line.category || '',
+          notes: line.notes || '',
+          fieldAssemblyHint: line.fieldAssembly === true,
+        });
+        const combinedNotes = [line.notes || '', enriched.notes].filter(Boolean).join(' | ');
+        const reasoning = buildIntakeReasoningEnvelopeForLine({
+          description,
+          itemName: line.itemName || '',
+          category: line.category || '',
+          notes: combinedNotes,
+          geminiParserBlockType: line.parserBlockType,
+          geminiExtractionBucket: line.extractionBucket,
+          geminiRationale: line.rationale,
+        });
+        const noteHint = formatDiv10ReasoningNote(reasoning);
+        const finalNotes = [combinedNotes, noteHint].filter(Boolean).join(' | ');
+        const semanticTags = [...enriched.semanticTags];
+        if (noteHint) semanticTags.push('div10_install_intel');
+        const lk = (line.lineKind || '').toLowerCase();
+        if (lk === 'modifier') semanticTags.push('gemini_line_kind_modifier');
+        if (lk === 'bundle') semanticTags.push('gemini_line_kind_bundle');
+        return {
+          roomName: normalizeRoomName(line.roomArea || 'General'),
+          category: normalizeExtractedCategoryFromService(line.category, `${line.itemName} ${line.description}`),
+          itemCode: line.itemCode || '',
+          itemName: line.itemName || description,
+          description,
+          quantity: parsePositiveNumber(line.quantity, 1),
+          unit: line.unit || 'EA',
+          notes: finalNotes,
+          sourceReference: fileName,
+          laborIncluded: null,
+          materialIncluded: null,
+          confidence: 0.88,
+          parserTag: 'gemini-spreadsheet',
+          warnings: [],
+          semanticTags: semanticTags.length ? Array.from(new Set(semanticTags)) : undefined,
+          bundleCandidates: detectBundleCandidates(description, line.category || ''),
+          reasoning,
+        };
+      });
 
-      const alignmentSafe = geminiLines.length === deterministicRows.length && deterministicRows.every((row, index) => lineAlignmentLooksSafe(row, gemini.parsedLines[index]));
+      const geminiLines: NormalizedIntakeLine[] = [];
+      mappedGeminiSheet.forEach((row, index) => {
+        if (shouldKeepNormalizedLineFromService(row, index, structuredMetadata)) {
+          geminiLines.push(row);
+        } else {
+          const bt = row.reasoning?.parser_block_type ?? 'unknown';
+          discardedSpreadsheetSnapshots.push({
+            descriptionPreview: (row.description || '').slice(0, 240),
+            parser_block_type: bt,
+            dropReason:
+              bt === 'commercial_term' || bt === 'subtotal' || bt === 'company_header' || bt === 'proposal_metadata'
+                ? `parser_block:${bt}`
+                : 'row_classifier',
+            reasoning: row.reasoning,
+          });
+        }
+      });
+
+      const alignmentSafe =
+        mappedGeminiSheet.length === deterministicRows.length &&
+        deterministicRows.every((row, index) => lineAlignmentLooksSafe(row, gemini.parsedLines[index]));
       if (alignmentSafe) {
         normalizedLines = deterministicRows.map((row, index) => {
-          const enriched = geminiLines[index];
+          const enriched = mappedGeminiSheet[index];
           return {
             ...row,
             roomName: row.roomName || enriched.roomName,
@@ -1054,6 +1168,9 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
             parserTag: 'spreadsheet-structure+gemini',
             quantityWasDefaulted: false,
             unitWasDefaulted: false,
+            semanticTags: Array.from(new Set([...(row.semanticTags || []), ...(enriched.semanticTags || [])])),
+            bundleCandidates: Array.from(new Set([...(row.bundleCandidates || []), ...(enriched.bundleCandidates || [])])),
+            reasoning: enriched.reasoning,
           };
         });
         metadataSources.push('gemini-enrichment');
@@ -1073,13 +1190,17 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
           proposalDate: normalizeDateValueFromService(gemini.proposalDate),
           estimator: gemini.estimator,
           sourceFiles: [fileName],
-          assumptions: gemini.assumptions,
+          assumptions: mergeAssumptions(
+            gemini.assumptions,
+            inferBidReasoningAssumptionsFromDocumentText(`${preludeText}\n${flattenedText}`)
+          ),
           pricingBasis: inferPricingBasis(`${preludeText}\n${flattenedText}`, normalizedLines.map((line) => line.unit), gemini.pricingBasis),
         },
         structuredMetadata,
         [...metadataSources, 'text-heuristics']
       );
-      const reviewLines = toReviewLinesFromService(normalizedLines, catalog, matchCatalog);
+      const reviewLines = await toReviewLinesFromService(normalizedLines, catalog, matchCatalog, bundles);
+      finalizeIntakeReviewLines(reviewLines, intakeAutomation);
       const enrichedMetadata = mergeResolvedMetadataFromService(metadata, extractMetadataFromTextFromService(`${preludeText}\n${flattenedText}`), [...metadata.sources, 'text-heuristics']);
       const proposalAssist = buildProposalAssist({
         metadata: enrichedMetadata,
@@ -1087,7 +1208,8 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
         lineDescriptions: reviewLines.map((line) => line.description),
         geminiAssist: gemini.proposalAssist,
       });
-      return {
+      const aiSuggestions = buildIntakeAiSuggestionsFromGemini(gemini);
+      const out: IntakeParseResult = {
         sourceType,
         sourceKind: parsedSheets[0]?.sourceKind || 'spreadsheet-row',
         project: enrichedMetadata,
@@ -1098,11 +1220,16 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
         warnings: Array.from(new Set(warnings)),
         diagnostics: buildDiagnostics(parsedSheets[0]?.sourceKind || 'spreadsheet-row', 'spreadsheet-structure+gemini', enrichedMetadata, reviewLines, warnings),
         proposalAssist,
+        aiSuggestions,
+        ...attachEstimateDraft(matchCatalog, catalog, modifiers, reviewLines, aiSuggestions, intakeSettings),
+        discardedLineSnapshots: discardedSpreadsheetSnapshots.length ? discardedSpreadsheetSnapshots : undefined,
       };
-    } catch (error: any) {
-      warnings.push(error.message || 'Gemini enrichment failed for spreadsheet parsing.');
+      emitIntakeParseMetrics(out, parseStarted, intakeSettings);
+      return out;
+    } catch (error: unknown) {
+      warnings.push(getErrorMessage(error, 'Gemini enrichment failed for spreadsheet parsing.'));
       const metadata = mergeResolvedMetadataFromService(structuredMetadata, extractMetadataFromTextFromService(`${preludeText}\n${flattenedText}`), ['spreadsheet-structure', 'text-heuristics']);
-      const reviewLines = toReviewLinesFromService(normalizedLines, catalog, matchCatalog);
+      const reviewLines = await toReviewLinesFromService(normalizedLines, catalog, matchCatalog, bundles);
       const proposalAssist = buildProposalAssist({
         metadata,
         assumptions: metadata.assumptions,
@@ -1119,6 +1246,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
         warnings: Array.from(new Set(warnings)),
         diagnostics: buildDiagnostics(parsedSheets[0]?.sourceKind || 'spreadsheet-row', 'spreadsheet-structure', metadata, reviewLines, warnings),
         proposalAssist,
+        ...attachEstimateDraft(matchCatalog, catalog, modifiers, reviewLines),
       };
     }
   }
@@ -1138,22 +1266,77 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
     });
 
     warnings.push(...gemini.warnings);
-    const geminiLines: NormalizedIntakeLine[] = gemini.parsedLines.map((line) => ({
-      roomName: normalizeRoomName(line.roomArea || 'General'),
-      category: normalizeExtractedCategoryFromService(line.category, `${line.itemName} ${line.description}`),
-      itemCode: line.itemCode || '',
-      itemName: line.itemName || line.description || '',
-      description: line.description || line.itemName || '',
-      quantity: parsePositiveNumber(line.quantity, 1),
-      unit: line.unit || 'EA',
-      notes: line.notes || '',
-      sourceReference: fileName,
-      laborIncluded: null,
-      materialIncluded: null,
-      confidence: 0.9,
-      parserTag: sourceType === 'pdf' ? 'gemini-pdf' : 'gemini-document',
-      warnings: [],
-    })).filter((line, index) => shouldKeepNormalizedLineFromService(line, index, heuristicMetadata));
+    const discardedLineSnapshots: IntakeDiscardedLineSnapshot[] = [];
+    const mappedBeforeClassifier: NormalizedIntakeLine[] = gemini.parsedLines
+      .map((line) => {
+        const docKind = String(line.documentLineKind || '').toLowerCase();
+        if (docKind === 'informational_only' || docKind === 'clarification') {
+          return null;
+        }
+        const description = line.description || line.itemName || '';
+        const enriched = enrichIntakeServiceLineNotes({
+          description,
+          itemName: line.itemName || '',
+          category: line.category || '',
+          notes: line.notes || '',
+          fieldAssemblyHint: line.fieldAssembly === true,
+        });
+        const combinedNotes = [line.notes || '', enriched.notes].filter(Boolean).join(' | ');
+        const reasoning = buildIntakeReasoningEnvelopeForLine({
+          description,
+          itemName: line.itemName || '',
+          category: line.category || '',
+          notes: combinedNotes,
+          geminiParserBlockType: line.parserBlockType,
+          geminiExtractionBucket: line.extractionBucket,
+          geminiRationale: line.rationale,
+        });
+        const noteHint = formatDiv10ReasoningNote(reasoning);
+        const finalNotes = [combinedNotes, noteHint].filter(Boolean).join(' | ');
+        const semanticTags = [...enriched.semanticTags];
+        if (noteHint) semanticTags.push('div10_install_intel');
+        const lk = (line.lineKind || '').toLowerCase();
+        if (lk === 'modifier') semanticTags.push('gemini_line_kind_modifier');
+        if (lk === 'bundle') semanticTags.push('gemini_line_kind_bundle');
+        return {
+          roomName: normalizeRoomName(line.roomArea || 'General'),
+          category: normalizeExtractedCategoryFromService(line.category, `${line.itemName} ${line.description}`),
+          itemCode: line.itemCode || '',
+          itemName: line.itemName || description,
+          description,
+          quantity: parsePositiveNumber(line.quantity, 1),
+          unit: normalizeIntakeUnit(line.unit) || String(line.unit || 'EA').trim().toUpperCase() || 'EA',
+          notes: finalNotes,
+          sourceReference: fileName,
+          laborIncluded: null,
+          materialIncluded: null,
+          confidence: 0.9,
+          parserTag: sourceType === 'pdf' ? 'gemini-pdf' : 'gemini-document',
+          warnings: [],
+          semanticTags: semanticTags.length ? Array.from(new Set(semanticTags)) : undefined,
+          bundleCandidates: detectBundleCandidates(description, line.category || ''),
+          reasoning,
+        };
+      })
+      .filter((line) => line !== null) as NormalizedIntakeLine[];
+
+    const geminiLines: NormalizedIntakeLine[] = [];
+    mappedBeforeClassifier.forEach((row, index) => {
+      if (shouldKeepNormalizedLineFromService(row, index, heuristicMetadata)) {
+        geminiLines.push(row);
+      } else {
+        const bt = row.reasoning?.parser_block_type ?? 'unknown';
+        discardedLineSnapshots.push({
+          descriptionPreview: (row.description || '').slice(0, 240),
+          parser_block_type: bt,
+          dropReason:
+            bt === 'commercial_term' || bt === 'subtotal' || bt === 'company_header' || bt === 'proposal_metadata'
+              ? `parser_block:${bt}`
+              : 'row_classifier',
+          reasoning: row.reasoning,
+        });
+      }
+    });
 
     const usableGeminiLines = geminiLines.filter((line) => line.description && line.quantity > 0);
     const normalizedLines = usableGeminiLines.length ? usableGeminiLines : fallbackLines;
@@ -1171,20 +1354,22 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
         proposalDate: normalizeDateValueFromService(gemini.proposalDate),
         estimator: gemini.estimator,
         sourceFiles: [fileName],
-        assumptions: gemini.assumptions,
+        assumptions: mergeAssumptions(gemini.assumptions, inferBidReasoningAssumptionsFromDocumentText(extractedText)),
         pricingBasis: inferPricingBasis(extractedText, normalizedLines.map((line) => line.unit), gemini.pricingBasis),
       },
       heuristicMetadata,
       ['gemini', 'text-heuristics']
     );
-    const reviewLines = toReviewLinesFromService(normalizedLines as unknown as NormalizedIntakeLineFromService[], catalog, matchCatalog);
+    const reviewLines = await toReviewLinesFromService(normalizedLines as unknown as NormalizedIntakeLineFromService[], catalog, matchCatalog, bundles);
+    finalizeIntakeReviewLines(reviewLines, intakeAutomation);
     const proposalAssist = buildProposalAssist({
       metadata,
       assumptions: metadata.assumptions,
       lineDescriptions: reviewLines.map((line) => line.description),
       geminiAssist: gemini.proposalAssist,
     });
-    return {
+    const aiSuggestionsDoc = buildIntakeAiSuggestionsFromGemini(gemini);
+    const out: IntakeParseResult = {
       sourceType,
       sourceKind,
       project: metadata,
@@ -1195,17 +1380,23 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
       warnings: Array.from(new Set(warnings)),
       diagnostics: buildDiagnostics(sourceKind, usableGeminiLines.length ? 'gemini-first' : 'gemini+fallback', metadata, reviewLines, warnings),
       proposalAssist,
+      aiSuggestions: aiSuggestionsDoc,
+      ...attachEstimateDraft(matchCatalog, catalog, modifiers, reviewLines, aiSuggestionsDoc, intakeSettings),
+      discardedLineSnapshots: discardedLineSnapshots.length ? discardedLineSnapshots : undefined,
     };
-  } catch (error: any) {
-    warnings.push(error.message || 'Gemini extraction failed; fallback text parsing used.');
+    emitIntakeParseMetrics(out, parseStarted, intakeSettings);
+    return out;
+  } catch (error: unknown) {
+    warnings.push(getErrorMessage(error, 'Gemini extraction failed; fallback text parsing used.'));
     const metadata = mergeResolvedMetadataFromService({ ...heuristicMetadata, sourceFiles: [fileName] }, {}, ['text-heuristics']);
-    const reviewLines = toReviewLinesFromService(fallbackLines as unknown as NormalizedIntakeLineFromService[], catalog, matchCatalog);
+    const reviewLines = await toReviewLinesFromService(fallbackLines as unknown as NormalizedIntakeLineFromService[], catalog, matchCatalog, bundles);
+    finalizeIntakeReviewLines(reviewLines, intakeAutomation);
     const proposalAssist = buildProposalAssist({
       metadata,
       assumptions: metadata.assumptions,
       lineDescriptions: reviewLines.map((line) => line.description),
     });
-    return {
+    const out: IntakeParseResult = {
       sourceType,
       sourceKind,
       project: metadata,
@@ -1216,6 +1407,9 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
       warnings: Array.from(new Set(warnings)),
       diagnostics: buildDiagnostics(sourceKind, 'text-fallback', metadata, reviewLines, warnings),
       proposalAssist,
+      ...attachEstimateDraft(matchCatalog, catalog, modifiers, reviewLines, null, intakeSettings),
     };
+    emitIntakeParseMetrics(out, parseStarted, intakeSettings);
+    return out;
   }
 }

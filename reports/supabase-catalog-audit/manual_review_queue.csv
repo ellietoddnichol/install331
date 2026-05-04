@@ -1,0 +1,5 @@
+queue_id,entity_kind,entity_id,issue_type,severity,summary,suggested_action,owner,status
+EXAMPLE-001,catalog_item,,DUPLICATE_CLUSTER,review,Replace with real IDs from duplicate_candidates.csv,Pick canonical row; deprecate losers; alias SKUs,,open
+EXAMPLE-002,catalog_alias,,ALIAS_CONFLICT,blocking,Replace with rows from alias_conflicts.csv,Retarget alias_value to single catalog_item_id,,open
+EXAMPLE-003,catalog_item,,LABOR_OUTLIER,watch,Replace with suspicious_labor_minutes.csv results,Estimator validates labor vs crew standard,,open
+EXAMPLE-004,bundle_item,,DANGLING_REF,blocking,Run catalog:audit bundle report,Repair SKU/catalog_item_id linkage,,open

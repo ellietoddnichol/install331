@@ -20,9 +20,19 @@ interface Props {
   activeRoomId: string;
   onClose: () => void;
   onApplyBundle: (bundleId: string, roomId: string) => Promise<void>;
+  /** Drawer slides in from the right (estimate workflow); modal keeps centered panel. */
+  presentation?: 'modal' | 'drawer';
 }
 
-export function BundlePickerModal({ open, bundles, rooms, activeRoomId, onClose, onApplyBundle }: Props) {
+export function BundlePickerModal({
+  open,
+  bundles,
+  rooms,
+  activeRoomId,
+  onClose,
+  onApplyBundle,
+  presentation = 'modal',
+}: Props) {
   const [search, setSearch] = useState('');
   const [roomId, setRoomId] = useState('');
   const [applyingBundleId, setApplyingBundleId] = useState<string | null>(null);
@@ -130,13 +140,20 @@ export function BundlePickerModal({ open, bundles, rooms, activeRoomId, onClose,
     }
   }
 
+  const shellClass =
+    presentation === 'drawer' ? 'fixed inset-0 z-50 flex justify-end bg-slate-900/40' : 'fixed inset-0 z-50 bg-slate-900/40 p-3 sm:p-6';
+  const panelClass =
+    presentation === 'drawer'
+      ? 'flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl'
+      : 'mx-auto flex h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl';
+
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/40 p-3 sm:p-6" onClick={onClose}>
-      <div className="mx-auto flex h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+    <div className={shellClass} onClick={onClose}>
+      <div className={panelClass} onClick={(event) => event.stopPropagation()}>
         <div className="border-b border-slate-200 px-5 py-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Bundle Library</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Bundle Library</p>
               <h3 className="mt-1 text-base font-semibold text-slate-900">Add Prebuilt Scope Bundles</h3>
               <p className="mt-1 text-xs text-slate-600">Pick a room, review available bundles, and add a full scope package in one step.</p>
             </div>
@@ -151,7 +168,7 @@ export function BundlePickerModal({ open, bundles, rooms, activeRoomId, onClose,
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="h-10 w-full rounded-md border border-slate-300 pl-8 pr-3 text-sm"
+                className="h-10 w-full rounded-md border border-slate-300 pl-10 pr-3 text-sm"
                 placeholder="Search bundles by name or category"
               />
             </div>
@@ -192,7 +209,7 @@ export function BundlePickerModal({ open, bundles, rooms, activeRoomId, onClose,
             </div>
 
             <aside className="min-h-0 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Bundle Detail</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Bundle Detail</p>
               {selectedBundle ? (
                 <>
                   <h4 className="mt-1 text-sm font-semibold text-slate-900">{selectedBundle.bundleName}</h4>
@@ -221,7 +238,7 @@ export function BundlePickerModal({ open, bundles, rooms, activeRoomId, onClose,
                   <div className="mt-4 border-t border-slate-200 pt-4">
                     <div className="flex items-center justify-between gap-2">
                       <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Staged Bundles</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-500">Staged Bundles</p>
                         <p className="mt-1 text-xs text-slate-600">{stagedBundles.length} staged bundle{stagedBundles.length === 1 ? '' : 's'} · {stagedQuantityTotal} total units</p>
                       </div>
                     </div>

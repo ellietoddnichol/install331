@@ -36,7 +36,7 @@ test('parseExcelUpload maps ugly header aliases into canonical spreadsheet field
     ['Project', 'Alias Heavy School'],
     ['Owner', 'County District'],
     [],
-    ['Area Name', 'Product', 'Count', 'Measure', 'Manufacturer', 'Series', 'Color', 'Comments'],
+    ['Area Name', 'Product', 'Count', 'Measure', 'Brand', 'Series', 'Color', 'Comments'],
     ['Vestibule', 'Directory Sign', 1, 'EA', 'ASI', 'D-100', 'Brushed', 'Entry sign'],
   ]);
   const workbook = xlsx.utils.book_new();
@@ -163,37 +163,6 @@ test('parseExcelUpload trims long takeoff shorthand tails from project titles', 
   assert.equal(result.metadata.projectName, 'FedEx Refresh KCMO');
   assert.equal(result.metadata.projectName?.includes('W51919-04'), false);
   assert.equal(result.metadata.projectName?.includes('2 Wall GB'), false);
-});
-
-test('parseExcelUpload recognizes the preferred import template and merges Item Name + Description', () => {
-  const worksheet = xlsx.utils.aoa_to_sheet([
-    ['Area / Room', 'Item Name', 'Quantity', 'Unit', 'Manufacturer', 'Model / SKU', 'Description', 'Finish / Color', 'Mounting / Install Type', 'Notes', 'Alternate / Allowance', 'Adders / Modifiers', 'Labor Scope', 'Material Scope'],
-    ['Men\'s Restroom 101', 'Grab Bar', 2, 'EA', 'Bobrick', 'B-5806 x 36', '36" grab bar peened', 'Peened Finish', 'Wall Mounted', 'ADA compliant', '', 'Security screws', 'Install', 'Supply'],
-  ]);
-  const workbook = xlsx.utils.book_new();
-  xlsx.utils.book_append_sheet(workbook, worksheet, 'Intake');
-  const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
-
-  const result = parseExcelUpload({
-    fileName: 'preferred-template.xlsx',
-    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    dataBase64: buffer.toString('base64'),
-  });
-
-  assert.equal(result.extractedRows.length, 1);
-  const row = result.extractedRows[0]!;
-  assert.equal(row.mappedFields.roomName, 'Men\'s Restroom 101');
-  assert.match(row.mappedFields.itemDescription || '', /Grab Bar/);
-  assert.match(row.mappedFields.itemDescription || '', /peened/);
-  assert.equal(row.mappedFields.quantity, 2);
-  assert.equal(row.mappedFields.unit, 'EA');
-  assert.equal(row.mappedFields.manufacturer, 'Bobrick');
-  assert.equal(row.mappedFields.model, 'B-5806 x 36');
-  assert.equal(row.mappedFields.finish, 'Peened Finish');
-  assert.match(row.mappedFields.notes || '', /ADA compliant/);
-  assert.match(row.mappedFields.notes || '', /Mounting: Wall Mounted/);
-  assert.match(row.mappedFields.notes || '', /Adders: Security screws/);
-  assert.ok(row.parsingNotes.some((note) => /preferred import template/i.test(note)));
 });
 
 test('parseExcelUpload handles workbooks with both matrix and flat tabs', () => {

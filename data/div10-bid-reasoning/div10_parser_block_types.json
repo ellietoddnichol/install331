@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0",
+  "description": "Canonical parser_block_type values for Gemini + server alignment.",
+  "values": [
+    {
+      "id": "company_header",
+      "use": "Letterhead, contact, seller identity — metadata only"
+    },
+    {
+      "id": "proposal_metadata",
+      "use": "Project name, dates, addenda, acceptance timing — metadata only"
+    },
+    {
+      "id": "scope_header",
+      "use": "Manufacturer/category heading introducing scope rows"
+    },
+    {
+      "id": "scope_item",
+      "use": "Quantified product or scope line"
+    },
+    {
+      "id": "scope_option",
+      "use": "Alternate finish/material pricing row"
+    },
+    {
+      "id": "subtotal",
+      "use": "Material/labor lump line, category price — not a SKU row"
+    },
+    {
+      "id": "commercial_term",
+      "use": "Tax, bond, unload, shipment, labor disclaimer — assumptions not takeoff"
+    },
+    {
+      "id": "inclusion_note",
+      "use": "Short inclusion/spec qualifier attached to adjacent scope"
+    },
+    {
+      "id": "unknown",
+      "use": "Unclassified; server may re-classify"
+    }
+  ]
+}

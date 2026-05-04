@@ -1,86 +1,99 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildProposalLineItems } from './proposalDocument.ts';
+import test from 'node:test';
 import type { TakeoffLineRecord } from '../types/estimator.ts';
+import { buildProposalScheduleSectionsByBidBucket, formatClientProposalItemDisplay } from './proposalDocument.ts';
 
-function line(partial: Partial<TakeoffLineRecord> & { id: string; description: string }): TakeoffLineRecord {
+test('formatClientProposalItemDisplay: extinguisher with model, weight, and class', () => {
+  const out = formatClientProposalItemDisplay('FE05C Cosmic 5lb Extinguisher 3A-40BC', 'FE05C');
+  assert.equal(out.title, 'Cosmic Fire Extinguisher');
+  assert.ok(out.subtitle?.includes('FE05C'));
+  assert.ok(out.subtitle?.includes('5 lb'));
+  assert.ok(out.subtitle?.toUpperCase().includes('3A-40BC'));
+});
+
+test('formatClientProposalItemDisplay: hyphenated leading model', () => {
+  const out = formatClientProposalItemDisplay('GB-36 Grab Bar 36 inch stainless', 'GB-36');
+  assert.equal(out.title, 'Grab Bar 36 Inch Stainless');
+  assert.match(out.subtitle || '', /GB-36/i);
+});
+
+test('formatClientProposalItemDisplay: plain description unchanged except title case', () => {
+  const out = formatClientProposalItemDisplay('paper towel dispenser surface mount', null);
+  assert.equal(out.title, 'Paper Towel Dispenser Surface Mount');
+  assert.equal(out.subtitle, null);
+});
+
+test('formatClientProposalItemDisplay: adds finish option without leaking internal labels', () => {
+  const out = formatClientProposalItemDisplay('36" grab bar', 'GB-36', [
+    { attributeType: 'finish', attributeValue: 'MATTE_BLACK', source: 'inferred' as const },
+  ]);
+  assert.match(out.title, /Matte Black/);
+  assert.ok(!/MATTE_BLACK|attribute_type|catalogAttributeSnapshot|finish:|mounting:|assembly:/i.test(out.title));
+});
+
+test('formatClientProposalItemDisplay: adds mounting option when present', () => {
+  const out = formatClientProposalItemDisplay('Fire extinguisher cabinet', null, [
+    { attributeType: 'mounting', attributeValue: 'RECESSED', source: 'inferred' as const },
+  ]);
+  assert.match(out.title, /Recessed/);
+});
+
+test('formatClientProposalItemDisplay: adds assembly/coating options (concise)', () => {
+  const out = formatClientProposalItemDisplay('Single tier locker', null, [
+    { attributeType: 'assembly', attributeValue: 'KD', source: 'inferred' as const },
+    { attributeType: 'coating', attributeValue: 'ANTIMICROBIAL', source: 'inferred' as const },
+  ]);
+  assert.match(out.title, /KD Assembly/);
+  assert.match(out.title, /Antimicrobial/);
+});
+
+test('formatClientProposalItemDisplay: fallback unchanged for no snapshot', () => {
+  const base = formatClientProposalItemDisplay('coat hook', null);
+  const out = formatClientProposalItemDisplay('coat hook', null, null);
+  assert.deepEqual(out, base);
+});
+
+function minimalLine(over: Partial<TakeoffLineRecord>): TakeoffLineRecord {
+  const now = new Date().toISOString();
   return {
-    id: partial.id,
-    projectId: partial.projectId || 'p1',
-    roomId: partial.roomId || 'r1',
-    sourceType: partial.sourceType || 'manual',
-    sourceRef: null,
-    description: partial.description,
-    proposalVisibility: partial.proposalVisibility,
-    proposalDescriptionOverride: partial.proposalDescriptionOverride ?? null,
-    parentEstimateLineId: partial.parentEstimateLineId ?? null,
-    sourceLineType: partial.sourceLineType,
-    sku: partial.sku ?? null,
-    category: partial.category ?? 'Toilet Accessories',
-    subcategory: null,
-    baseType: null,
-    qty: partial.qty ?? 1,
-    unit: partial.unit ?? 'EA',
-    materialCost: 10,
-    baseMaterialCost: 10,
-    laborMinutes: 10,
-    laborCost: 5,
-    baseLaborCost: 5,
-    pricingSource: 'auto',
-    unitSell: 15,
-    lineTotal: 15,
-    notes: null,
-    bundleId: null,
-    catalogItemId: null,
-    variantId: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    id: over.id ?? 'l1',
+    projectId: over.projectId ?? 'p1',
+    roomId: over.roomId ?? 'r1',
+    sourceType: over.sourceType ?? 'manual',
+    sourceRef: over.sourceRef ?? null,
+    description: over.description ?? 'Item',
+    sku: over.sku ?? null,
+    category: over.category ?? null,
+    subcategory: over.subcategory ?? null,
+    baseType: over.baseType ?? null,
+    qty: over.qty ?? 1,
+    unit: over.unit ?? 'EA',
+    materialCost: over.materialCost ?? 10,
+    baseMaterialCost: over.baseMaterialCost ?? 10,
+    laborMinutes: over.laborMinutes ?? 0,
+    laborCost: over.laborCost ?? 0,
+    baseLaborCost: over.baseLaborCost ?? 0,
+    pricingSource: over.pricingSource ?? 'auto',
+    unitSell: over.unitSell ?? 10,
+    lineTotal: over.lineTotal ?? 10,
+    notes: over.notes ?? null,
+    bundleId: over.bundleId ?? null,
+    catalogItemId: over.catalogItemId ?? null,
+    variantId: over.variantId ?? null,
+    createdAt: over.createdAt ?? now,
+    updatedAt: over.updatedAt ?? now,
+    ...over,
   };
 }
 
-test('suggested/internal add-ins stay internal_only and do not print', () => {
-  const items = buildProposalLineItems([
-    line({ id: 'a', description: 'Field measure / field_verify', sourceLineType: 'add_in', proposalVisibility: 'internal_only' }),
-    line({ id: 'b', description: 'Grab Bar 36"', sourceLineType: 'catalog_item' }),
-  ]);
-  assert.equal(items.some((i) => i.description.toLowerCase().includes('field')), false);
-  assert.equal(items.some((i) => i.description.toLowerCase().includes('grab bar')), true);
+test('buildProposalScheduleSectionsByBidBucket splits by sourceBidBucket', () => {
+  const lines: TakeoffLineRecord[] = [
+    minimalLine({ id: 'a', description: 'A', sourceBidBucket: 'Base Bid', materialCost: 100, unitSell: 100, lineTotal: 100 }),
+    minimalLine({ id: 'b', description: 'B', sourceBidBucket: 'Alt 1', materialCost: 50, unitSell: 50, lineTotal: 50 }),
+    minimalLine({ id: 'c', description: 'C', sourceBidBucket: null, materialCost: 5, unitSell: 5, lineTotal: 5 }),
+  ];
+  const groups = buildProposalScheduleSectionsByBidBucket(lines, true, true, 1, null);
+  assert.equal(groups.length, 3);
+  const labels = groups.map((g) => g.bucketLabel).sort();
+  assert.deepEqual(labels, ['', 'Alt 1', 'Base Bid']);
 });
-
-test('accepted demo/remove can print when marked customer_visible', () => {
-  const items = buildProposalLineItems([
-    line({ id: 'a', description: 'Demo/remove existing accessories', sourceLineType: 'add_in', proposalVisibility: 'customer_visible' }),
-  ]);
-  assert.equal(items.length, 1);
-  assert.equal(items[0]!.description.toLowerCase().includes('demo'), true);
-});
-
-test('quote_subtotal never prints', () => {
-  const items = buildProposalLineItems([
-    line({ id: 'q', description: 'MATERIAL: $6695', sourceType: 'quote_subtotal', sourceLineType: 'quote_subtotal' }),
-    line({ id: 'b', description: 'Grab Bar 36"' }),
-  ]);
-  assert.equal(items.some((i) => i.description.toLowerCase().includes('6695')), false);
-  assert.equal(items.some((i) => i.description.toLowerCase().includes('grab bar')), true);
-});
-
-test('expanded grab bar set does not double print parent and children (children_only default)', () => {
-  const items = buildProposalLineItems([
-    line({ id: 'p', description: '6 sets 6806 grab bars – 18, 36, 42', sourceLineType: 'expanded_parent' }),
-    line({ id: 'c1', description: 'Grab Bar 18"', parentEstimateLineId: 'p', sourceLineType: 'expanded_child' }),
-    line({ id: 'c2', description: 'Grab Bar 36"', parentEstimateLineId: 'p', sourceLineType: 'expanded_child' }),
-    line({ id: 'c3', description: 'Grab Bar 42"', parentEstimateLineId: 'p', sourceLineType: 'expanded_child' }),
-  ]);
-  assert.equal(items.some((i) => i.description.toLowerCase().includes('sets 6806')), false);
-  assert.equal(items.filter((i) => i.description.toLowerCase().includes('grab bar')).length, 3);
-});
-
-test('proposal descriptions are cleaned of estimator jargon', () => {
-  const items = buildProposalLineItems([
-    line({ id: 'a', description: 'blocking_check and rough_opening_check required' }),
-  ]);
-  assert.equal(items.length, 1);
-  assert.equal(/blocking_check|rough_opening_check/i.test(items[0]!.description), false);
-  assert.equal(items[0]!.description.length > 0, true);
-});
-

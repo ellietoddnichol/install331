@@ -1,10 +1,15 @@
-import { dbAll, dbGet } from '../db/query.ts';
+import { dbCatalogAll, dbCatalogGet } from '../db/query.ts';
 import type {
   EstimatorCatalogItemAttribute,
   EstimatorParametricModifier,
   EstimatorSkuAlias,
 } from '../../shared/types/estimatorCatalogNorm.ts';
-import { getCatalogItemsTableName } from '../db/catalogTable.ts';
+import {
+  getCatalogItemsTableName,
+  getEstimatorCatalogItemAttributesReadTableName,
+  getEstimatorParametricModifiersReadTableName,
+  getEstimatorSkuAliasesReadTableName,
+} from '../db/catalogTable.ts';
 
 function mapParametric(row: any): EstimatorParametricModifier {
   let applies: string[] = [];
@@ -54,22 +59,24 @@ function mapAlias(row: any): EstimatorSkuAlias {
 }
 
 export async function listParametricModifiers(includeInactive = false): Promise<EstimatorParametricModifier[]> {
+  const rel = getEstimatorParametricModifiersReadTableName();
   const sql = includeInactive
-    ? 'SELECT * FROM estimator_parametric_modifiers ORDER BY modifier_key'
-    : 'SELECT * FROM estimator_parametric_modifiers WHERE active = 1 ORDER BY modifier_key';
-  const rows = await dbAll(sql);
+    ? `SELECT * FROM ${rel} ORDER BY modifier_key`
+    : `SELECT * FROM ${rel} WHERE active = 1 ORDER BY modifier_key`;
+  const rows = await dbCatalogAll(sql);
   return rows.map(mapParametric);
 }
 
 export async function getParametricModifierByKey(key: string): Promise<EstimatorParametricModifier | null> {
   const k = String(key || '').trim();
   if (!k) return null;
-  const row = await dbGet('SELECT * FROM estimator_parametric_modifiers WHERE modifier_key = ? AND active = 1', [k]);
+  const row = await dbCatalogGet(`SELECT * FROM ${getEstimatorParametricModifiersReadTableName()} WHERE modifier_key = ? AND active = 1`, [k]);
   return row ? mapParametric(row) : null;
 }
 
 export async function listSkuAliases(): Promise<EstimatorSkuAlias[]> {
-  const rows = await dbAll('SELECT * FROM estimator_sku_aliases WHERE active = 1 ORDER BY lower(alias_text)');
+  const rel = getEstimatorSkuAliasesReadTableName();
+  const rows = await dbCatalogAll(`SELECT * FROM ${rel} WHERE active = 1 ORDER BY lower(alias_text)`);
   return rows.map(mapAlias);
 }
 
@@ -82,14 +89,15 @@ export async function resolveTargetCatalogItemIdBySkuOrAlias(raw: string): Promi
   if (!t) return null;
 
   const table = getCatalogItemsTableName();
-  const bySku = await dbGet<{ id: string }>(
+  const bySku = await dbCatalogGet<{ id: string }>(
     `SELECT id FROM ${table} WHERE active = 1 AND upper(trim(sku)) = upper(?)`,
     [t]
   );
   if (bySku) return bySku.id;
 
-  const byAlias = await dbGet<{ target_catalog_item_id: string }>(
-    'SELECT target_catalog_item_id FROM estimator_sku_aliases WHERE active = 1 AND lower(trim(alias_text)) = lower(?)',
+  const aliasRel = getEstimatorSkuAliasesReadTableName();
+  const byAlias = await dbCatalogGet<{ target_catalog_item_id: string }>(
+    `SELECT target_catalog_item_id FROM ${aliasRel} WHERE active = 1 AND lower(trim(alias_text)) = lower(?)`,
     [t]
   );
   if (byAlias) return byAlias.target_catalog_item_id;
@@ -98,9 +106,7 @@ export async function resolveTargetCatalogItemIdBySkuOrAlias(raw: string): Promi
 }
 
 export async function listItemAttributesForCatalogItem(catalogItemId: string): Promise<EstimatorCatalogItemAttribute[]> {
-  const rows = await dbAll(
-    `SELECT * FROM estimator_catalog_item_attributes WHERE catalog_item_id = ? ORDER BY created_at, id`,
-    [catalogItemId]
-  );
+  const rel = getEstimatorCatalogItemAttributesReadTableName();
+  const rows = await dbCatalogAll(`SELECT * FROM ${rel} WHERE catalog_item_id = ? ORDER BY created_at, id`, [catalogItemId]);
   return rows.map(mapItemAttr);
 }

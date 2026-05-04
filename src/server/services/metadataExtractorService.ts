@@ -1,8 +1,23 @@
 import type { IntakeProjectAssumption, IntakeProjectMetadata } from '../../shared/types/intake.ts';
+import {
+  coerceSafeProjectName,
+  isPlausibleProjectTitle,
+  stripIntakeControlCharacters,
+} from '../../shared/utils/intakeTextGuards.ts';
 import { extractAssumptionsFromText, inferPricingBasis, mergeAssumptions } from './proposalAssistService.ts';
+
+export { coerceSafeProjectName, isPlausibleProjectTitle, stripIntakeControlCharacters };
 
 export function intakeAsText(value: unknown): string {
   return String(value ?? '').trim();
+}
+
+/** Cut "Project: Foo Client: Bar" → "Foo" for metadata fields. */
+function clipCoappendedMetadataLabels(value: string): string {
+  const t = intakeAsText(value);
+  if (!t) return '';
+  const parts = t.split(/\s+(?=Client\s*:|GC\s*:|Owner\s*:|Address\s*:|General\s+Contractor\s*:|Project\s*#\s*|Job\s*#\s*)/i);
+  return parts[0]?.trim() || t;
 }
 
 const TAKEOFF_FAMILY_TOKENS = new Set(['GB', 'CH', 'SNV', 'SND', 'SD', 'TTD', 'HD', 'SCR', 'SC', 'SCH', 'FSS', 'LTX']);
@@ -45,6 +60,21 @@ export function hasProjectMetadataValue(metadata: Partial<IntakeProjectMetadata>
       metadata.proposalDate ||
       metadata.estimator
   );
+}
+
+/** Map PDF /Trailer Info dictionary fields into intake metadata (fills gaps after body-text extraction). */
+export function metadataHintsFromPdfFileInfo(info: Record<string, unknown> | undefined): Partial<IntakeProjectMetadata> {
+  if (!info || typeof info !== 'object') return {};
+  const title = intakeAsText(info.Title);
+  const author = intakeAsText(info.Author);
+  const out: Partial<IntakeProjectMetadata> = {
+    sourceFiles: [],
+    assumptions: [],
+    pricingBasis: '',
+  };
+  if (isPlausibleProjectTitle(title)) out.projectName = title;
+  if (author && author.length > 1 && author.length < 160) out.estimator = author;
+  return out;
 }
 
 export function mergeMetadataHint(left: Partial<IntakeProjectMetadata>, right: Partial<IntakeProjectMetadata>): Partial<IntakeProjectMetadata> {
@@ -99,11 +129,15 @@ function looksLikeTakeoffStartToken(token: string): boolean {
 }
 
 function sanitizeProjectNameCandidate(value: string): string {
-  const candidate = intakeAsText(value).replace(/\s+/g, ' ').trim();
+  const candidate = clipCoappendedMetadataLabels(
+    intakeAsText(stripIntakeControlCharacters(String(value || ''))).replace(/\s+/g, ' ').trim()
+  );
   if (!candidate) return '';
 
   const tokens = candidate.split(/\s+/).filter(Boolean);
-  if (tokens.length < 5) return candidate;
+  if (tokens.length < 5) {
+    return isPlausibleProjectTitle(candidate) ? candidate : '';
+  }
 
   for (let index = 2; index <= tokens.length - 3; index += 1) {
     if (!looksLikeTakeoffStartToken(tokens[index])) continue;
@@ -113,12 +147,12 @@ function sanitizeProjectNameCandidate(value: string): string {
     if (takeoffLikeCount < 4 || naturalWordCount > 2) continue;
 
     const prefix = tokens.slice(0, index).join(' ').trim();
-    if (tokenizeComparableText(prefix).length >= 2) {
+    if (tokenizeComparableText(prefix).length >= 2 && isPlausibleProjectTitle(prefix)) {
       return prefix;
     }
   }
 
-  return candidate;
+  return isPlausibleProjectTitle(candidate) ? candidate : '';
 }
 
 export function detectAddressFromLines(lines: string[]): string {
@@ -137,6 +171,7 @@ export function detectProjectNameFromLines(lines: string[]): string {
     lines.slice(0, 18).find((line) => {
       const text = intakeAsText(line);
       if (text.length < 6 || text.length > 96) return false;
+      if (!isPlausibleProjectTitle(text)) return false;
       if (/^(client|gc|general contractor|address|location|site|date|bid date|project number|job number|scope of work|proposal|invitation to bid|section|division)\b/i.test(text)) return false;
       if (looksLikeDateValue(text) || /^\d+$/.test(text)) return false;
       return tokenizeComparableText(text).length >= 2;
@@ -145,7 +180,12 @@ export function detectProjectNameFromLines(lines: string[]): string {
 }
 
 export function extractMetadataFromText(text: string): Partial<IntakeProjectMetadata> {
-  const lines = String(text || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 120);
+  const cleaned = stripIntakeControlCharacters(String(text || ''));
+  const lines = cleaned
+    .split(/\r?\n|\f/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(0, 120);
   const projectNumber = detectLabeledValue(lines, [/^project\s*(?:#|number)\s*[:\-]?/i, /^job\s*(?:#|number)\s*[:\-]?/i, /^bid\s*(?:package|pkg)\s*[:\-]?/i]);
   const bidPackage = detectLabeledValue(lines, [/^bid\s*(?:package|pkg)\s*[:\-]?/i, /^package\s*[:\-]?/i]);
   return {
@@ -159,8 +199,8 @@ export function extractMetadataFromText(text: string): Partial<IntakeProjectMeta
     proposalDate: normalizeDateValue(detectLabeledValue(lines, [/^proposal\s*date\s*[:\-]?/i, /^date\s*[:\-]?/i])),
     estimator: detectLabeledValue(lines, [/^estimator\s*[:\-]?/i, /^prepared by\s*[:\-]?/i]),
     sourceFiles: [],
-    assumptions: extractAssumptionsFromText(text),
-    pricingBasis: inferPricingBasis(text, []),
+    assumptions: extractAssumptionsFromText(cleaned),
+    pricingBasis: inferPricingBasis(cleaned, []),
   };
 }
 
@@ -174,7 +214,10 @@ export function extractMetadataFromCells(cells: string[]): Partial<IntakeProject
 
   const assignValue = (label: string, value: string) => {
     if (!value) return;
-    if (/^(project|project name|job|job name)$/.test(label)) output.projectName = output.projectName || value;
+    if (/^(project|project name|job|job name)$/.test(label)) {
+      if (!output.projectName && isPlausibleProjectTitle(value)) output.projectName = value;
+      return;
+    }
     else if (/^(project number|project no|job number)$/.test(label)) output.projectNumber = output.projectNumber || value;
     else if (/^(bid package|package|pkg)$/.test(label)) {
       output.bidPackage = output.bidPackage || value;
@@ -206,7 +249,9 @@ export function extractMetadataFromCells(cells: string[]): Partial<IntakeProject
 }
 
 export function mergeResolvedMetadata(primary: Partial<IntakeProjectMetadata>, secondary: Partial<IntakeProjectMetadata>, sources: string[]): IntakeProjectMetadata {
-  const projectName = primary.projectName || secondary.projectName || 'Imported Project';
+  const primaryName = sanitizeProjectNameCandidate(primary.projectName || '');
+  const secondaryName = sanitizeProjectNameCandidate(secondary.projectName || '');
+  const projectName = coerceSafeProjectName(primaryName || secondaryName || '', 'Imported Project');
   const projectNumber = primary.projectNumber || secondary.projectNumber || primary.bidPackage || secondary.bidPackage || '';
   const bidPackage = primary.bidPackage || secondary.bidPackage || projectNumber || '';
   const client = primary.client || secondary.client || '';

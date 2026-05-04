@@ -1,6 +1,8 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { ProjectRecord, SettingsRecord, TakeoffLineRecord } from '../../shared/types/estimator.ts';
 import { DEFAULT_PROPOSAL_ACCEPTANCE_LABEL, DEFAULT_PROPOSAL_CLARIFICATIONS, DEFAULT_PROPOSAL_EXCLUSIONS, DEFAULT_PROPOSAL_INTRO, DEFAULT_PROPOSAL_TERMS } from '../../shared/utils/proposalDefaults.ts';
+import { isPlausibleCustomerFacingProposalText } from '../../shared/utils/intakeTextGuards.ts';
+import { buildGeminiSummaryPrompt } from './geminiSummaryPrompt.ts';
 
 interface ProposalDraftInput {
   mode?: 'scope_summary' | 'proposal_text' | 'terms_and_conditions' | 'default_short';
@@ -20,6 +22,8 @@ interface ProposalDraftInput {
     overheadAmount: number;
     profitAmount: number;
     taxAmount: number;
+    materialLoadedSubtotal?: number;
+    laborLoadedSubtotal?: number;
     baseBidTotal: number;
     conditionAssumptions: string[];
   } | null;
@@ -28,6 +32,11 @@ interface ProposalDraftInput {
 
 function asText(value: unknown): string {
   return String(value ?? '').trim();
+}
+
+function safeCustomerProposalBlock(text: unknown, fallback: string): string {
+  const t = asText(text);
+  return t && isPlausibleCustomerFacingProposalText(t) ? t : fallback;
 }
 
 function summarizeLines(lines: TakeoffLineRecord[]): Array<Record<string, unknown>> {
@@ -61,31 +70,60 @@ export async function generateProposalDraftFromGemini(input: ProposalDraftInput)
   const ai = new GoogleGenAI({ apiKey });
   const mode = input.mode || 'default_short';
   const lines = Array.isArray(input.lines) ? input.lines : [];
-  const assumptions = Array.isArray(input.summary?.conditionAssumptions) ? input.summary?.conditionAssumptions : [];
+  const structuredTexts = (input.project?.structuredAssumptions ?? [])
+    .map((a) => String(a.text || '').trim())
+    .filter(Boolean);
+  const structuredKey = new Set(structuredTexts.map((t) => t.toLowerCase()));
+  const summaryAssumptions = Array.isArray(input.summary?.conditionAssumptions) ? input.summary!.conditionAssumptions : [];
+  const extraSummary = summaryAssumptions.filter((t) => {
+    const s = String(t || '').trim();
+    return s && !structuredKey.has(s.toLowerCase());
+  });
+  const assumptions = [...structuredTexts, ...extraSummary];
 
-  const prompt = [
-    'You are a construction estimator proposal writing assistant.',
-    'Draft concise, professional proposal language from the estimate data provided.',
-    'Use the estimate data as source material. Do not invent scope that is not supported by the input.',
-    'Keep the language client-facing and commercially usable.',
-    'Keep all wording short, plain, and easy to scan.',
-    'Avoid long paragraphs, legal boilerplate, and repetitive phrasing.',
-    mode === 'scope_summary'
-      ? 'Focus on drafting a short scope summary for the proposal intro field. Use no more than two short sentences.'
-      : mode === 'default_short'
-        ? 'Draft a short default proposal pack. Keep the intro to one short paragraph. Keep terms, exclusions, and clarifications to three short lines each. Return a short acceptance label suitable for signature.'
+  const modeInstruction = mode === 'scope_summary'
+    ? 'Focus on drafting a short scope summary for the proposal intro field. Use no more than two short sentences.'
+    : mode === 'default_short'
+      ? 'Draft a short default proposal pack. Keep the intro to one short paragraph. Keep terms, exclusions, and clarifications to three short lines each. Return a short acceptance label suitable for signature.'
       : mode === 'terms_and_conditions'
         ? 'Improve the proposal terms, exclusions, and clarifications using the estimate scope and project assumptions. Keep them short and practical. Keep the proposal intro unchanged unless necessary.'
-        : 'Draft proposal intro, terms, exclusions, and clarifications. Improve readability while preserving practical construction assumptions, and keep each field concise.',
-    '',
-    `Project Name: ${input.project.projectName}`,
-    `Client: ${input.project.clientName || ''}`,
-    `Address: ${input.project.address || ''}`,
-    `Pricing Mode: ${input.project.pricingMode || 'labor_and_material'}`,
-    `Base Bid Total: ${input.summary?.baseBidTotal || 0}`,
-    `Estimated Work Weeks: ${input.summary?.durationWeeks || 0}`,
-    `Duration Days: ${input.summary?.durationDays || 0}`,
-    assumptions.length ? `Project Assumptions: ${assumptions.join('; ')}` : 'Project Assumptions: none stated',
+        : 'Draft proposal intro, terms, exclusions, and clarifications. Improve readability while preserving practical construction assumptions, and keep each field concise.';
+
+  const sharedPrompt = buildGeminiSummaryPrompt({
+    mode: 'customer_proposal',
+    projectName: input.project.projectName,
+    clientName: input.project.clientName || '',
+    location: input.project.address || '',
+    bidDate: input.project.bidDate || input.project.proposalDate || input.project.dueDate || '',
+    totalLaborHours: input.summary?.totalLaborHours || 0,
+    totalDays: input.summary?.durationDays || 0,
+    materialTotal: (input.summary?.materialLoadedSubtotal ?? input.summary?.materialSubtotal) ?? 0,
+    laborTotal:
+      input.summary?.laborLoadedSubtotal ??
+      input.summary?.adjustedLaborSubtotal ??
+      input.summary?.laborSubtotal ??
+      0,
+    proposalTotal: input.summary?.baseBidTotal || 0,
+    assumptions,
+    scopeLines: summarizeLines(lines).map((line) => JSON.stringify(line)),
+    specialNotes: [
+      asText(input.settings?.proposalIntro),
+      asText(input.settings?.proposalTerms),
+      asText(input.settings?.proposalExclusions),
+      asText(input.settings?.proposalClarifications),
+    ].filter(Boolean),
+  });
+
+  const prompt = [
+    sharedPrompt,
+    'Formatting requirements are strict:',
+    '- Keep output concise, professional, and client-facing.',
+    '- Do not produce long sentence-heavy explanations.',
+    '- Proposal line-item rendering is item name + quantity only.',
+    '- Keep material cost and labor cost clearly separated.',
+    '- Do not add per-line time wording; duration appears only at overall total level.',
+    '- When duration is referenced, use days or weeks (never hours).',
+    modeInstruction,
     `Current Proposal Intro: ${asText(input.settings?.proposalIntro)}`,
     `Current Proposal Terms: ${asText(input.settings?.proposalTerms)}`,
     `Current Proposal Exclusions: ${asText(input.settings?.proposalExclusions)}`,
@@ -96,7 +134,6 @@ export async function generateProposalDraftFromGemini(input: ProposalDraftInput)
     `Default Exclusions: ${DEFAULT_PROPOSAL_EXCLUSIONS}`,
     `Default Clarifications: ${DEFAULT_PROPOSAL_CLARIFICATIONS}`,
     `Default Acceptance Label: ${DEFAULT_PROPOSAL_ACCEPTANCE_LABEL}`,
-    `Estimate Line Snapshot: ${JSON.stringify(summarizeLines(lines))}`,
   ].join('\n');
 
   const response = await ai.models.generateContent({
@@ -126,33 +163,33 @@ export async function generateProposalDraftFromGemini(input: ProposalDraftInput)
 
   if (mode === 'scope_summary') {
     return {
-      proposalIntro: asText(parsed.proposalIntro) || DEFAULT_PROPOSAL_INTRO,
+      proposalIntro: safeCustomerProposalBlock(parsed.proposalIntro, DEFAULT_PROPOSAL_INTRO),
     };
   }
 
   if (mode === 'terms_and_conditions') {
     return {
-      proposalTerms: asText(parsed.proposalTerms) || DEFAULT_PROPOSAL_TERMS,
-      proposalExclusions: asText(parsed.proposalExclusions) || DEFAULT_PROPOSAL_EXCLUSIONS,
-      proposalClarifications: asText(parsed.proposalClarifications) || DEFAULT_PROPOSAL_CLARIFICATIONS,
+      proposalTerms: safeCustomerProposalBlock(parsed.proposalTerms, DEFAULT_PROPOSAL_TERMS),
+      proposalExclusions: safeCustomerProposalBlock(parsed.proposalExclusions, DEFAULT_PROPOSAL_EXCLUSIONS),
+      proposalClarifications: safeCustomerProposalBlock(parsed.proposalClarifications, DEFAULT_PROPOSAL_CLARIFICATIONS),
     };
   }
 
   if (mode === 'default_short') {
     return {
-      proposalIntro: asText(parsed.proposalIntro) || DEFAULT_PROPOSAL_INTRO,
-      proposalTerms: asText(parsed.proposalTerms) || DEFAULT_PROPOSAL_TERMS,
-      proposalExclusions: asText(parsed.proposalExclusions) || DEFAULT_PROPOSAL_EXCLUSIONS,
-      proposalClarifications: asText(parsed.proposalClarifications) || DEFAULT_PROPOSAL_CLARIFICATIONS,
+      proposalIntro: safeCustomerProposalBlock(parsed.proposalIntro, DEFAULT_PROPOSAL_INTRO),
+      proposalTerms: safeCustomerProposalBlock(parsed.proposalTerms, DEFAULT_PROPOSAL_TERMS),
+      proposalExclusions: safeCustomerProposalBlock(parsed.proposalExclusions, DEFAULT_PROPOSAL_EXCLUSIONS),
+      proposalClarifications: safeCustomerProposalBlock(parsed.proposalClarifications, DEFAULT_PROPOSAL_CLARIFICATIONS),
       proposalAcceptanceLabel: asText(parsed.proposalAcceptanceLabel) || DEFAULT_PROPOSAL_ACCEPTANCE_LABEL,
     };
   }
 
   return {
-    proposalIntro: asText(parsed.proposalIntro) || DEFAULT_PROPOSAL_INTRO,
-    proposalTerms: asText(parsed.proposalTerms) || DEFAULT_PROPOSAL_TERMS,
-    proposalExclusions: asText(parsed.proposalExclusions) || DEFAULT_PROPOSAL_EXCLUSIONS,
-    proposalClarifications: asText(parsed.proposalClarifications) || DEFAULT_PROPOSAL_CLARIFICATIONS,
+    proposalIntro: safeCustomerProposalBlock(parsed.proposalIntro, DEFAULT_PROPOSAL_INTRO),
+    proposalTerms: safeCustomerProposalBlock(parsed.proposalTerms, DEFAULT_PROPOSAL_TERMS),
+    proposalExclusions: safeCustomerProposalBlock(parsed.proposalExclusions, DEFAULT_PROPOSAL_EXCLUSIONS),
+    proposalClarifications: safeCustomerProposalBlock(parsed.proposalClarifications, DEFAULT_PROPOSAL_CLARIFICATIONS),
     proposalAcceptanceLabel: asText(parsed.proposalAcceptanceLabel) || DEFAULT_PROPOSAL_ACCEPTANCE_LABEL,
   };
 }

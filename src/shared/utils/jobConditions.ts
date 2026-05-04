@@ -1,13 +1,37 @@
 import { GlobalModifierImpact, ProjectConditions, ProjectJobConditions, ProjectRecord } from '../types/estimator';
 import { formatCurrencySafe, formatNumberSafe, formatPercentSafe } from '../../utils/numberFormat';
 
+/**
+ * Default field-schedule fields. Install minute totals on lines are "hands-on" work; calendar duration
+ * uses per-installer paid hours minus breaks and {@link ProjectJobConditions.fieldSetupCleanupHoursPerInstallerDay}
+ * to compute crew capacity (productive crew-hr / day = per-installer install capacity × crew size).
+ */
+export const OFFICE_FIELD_SCHEDULE_DEFAULTS: Pick<
+  ProjectJobConditions,
+  | 'installerPaidDayHours'
+  | 'dailyBreakHoursPerInstaller'
+  | 'fieldSetupCleanupHoursPerInstallerDay'
+  | 'laborLearningCurvePercent'
+  | 'materialWastePercent'
+  | 'installerFieldSuppliesPercent'
+  | 'installerFieldSuppliesFlat'
+> = {
+  installerPaidDayHours: 8,
+  dailyBreakHoursPerInstaller: 0,
+  fieldSetupCleanupHoursPerInstallerDay: 1,
+  laborLearningCurvePercent: 0,
+  materialWastePercent: 0,
+  installerFieldSuppliesPercent: 0,
+  installerFieldSuppliesFlat: 0,
+};
+
 const DEFAULT_JOB_CONDITIONS: ProjectJobConditions = {
   locationLabel: '',
   travelDistanceMiles: null,
   installerCount: 1,
   locationTaxPercent: null,
   unionWage: false,
-  unionWageMultiplier: 0.18,
+  unionWageMultiplier: 0,
   prevailingWage: false,
   prevailingWageMultiplier: 0.15,
   laborRateBasis: 'union',
@@ -20,7 +44,7 @@ const DEFAULT_JOB_CONDITIONS: ProjectJobConditions = {
   restrictedAccess: false,
   restrictedAccessMultiplier: 0.1,
   afterHoursWork: false,
-  afterHoursMultiplier: 0.12,
+  afterHoursMultiplier: 0,
   nightWork: false,
   nightWorkLaborCostMultiplier: 0.18,
   nightWorkLaborMinutesMultiplier: 0.12,
@@ -33,6 +57,7 @@ const DEFAULT_JOB_CONDITIONS: ProjectJobConditions = {
   deliveryValue: 0,
   deliveryLeadDays: 0,
   deliveryAutoCalculated: true,
+  deliveryQuotedSeparately: false,
   smallJobFactor: false,
   smallJobMultiplier: 0.06,
   mobilizationComplexity: 'low',
@@ -40,12 +65,45 @@ const DEFAULT_JOB_CONDITIONS: ProjectJobConditions = {
   remoteTravelMultiplier: 0.09,
   scheduleCompression: false,
   scheduleCompressionMultiplier: 0.1,
+  performanceBondRequired: false,
+  performanceBondPercent: 0,
   estimateAdderPercent: 0,
   estimateAdderAmount: 0,
+  ...OFFICE_FIELD_SCHEDULE_DEFAULTS,
+  fieldSetupCleanupHoursPerInstallerDay: 0,
 };
 
 export function createDefaultProjectJobConditions(): ProjectJobConditions {
   return { ...DEFAULT_JOB_CONDITIONS };
+}
+
+/** First percentage like `5%` or `5.5 %` in text; for bond / fee cues from intake. */
+export function extractLeadingPercentFromText(text: string): number | null {
+  const m = String(text || '').match(/(\d+(?:\.\d+)?)\s*%/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n < 0 || n > 100) return null;
+  return n;
+}
+
+export function bondJobConditionsPatchFromAssumptions(
+  assumptions: Array<{ kind: string; text: string }>
+): Partial<ProjectJobConditions> {
+  const out: Partial<ProjectJobConditions> = {};
+  for (const a of assumptions) {
+    if (a.kind !== 'bond') continue;
+    out.performanceBondRequired = true;
+    const p = extractLeadingPercentFromText(a.text);
+    if (p !== null) out.performanceBondPercent = p;
+  }
+  return out;
+}
+
+/** True when travel miles should appear in proposal / assumption copy (omit null and zero — not customer-useful). */
+export function isMeaningfulTravelDistanceMiles(miles: number | null | undefined): miles is number {
+  if (miles === null || miles === undefined) return false;
+  const n = Number(miles);
+  return Number.isFinite(n) && n > 0;
 }
 
 export function normalizeProjectJobConditions(input?: Partial<ProjectJobConditions> | null): ProjectJobConditions {
@@ -66,17 +124,38 @@ export function normalizeProjectJobConditions(input?: Partial<ProjectJobConditio
   const phasedWorkPhases = Number(merged.phasedWorkPhases);
   const deliveryLeadDays = Number(merged.deliveryLeadDays);
   const nightWork = Boolean((merged as Partial<ProjectJobConditions>).nightWork ?? merged.afterHoursWork);
-  const prevailingWage = Boolean(merged.prevailingWage || merged.laborRateBasis === 'prevailing');
   const numeric = (value: unknown, fallback: number) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
   };
 
+  const installerPaidDayHours = clampHours(
+    numeric((merged as Partial<ProjectJobConditions>).installerPaidDayHours, DEFAULT_JOB_CONDITIONS.installerPaidDayHours),
+    4,
+    12
+  );
+  const dailyBreakHoursPerInstaller = clampBreakHours(
+    numeric((merged as Partial<ProjectJobConditions>).dailyBreakHoursPerInstaller, DEFAULT_JOB_CONDITIONS.dailyBreakHoursPerInstaller),
+    installerPaidDayHours
+  );
+  const rawFieldSetup = numeric(
+    (merged as Partial<ProjectJobConditions>).fieldSetupCleanupHoursPerInstallerDay,
+    DEFAULT_JOB_CONDITIONS.fieldSetupCleanupHoursPerInstallerDay
+  );
+  const maxSetupForDay = Math.max(0, installerPaidDayHours - dailyBreakHoursPerInstaller - 0.25);
+  const fieldSetupCleanupHoursPerInstallerDay = Math.max(0, Math.min(6, rawFieldSetup, maxSetupForDay));
+
+  const performanceBondPercent = clampPercent(
+    numeric((merged as Partial<ProjectJobConditions>).performanceBondPercent, DEFAULT_JOB_CONDITIONS.performanceBondPercent),
+    0,
+    100
+  );
+
   return {
     ...merged,
     unionWage: false,
-    prevailingWage,
-    laborRateBasis: prevailingWage ? 'prevailing' : 'union',
+    prevailingWage: false,
+    laborRateBasis: 'union',
     laborRateMultiplier: Number.isFinite(laborRateMultiplier) && laborRateMultiplier > 0 ? laborRateMultiplier : 1,
     floors: Number.isFinite(floors) && floors > 0 ? Math.round(floors) : 1,
     installerCount: Number.isFinite(installerCount) && installerCount > 0 ? Math.round(installerCount) : 1,
@@ -87,13 +166,13 @@ export function normalizeProjectJobConditions(input?: Partial<ProjectJobConditio
     locationTaxPercent: locationTaxPercent !== null && Number.isFinite(locationTaxPercent)
       ? locationTaxPercent
       : null,
-    unionWageMultiplier: numeric(merged.unionWageMultiplier, DEFAULT_JOB_CONDITIONS.unionWageMultiplier),
+    unionWageMultiplier: 0,
     prevailingWageMultiplier: numeric(merged.prevailingWageMultiplier, DEFAULT_JOB_CONDITIONS.prevailingWageMultiplier),
     floorMultiplierPerFloor: numeric(merged.floorMultiplierPerFloor, DEFAULT_JOB_CONDITIONS.floorMultiplierPerFloor),
     occupiedBuildingMultiplier: numeric(merged.occupiedBuildingMultiplier, DEFAULT_JOB_CONDITIONS.occupiedBuildingMultiplier),
     restrictedAccessMultiplier: numeric(merged.restrictedAccessMultiplier, DEFAULT_JOB_CONDITIONS.restrictedAccessMultiplier),
     afterHoursWork: false,
-    afterHoursMultiplier: numeric(merged.afterHoursMultiplier, DEFAULT_JOB_CONDITIONS.afterHoursMultiplier),
+    afterHoursMultiplier: 0,
     nightWork,
     nightWorkLaborCostMultiplier: numeric(
       (merged as Partial<ProjectJobConditions>).nightWorkLaborCostMultiplier ?? merged.afterHoursMultiplier,
@@ -109,8 +188,107 @@ export function normalizeProjectJobConditions(input?: Partial<ProjectJobConditio
     smallJobMultiplier: numeric(merged.smallJobMultiplier, DEFAULT_JOB_CONDITIONS.smallJobMultiplier),
     remoteTravelMultiplier: numeric(merged.remoteTravelMultiplier, DEFAULT_JOB_CONDITIONS.remoteTravelMultiplier),
     scheduleCompressionMultiplier: numeric(merged.scheduleCompressionMultiplier, DEFAULT_JOB_CONDITIONS.scheduleCompressionMultiplier),
+    performanceBondRequired: Boolean((merged as Partial<ProjectJobConditions>).performanceBondRequired),
+    performanceBondPercent,
     estimateAdderPercent: Number.isFinite(Number(merged.estimateAdderPercent)) ? Number(merged.estimateAdderPercent) : 0,
     estimateAdderAmount: Number.isFinite(Number(merged.estimateAdderAmount)) ? Number(merged.estimateAdderAmount) : 0,
+    deliveryQuotedSeparately: Boolean((merged as Partial<ProjectJobConditions>).deliveryQuotedSeparately),
+    installerPaidDayHours,
+    dailyBreakHoursPerInstaller,
+    fieldSetupCleanupHoursPerInstallerDay,
+    laborLearningCurvePercent: clampPercent(
+      numeric((merged as Partial<ProjectJobConditions>).laborLearningCurvePercent, DEFAULT_JOB_CONDITIONS.laborLearningCurvePercent),
+      0,
+      100
+    ),
+    materialWastePercent: clampPercent(
+      numeric((merged as Partial<ProjectJobConditions>).materialWastePercent, DEFAULT_JOB_CONDITIONS.materialWastePercent),
+      0,
+      100
+    ),
+    installerFieldSuppliesPercent: clampPercent(
+      numeric((merged as Partial<ProjectJobConditions>).installerFieldSuppliesPercent, DEFAULT_JOB_CONDITIONS.installerFieldSuppliesPercent),
+      0,
+      100
+    ),
+    installerFieldSuppliesFlat: Math.max(
+      0,
+      numeric((merged as Partial<ProjectJobConditions>).installerFieldSuppliesFlat, DEFAULT_JOB_CONDITIONS.installerFieldSuppliesFlat)
+    ),
+  };
+}
+
+function clampHours(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+}
+
+function clampBreakHours(breakH: number, paidDay: number): number {
+  if (!Number.isFinite(breakH) || breakH <= 0) return 0;
+  const paid = Number.isFinite(paidDay) && paidDay > 0 ? paidDay : 8;
+  return Math.min(Math.max(0, breakH), Math.max(0, paid - 0.25));
+}
+
+function clampPercent(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+}
+
+export function recommendedPhasedWorkMultiplier(phaseCount: number): number {
+  const normalizedPhaseCount = Number.isFinite(phaseCount) && phaseCount > 1 ? Math.round(phaseCount) : 1;
+  return Number((Math.max(0, normalizedPhaseCount - 1) * 0.07).toFixed(2));
+}
+
+const DELIVERY_FLAT_FEE_MILES_MIN = 50;
+const DELIVERY_FLAT_FEE_MILES_MAX = 100;
+const DELIVERY_FLAT_FEE_AMOUNT = 100;
+
+/**
+ * Auto delivery vs distance: no fee under 50 mi; $100 flat for 50–100 mi; over 100 mi no estimate adder — travel priced separately.
+ */
+export function recommendDeliveryPlan(distanceMiles: number | null | undefined, difficulty: ProjectJobConditions['deliveryDifficulty'] = 'standard') {
+  if (distanceMiles === null || distanceMiles === undefined || !Number.isFinite(distanceMiles) || distanceMiles < 0) {
+    return {
+      deliveryRequired: false,
+      deliveryPricingMode: 'included' as const,
+      deliveryValue: 0,
+      deliveryLeadDays: 0,
+      deliveryQuotedSeparately: false,
+    };
+  }
+
+  let leadDayOffset = 0;
+  if (difficulty === 'constrained') leadDayOffset = 1;
+  if (difficulty === 'difficult') leadDayOffset = 2;
+
+  const distanceLeadDays = distanceMiles <= 25 ? 1 : distanceMiles <= 60 ? 2 : distanceMiles <= 120 ? 3 : distanceMiles <= 250 ? 5 : 7;
+
+  if (distanceMiles < DELIVERY_FLAT_FEE_MILES_MIN) {
+    return {
+      deliveryRequired: false,
+      deliveryPricingMode: 'included' as const,
+      deliveryValue: 0,
+      deliveryLeadDays: 0,
+      deliveryQuotedSeparately: false,
+    };
+  }
+
+  if (distanceMiles > DELIVERY_FLAT_FEE_MILES_MAX) {
+    return {
+      deliveryRequired: true,
+      deliveryPricingMode: 'included' as const,
+      deliveryValue: 0,
+      deliveryLeadDays: distanceLeadDays + leadDayOffset,
+      deliveryQuotedSeparately: true,
+    };
+  }
+
+  return {
+    deliveryRequired: true,
+    deliveryPricingMode: 'flat' as const,
+    deliveryValue: DELIVERY_FLAT_FEE_AMOUNT,
+    deliveryLeadDays: distanceLeadDays + leadDayOffset,
+    deliveryQuotedSeparately: false,
   };
 }
 
@@ -231,10 +409,6 @@ export function computeProjectConditionEffects(
   let directAdjustmentAmount = 0;
   const assumptions: string[] = [];
 
-  if (job.prevailingWage || job.laborRateBasis === 'prevailing') {
-    multipliers = addSharedMultiplierAdjustment(true, job.prevailingWageMultiplier, multipliers, assumptions, `Prevailing wage labor premium applied (x${formatNumberSafe(1 + job.prevailingWageMultiplier, 2)}).`);
-  }
-
   if (job.floors > 1) {
     const floorIncrement = (job.floors - 1) * job.floorMultiplierPerFloor;
     multipliers = addSharedMultiplierAdjustment(true, floorIncrement, multipliers, assumptions, `Multi-floor execution adjustment (${job.floors} floors at ${formatPercentSafe(job.floorMultiplierPerFloor * 100)} per added floor).`);
@@ -305,19 +479,30 @@ export function computeProjectConditionEffects(
   }
 
   if (job.deliveryRequired) {
-    if (job.deliveryPricingMode === 'flat' && job.deliveryValue !== 0) {
+    if (job.deliveryQuotedSeparately) {
+      if (isMeaningfulTravelDistanceMiles(job.travelDistanceMiles)) {
+        const miles = job.travelDistanceMiles as number;
+        assumptions.push(
+          `Job site is approximately ${formatNumberSafe(miles, 1)} miles from the office. Delivery and travel will be priced separately and are not included in this estimate total.`
+        );
+      } else {
+        assumptions.push('Delivery and travel will be priced separately and are not included in this estimate total.');
+      }
+    } else if (job.deliveryPricingMode === 'flat' && job.deliveryValue !== 0) {
       directAdjustmentAmount += job.deliveryValue;
       assumptions.push(`Delivery allowance added as a flat amount (${formatCurrencySafe(job.deliveryValue)}).`);
-    }
-
-    if (job.deliveryPricingMode === 'percent' && job.deliveryValue !== 0) {
+    } else if (job.deliveryPricingMode === 'percent' && job.deliveryValue !== 0) {
       const deliveryPercentAmount = baseLineSubtotal * (job.deliveryValue / 100);
       directAdjustmentAmount += deliveryPercentAmount;
       assumptions.push(`Delivery allowance added at ${formatPercentSafe(job.deliveryValue)} of base pricing.`);
+    } else if (job.deliveryPricingMode === 'included' || job.deliveryValue === 0) {
+      if (!job.deliveryQuotedSeparately) {
+        assumptions.push('Delivery scope is included with no separate pricing adder.');
+      }
     }
 
-    if (job.deliveryPricingMode === 'included' || job.deliveryValue === 0) {
-      assumptions.push('Delivery scope is included with no separate pricing adder.');
+    if (job.deliveryLeadDays > 0) {
+      assumptions.push(`Estimated delivery lead time: ${job.deliveryLeadDays} business day${job.deliveryLeadDays === 1 ? '' : 's'}.`);
     }
 
     if (job.deliveryLeadDays > 0) {
@@ -336,8 +521,9 @@ export function computeProjectConditionEffects(
     assumptions.push(`Location condition: ${job.locationLabel.trim()}.`);
   }
 
-  if (job.travelDistanceMiles !== null) {
-    assumptions.push(`Approximate job distance from office: ${formatNumberSafe(job.travelDistanceMiles, 1)} miles.`);
+  const travelMiles = job.travelDistanceMiles;
+  if (isMeaningfulTravelDistanceMiles(travelMiles) && !(job.deliveryRequired && job.deliveryQuotedSeparately)) {
+    assumptions.push(`Approximate job distance from office: ${formatNumberSafe(travelMiles, 1)} miles.`);
   }
 
   if (job.installerCount > 1) {
@@ -346,8 +532,18 @@ export function computeProjectConditionEffects(
 
   const laborAdjustmentAmount = (laborSubtotal * multipliers.cost) - laborSubtotal;
   const percentAdderAmount = baseLineSubtotal * (job.estimateAdderPercent / 100);
-  const estimateAdderAmount = percentAdderAmount + job.estimateAdderAmount + directAdjustmentAmount;
-  const taxPercentApplied = job.locationTaxPercent ?? project.taxPercent;
+  const bondAdderAmount =
+    job.performanceBondRequired && job.performanceBondPercent > 0
+      ? baseLineSubtotal * (job.performanceBondPercent / 100)
+      : 0;
+  if (bondAdderAmount > 0) {
+    assumptions.push(
+      `Performance/surety bond allowance (${formatPercentSafe(job.performanceBondPercent)} of base bid) included in condition adders.`
+    );
+  }
+  const estimateAdderAmount = percentAdderAmount + job.estimateAdderAmount + directAdjustmentAmount + bondAdderAmount;
+  const rawMaterialTaxPercent = job.locationTaxPercent ?? project.taxPercent;
+  const taxPercentApplied = materialSubtotal > 0 ? rawMaterialTaxPercent : 0;
 
   if (job.estimateAdderPercent !== 0) {
     assumptions.push(`Project condition adder (${formatPercentSafe(job.estimateAdderPercent)}) applied.`);
@@ -358,11 +554,15 @@ export function computeProjectConditionEffects(
   }
 
   if (job.locationTaxPercent !== null) {
-    assumptions.push(`Location tax override (${formatPercentSafe(job.locationTaxPercent)}) applied.`);
-  }
-
-  if (materialSubtotal <= 0 && taxPercentApplied > 0) {
-    assumptions.push('Material tax not applied because material pricing mode is disabled.');
+    if (materialSubtotal > 0) {
+      assumptions.push(`Location tax override (${formatPercentSafe(job.locationTaxPercent)}) applied to material.`);
+    } else {
+      assumptions.push(
+        `Location tax override (${formatPercentSafe(job.locationTaxPercent)}) not applied (no material scope in this estimate).`
+      );
+    }
+  } else if (materialSubtotal <= 0 && project.taxPercent > 0) {
+    assumptions.push('Material tax not applied (no material scope in this estimate).');
   }
 
   return {
@@ -381,7 +581,6 @@ export function buildProjectConditionSummaryLines(jobConditions?: Partial<Projec
   const job = normalizeProjectJobConditions(jobConditions);
   const lines: string[] = [];
 
-  if (job.prevailingWage || job.laborRateBasis === 'prevailing') lines.push(`Prevailing wage requirements were included at x${formatNumberSafe(1 + job.prevailingWageMultiplier, 2)} labor.`);
   if (job.nightWork) {
     if (job.nightWorkLaborCostMultiplier !== 0 && job.nightWorkLaborMinutesMultiplier !== 0) {
       lines.push(`Night work applies to all scoped items at x${formatNumberSafe(1 + job.nightWorkLaborCostMultiplier, 2)} labor cost and x${formatNumberSafe(1 + job.nightWorkLaborMinutesMultiplier, 2)} labor hours.`);
@@ -398,16 +597,36 @@ export function buildProjectConditionSummaryLines(jobConditions?: Partial<Projec
   if (job.scheduleCompression) lines.push(`Schedule compression assumptions are included at x${formatNumberSafe(1 + job.scheduleCompressionMultiplier, 2)} labor.`);
   if (job.floors > 1) lines.push(`Multi-floor access assumptions were included (${job.floors} floors).`);
   if (job.deliveryRequired) {
-    if (job.deliveryPricingMode === 'flat' && job.deliveryValue !== 0) lines.push(`Delivery was included as a flat allowance of ${formatCurrencySafe(job.deliveryValue)}.`);
-    if (job.deliveryPricingMode === 'percent' && job.deliveryValue !== 0) lines.push(`Delivery was included as a ${formatPercentSafe(job.deliveryValue)} allowance.`);
-    if (job.deliveryPricingMode === 'included' || job.deliveryValue === 0) lines.push('Delivery was included with no separate line-item allowance.');
+    if (job.deliveryQuotedSeparately) {
+      if (isMeaningfulTravelDistanceMiles(job.travelDistanceMiles)) {
+        const miles = job.travelDistanceMiles as number;
+        lines.push(
+          `Approximately ${formatNumberSafe(miles, 1)} miles from the office: delivery and travel will be priced separately (not in this estimate total).`
+        );
+      } else {
+        lines.push('Delivery and travel will be priced separately (not in this estimate total).');
+      }
+    } else if (job.deliveryPricingMode === 'flat' && job.deliveryValue !== 0) {
+      lines.push(`Delivery was included as a flat allowance of ${formatCurrencySafe(job.deliveryValue)}.`);
+    } else if (job.deliveryPricingMode === 'percent' && job.deliveryValue !== 0) {
+      lines.push(`Delivery was included as a ${formatPercentSafe(job.deliveryValue)} allowance.`);
+    } else if ((job.deliveryPricingMode === 'included' || job.deliveryValue === 0) && !job.deliveryQuotedSeparately) {
+      lines.push('Delivery was included with no separate line-item allowance.');
+    }
     if (job.deliveryLeadDays > 0) lines.push(`Estimated delivery lead time is ${job.deliveryLeadDays} business day${job.deliveryLeadDays === 1 ? '' : 's'}.`);
   }
   if (job.estimateAdderPercent !== 0) lines.push(`Project-wide pricing adder of ${formatPercentSafe(job.estimateAdderPercent)} was included.`);
   if (job.estimateAdderAmount !== 0) lines.push(`Project-wide lump-sum adder of ${formatCurrencySafe(job.estimateAdderAmount)} was included.`);
+  if (job.performanceBondRequired && job.performanceBondPercent > 0) {
+    lines.push(
+      `Performance/surety bond allowance of ${formatPercentSafe(job.performanceBondPercent)} of the base bid was included.`
+    );
+  }
   if (job.locationLabel.trim()) lines.push(`Location assumptions: ${job.locationLabel.trim()}.`);
-  if (job.travelDistanceMiles !== null) lines.push(`Approximate travel distance from office: ${formatNumberSafe(job.travelDistanceMiles, 1)} miles.`);
+  const travelMilesForSummary = job.travelDistanceMiles;
+  if (isMeaningfulTravelDistanceMiles(travelMilesForSummary) && !(job.deliveryRequired && job.deliveryQuotedSeparately)) {
+    lines.push(`Approximate travel distance from office: ${formatNumberSafe(travelMilesForSummary, 1)} miles.`);
+  }
   if (job.installerCount > 1) lines.push(`Schedule planning assumes a ${job.installerCount}-installer crew.`);
-
   return lines;
 }

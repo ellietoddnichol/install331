@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "description": "Hidden-scope recipes (mirrors construction_semantics + hidden_scope_recipes in main knowledge JSON).",
+  "rules": [
+    {
+      "rule_id": "existing_wall_accessory_install",
+      "trigger_phrases": ["existing wall", "no site visit", "unknown substrate"],
+      "hidden_scope_tags": ["field_verify_substrate", "anchor_selection", "finish_protection"],
+      "assumption_if_not_priced": "Walls ready and reinforced where required unless noted."
+    },
+    {
+      "rule_id": "locker_run_with_fillers",
+      "trigger_phrases": ["filler", "end panel", "corner", "locker bank"],
+      "hidden_scope_tags": ["filler_fit", "scribe", "align_run", "anchor_wall"],
+      "assumption_if_not_priced": "Fillers per manufacturer layout only if shown."
+    },
+    {
+      "rule_id": "partition_existing_restroom",
+      "trigger_phrases": ["partition", "overhead braced", "floor mounted"],
+      "hidden_scope_tags": ["layout_verify", "floor_shim", "backing_check", "hardware_adjust"],
+      "assumption_if_not_priced": "Floors/walls true enough for standard install."
+    },
+    {
+      "rule_id": "cabinet_recess_condition",
+      "trigger_phrases": ["recessed", "semi-recessed", "semi recessed"],
+      "hidden_scope_tags": ["wall_depth_check", "cut_in_scope_split", "projection_ada"],
+      "assumption_if_not_priced": "Opening/framing by others unless proposal includes it."
+    }
+  ]
+}

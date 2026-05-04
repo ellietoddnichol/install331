@@ -1,0 +1,7 @@
+risk_type,detection_heuristic,CLEAN_ITEMS_columns_affected,recommended_owner_action,target_importer_change
+duplicate_sku_different_manufacturer,same_lower_sku_multiple_distinct_mfr_trimmed_rows,SKU;Manufacturer,reconcile SKU prefix OR use explicit Catalog_Item_ID (future),"preflight WARN/BLOCK clusters; eventual mfr+sku composite id segment"
+duplicate_sku_divergent_copy,same_lower_sku_inconsistent_category_or_high_desc_distance,SKU;Scope Category;Description,verify split SKUs vs single row typo,"warn on sync if category/description hash differs for same SKU"
+sku_absent_item_key_fallback,empty SKU non-empty Item Key,SKU;Item Key,make Item Keys immutable surrogate PK docs,"already lowercased stableKey limb"
+sku_and_item_key_absent_hash_id,SKU empty Item Key empty description-only row,SKU;Item Key;Description,clean up row or assign SKU/key,"preflight forbid publish-active rows without SKU/Item Key"
+weak_item_key_patterns,duplicate lower_item_key disparate descriptions,Item Key,investigate merges vs typos,"optional uniqueness preflight on normalized Item Key when SKU empty"
+hash_churn_sensitive_row,SKU empty hash stableKey from volatile description text,Category;Item;Description,freeze wording OR add SKU/key,"prefer stable workbook_uid column long-term"

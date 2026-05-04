@@ -1,19 +1,22 @@
+/**
+ * Legacy shared types. This file previously held a large grab-bag of front-end
+ * models (`Project`, `Scope`, `UserProfile`, `EstimateResult`, `ProjectSettings`,
+ * `ProposalSettings`, `ProjectStatus`, `Room`, `Alternate`, `Bundle`,
+ * `ProjectLine`, `CalculatedLine`, `GroupSummary`, `AddIn`, `Modifier`,
+ * `ModifierGroup`) that were never imported anywhere after the v1 intake/takeoff
+ * pipeline landed.
+ *
+ * Today only `CatalogItem` and `UOM` are referenced by the live code (see
+ * `npm run lint` / import graph). All authoritative project / takeoff / modifier
+ * shapes live in `src/shared/types/estimator.ts` alongside `TakeoffLineRecord`.
+ * Keeping the duplicates around was causing type drift between the new pipeline
+ * and the old pre-v1 UI (Phase 0.5 of the data-integrity cleanup).
+ */
 
 export type UOM = 'EA' | 'LF' | 'SF' | 'CY' | 'HR';
 
-export interface Modifier {
-  id: string;
-  name: string;
-  priceAdjustment: number;
-  laborAdjustment: number;
-}
-
-export interface ModifierGroup {
-  id: string;
-  name: string;
-  options: Modifier[];
-  required?: boolean;
-}
+export type CatalogRecordGranularity = 'component' | 'system_canonical';
+export type CatalogPrivacyLevel = 'standard' | 'enhanced' | 'full_height';
 
 export interface CatalogItem {
   id: string;
@@ -23,8 +26,14 @@ export interface CatalogItem {
   family?: string;
   description: string;
   manufacturer?: string;
+  /** Commercial / go-to-market brand line (may match manufacturer or a sub-brand). */
+  brand?: string;
   model?: string;
-  /** Product / cut sheet image (https URL). */
+  /** Full manufacturer catalog or part model number (distinct from short `model` label when both used). */
+  modelNumber?: string;
+  /** Product family / series / collection name. */
+  series?: string;
+  /** URL for a product image (https, CDN, or in-app path); optional. */
   imageUrl?: string;
   uom: UOM;
   baseMaterialCost: number;
@@ -35,193 +44,86 @@ export interface CatalogItem {
   tags?: string[];
   notes?: string;
   active: boolean;
+  /**
+   * Optional install-labor-family key used for fallback install pricing when an intake row
+   * is flagged as installable scope but no exact SKU/labor is present in the catalog. Values
+   * must match keys in `src/server/services/intake/installLaborFamilies.ts`.
+   */
+  installLaborFamily?: string | null;
+
+  /**
+   * Transitional canonicalization fields (Phase 4/5 hardening).
+   *
+   * Goal: move toward one canonical “real item” row + optional alias/attribute rows
+   * without breaking current catalog reads. Existing UI continues to primarily key off
+   * `sku` until canonicalization is fully wired end-to-end.
+   */
+  canonicalSku?: string | null;
+  isCanonical?: boolean;
+  /** If this row is an alias/attribute record, points to the canonical item's id (transitional). */
+  aliasOf?: string | null;
+  /** Human-readable labor basis (e.g. per_each, per_set, per_lf). */
+  laborBasis?: string | null;
+  /** Mounting / install modality (e.g. surface, recessed). */
+  defaultMountingType?: string | null;
+  /** Finish grouping key (e.g. SS/CH/PB), used to collapse duplicate finish rows. */
+  finishGroup?: string | null;
+  /** Attribute family key for variant logic (size/length/handing). */
+  attributeGroup?: string | null;
+  /** Groups near-duplicate rows for safe collapse/backfill. */
+  duplicateGroupKey?: string | null;
+  /** Soft deprecation flag for legacy/duplicate rows. */
+  deprecated?: boolean;
+  deprecatedReason?: string | null;
+
+  /**
+   * Governed system/catalog metadata (partitions and other configurable systems).
+   * Additive only: consumers can ignore these fields safely.
+   */
+  recordGranularity?: CatalogRecordGranularity | null;
+  materialFamily?: string | null;
+  systemSeries?: string | null;
+  privacyLevel?: CatalogPrivacyLevel | null;
+  manufacturerConfiguredItem?: boolean;
+  canonicalMatchAnchor?: boolean;
+  exactComponentSku?: boolean;
+  requiresProjectConfiguration?: boolean;
+  defaultUnit?: string | null;
+  estimatorNotes?: string | null;
+
+  /** Google Sheet sync provenance / normalization (optional; additive). */
+  catalogSource?: string | null;
+  catalogSourceTab?: string | null;
+  catalogSourceRow?: number | null;
+  catalogSyncBatchId?: string | null;
+  skuNormalized?: string | null;
+  manufacturerNormalized?: string | null;
+  /** Coarse estimator bucket (see `catalogNormalization.mapCategoryMain`). */
+  categoryMain?: string | null;
+  itemType?: string | null;
 }
 
-export interface ProjectSettings {
-  laborRate: number;
-  taxRate: number;
-  overheadPct: number;
-  profitPct: number;
-  laborBurdenPct: number;
-  workDayHours: number;
-  crewSize: number;
-  
-  selectedConditions: {
-    union: boolean;
-    prevailing: boolean;
-    remote: boolean;
-    night: boolean;
-    occupied: boolean;
-    remodel: boolean;
-    phased: boolean;
-  };
-  
-  conditionMultipliers: {
-    union: number;
-    prevailing: number;
-    remote: number;
-    night: number;
-    occupied: number;
-    remodel: number;
-    phased: number;
-  };
+export type CatalogAliasType = 'legacy_sku' | 'vendor_sku' | 'parser_phrase' | 'generic_name' | 'search_key';
 
-  projectSize: 'Small' | 'Medium' | 'Large';
-  floorLevel: 'Ground' | '2-3' | '4+';
-  distanceFromDrop: '0-50' | '50-150' | '150+';
-  accessDifficulty: 'Easy' | 'Moderate' | 'Difficult';
-  installationHeight: 'Under 8' | '8-12' | '12-16' | '16+';
-  materialHandling: 'Forklift' | 'Manual' | 'Multiple Moves';
-  wallSubstrate: 'Drywall' | 'CMU' | 'Concrete' | 'Tile';
-  layoutComplexity: 'Standard' | 'Irregular' | 'Custom';
-  travelSurcharge?: number;
-}
-
-export interface AddIn {
+export interface CatalogItemAlias {
   id: string;
-  name: string;
-  cost: number;
-  laborMinutes: number;
-  isActive: boolean;
+  catalogItemId: string;
+  aliasType: CatalogAliasType;
+  aliasValue: string;
 }
 
-export interface ProjectLine {
-  lineId: string;
-  catalogItemId?: string;
-  manualDescription?: string;
-  scopeId: string;
-  roomId: string;
-  qty: number;
-  notes?: string;
-  alternateId?: string;
-  isRemoval?: boolean;
-  isRelocation?: boolean;
-  baseType?: 'Wood' | 'Metal' | 'Concrete' | 'None';
-  addIns?: AddIn[];
-  needsReview?: boolean;
-  
-  // Overrides
-  materialUnitCostOverride?: number;
-  laborMinutesOverride?: number;
-}
+export type CatalogAttributeType = 'finish' | 'coating' | 'grip' | 'mounting' | 'assembly';
+export type CatalogDeltaType = 'absolute' | 'percent' | 'minutes';
 
-export interface Scope {
+export interface CatalogItemAttribute {
   id: string;
-  name: string;
-  division?: string;
-  pricingMode: 'material_only' | 'material_and_labor';
-}
-
-export interface Room {
-  id: string;
-  name: string;
-  floor?: string;
-}
-
-export interface Alternate {
-  id: string;
-  name: string;
-  description?: string;
-}
-
-export interface ProposalSettings {
-  title: string;
-  projectName: string;
-  projectAddress: string;
-  clientName: string;
-  companyName: string;
-  companyAddress1: string;
-  companyAddress2: string;
-  footerText: string;
-  showLineItems: boolean;
-  breakdownMode: 'scope' | 'room' | 'combined';
-  scopeOfWork?: string;
-  clarifications?: string[];
-  exclusions?: string[];
-}
-
-export type ProjectStatus = 'Draft' | 'Submitted' | 'Awarded' | 'Lost' | 'Archived';
-
-export interface Bundle {
-  id: string;
-  name: string;
-  items: { catalogItemId: string; qty: number }[];
-}
-
-export interface Project {
-  id: string;
-  projectNumber?: string;
-  name: string;
-  clientName: string;
-  gcName?: string;
-  address: string;
-  bidDate?: string;
-  dueDate?: string;
-  projectType?: string;
-  estimator?: string;
-  status: ProjectStatus;
-  createdDate: string;
-  settings: ProjectSettings;
-  proposalSettings: ProposalSettings;
-  scopes: Scope[];
-  rooms: Room[];
-  bundles: Bundle[];
-  alternates: Alternate[];
-  lines: ProjectLine[];
-}
-
-export interface UserProfile {
-  id: string;
-  name: string;
-  email: string;
-  companyName: string;
-  companyAddress1: string;
-  companyAddress2: string;
-  preferences: {
-    defaultLaborRate: number;
-    defaultLaborBurdenPct?: number;
-    defaultOverheadPct: number;
-    defaultProfitPct: number;
-    defaultWorkDayHours: number;
-    defaultCrewSize: number;
-    currency: string;
-  };
-}
-
-// Calculation Results
-export interface CalculatedLine {
-  lineId: string;
-  description: string;
-  qty: number;
-  materialCost: number;
-  laborCost: number;
-  taxCost: number;
-  addInCost: number;
-  laborHours: number;
-  total: number;
-  alternateId?: string;
-  scopeId: string;
-  roomId: string;
-}
-
-export interface GroupSummary {
-  id: string;
-  name: string;
-  total: number;
-  lines: CalculatedLine[];
-}
-
-export interface EstimateResult {
-  lines: CalculatedLine[];
-  baseBidTotal: number;
-  totalPrice: number;
-  totalLaborHours: number;
-  totalMaterialCost: number;
-  totalLaborCost: number;
-  totalTaxCost: number;
-  travelSurcharge: number;
-  byRoom: Record<string, GroupSummary>;
-  byScope: Record<string, GroupSummary>;
-  byAlternate: Record<string, GroupSummary>;
-  grandTotal: number;
+  catalogItemId: string;
+  attributeType: CatalogAttributeType;
+  attributeValue: string;
+  materialDeltaType?: CatalogDeltaType | null;
+  materialDeltaValue?: number | null;
+  laborDeltaType?: CatalogDeltaType | null;
+  laborDeltaValue?: number | null;
+  active: boolean;
+  sortOrder: number;
 }

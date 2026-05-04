@@ -19,8 +19,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SQLITE_PATH = String(process.env.SQLITE_PATH || process.env.SQLITE_DB || './estimator.db').trim();
 const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
 const DRY_RUN = ['1', 'true', 'yes'].includes(String(process.env.DRY_RUN || '').trim().toLowerCase());
-const PG_SSL_CA_PATH = String(process.env.PG_SSL_CA_PATH || '').trim();
-const PG_SSL_REJECT_UNAUTHORIZED = !['0', 'false', 'no'].includes(String(process.env.PG_SSL_REJECT_UNAUTHORIZED || '').trim().toLowerCase());
 
 const TABLE_ORDER = [
   'projects_v1',
@@ -113,8 +111,7 @@ async function main() {
   }
 
   const sqlite = new Database(absSqlite, { readonly: true });
-  const ssl = PG_SSL_CA_PATH ? { ca: fs.readFileSync(PG_SSL_CA_PATH, 'utf8'), rejectUnauthorized: PG_SSL_REJECT_UNAUTHORIZED } : undefined;
-  const pool = new pg.Pool({ connectionString: DATABASE_URL, ssl });
+  const pool = new pg.Pool({ connectionString: DATABASE_URL });
 
   const supabaseUrl = String(process.env.SUPABASE_URL || '').trim();
   const serviceKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();

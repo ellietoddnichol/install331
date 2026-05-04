@@ -26,7 +26,7 @@ const WORKFLOW_STEPS = [
   },
   {
     title: 'Generate the Proposal',
-    description: 'Review the proposal tab, refine wording, print the client-ready document, or export a PDF with detailed line-by-line scope.',
+    description: 'Review the proposal tab, refine wording, print the client-ready document, or export HTML and use your browser’s Print → Save as PDF when you need a PDF.',
     icon: FileText,
     actionLabel: 'Open Settings',
     actionPath: '/settings',
@@ -34,18 +34,18 @@ const WORKFLOW_STEPS = [
 ];
 
 const KEY_NOTES = [
-  'Keep company defaults current in Settings so new projects start with the right labor rate, burden, overhead, profit, and proposal text.',
+  'Keep company defaults current in Settings so new projects start with the right labor rate, optional burden, labor overhead, material markups, and proposal text.',
   'Use Project Setup before adjusting estimate lines. Job conditions and labor multipliers affect the entire estimate, not just one room.',
-  'Store source files in the Files tab so parser inputs, reference drawings, and support documents stay attached to the project.',
-  'Proposal PDF export is intended for client handoff. Browser print remains available for quick physical copies or print-to-PDF workflows.',
+  'Attach source files from the project Overview so parser inputs, reference drawings, and support documents stay with the job.',
+  'Proposal export saves standalone HTML for client handoff; open the file and use Print → Save as PDF when you need a PDF. In-app Print uses the same layout.',
 ];
 
 export function Help() {
   const navigate = useNavigate();
 
   return (
-    <div className="ui-page space-y-4 w-full max-w-full px-0">
-      <section className="overflow-hidden rounded-[30px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(191,219,254,0.35),transparent_36%),linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.96)_100%)] px-6 py-6 shadow-sm">
+    <div className="ui-page space-y-4">
+      <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(191,219,254,0.35),transparent_36%),linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.96)_100%)] px-6 py-6 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
             <p className="ui-label">How To Use</p>
@@ -64,16 +64,16 @@ export function Help() {
             <article key={step.title} className="ui-surface p-5">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div className="flex items-start gap-4">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--primary-soft)] text-[var(--primary)] ring-1 ring-blue-200/80">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--brand-soft)] text-[var(--brand)] ring-1 ring-blue-200/80">
                     <step.icon className="h-5 w-5" />
                   </div>
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Step {index + 1}</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Step {index + 1}</p>
                     <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-950">{step.title}</h2>
                     <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{step.description}</p>
                   </div>
                 </div>
-                <button onClick={() => navigate(step.actionPath)} className="ui-btn-secondary inline-flex h-10 items-center gap-2 px-4 text-[11px]">
+                <button type="button" onClick={() => navigate(step.actionPath)} className="ui-btn-secondary inline-flex h-10 items-center gap-2 px-4 text-[11px]">
                   {step.actionLabel}
                 </button>
               </div>
@@ -88,7 +88,7 @@ export function Help() {
                 <BookOpenText className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Key Notes</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Key Notes</p>
                 <h2 className="text-base font-semibold text-slate-950">What to keep in mind</h2>
               </div>
             </div>
@@ -102,10 +102,10 @@ export function Help() {
           </section>
 
           <section className="rounded-[28px] border border-slate-200/80 bg-[linear-gradient(180deg,#10284f_0%,#0a224d_100%)] p-5 text-white shadow-[0_18px_44px_rgba(10,34,77,0.18)]">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">Default Setup</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-300">Default Setup</p>
             <h2 className="mt-2 text-lg font-semibold tracking-tight">Settings control your baseline</h2>
             <p className="mt-2 text-sm leading-6 text-slate-300">If new estimates or proposals look off, check global settings first. Base labor rate, markup defaults, and proposal wording all flow into the project workspace.</p>
-            <button onClick={() => navigate('/settings')} className="mt-4 inline-flex h-10 items-center gap-2 rounded-full bg-white px-4 text-[11px] font-semibold text-slate-900">
+            <button type="button" onClick={() => navigate('/settings')} className="mt-4 inline-flex h-10 items-center gap-2 rounded-full bg-white px-4 text-[11px] font-semibold text-slate-900 outline-none focus-visible:ring-2 focus-visible:ring-white/60">
               <Settings className="h-4 w-4" /> Open Settings
             </button>
           </section>

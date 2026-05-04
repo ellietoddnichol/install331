@@ -3,7 +3,16 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import type { IntakeProjectAssumption, IntakeProposalAssist } from '../../shared/types/intake.ts';
+import { isPlausibleProjectTitle, looksLikeIntakePricingSummaryOrDisclaimerLine } from '../../shared/utils/intakeTextGuards.ts';
+import { normalizeIntakeUnit } from '../../shared/utils/intakeNormalization.ts';
 import { intakeGeminiResponseSchema, INTAKE_GEMINI_MODEL } from './structuredExtractionSchemas.ts';
+import { extractIntakeMetadataHintsFromText, mergeNlpHintsIntoPartialMetadata } from './naturalLanguageService.ts';
+import {
+  enrichSiteAddressWithMapsGrounding,
+  isMapsGroundingEnabled,
+  shouldAttemptMapsGroundingForAddress,
+} from './mapsGroundingLiteService.ts';
+import { getDiv10BidReasoningGeminiPromptAddendum } from './bidReasoning/div10BidReasoningService.ts';
 
 export interface GeminiExtractionLine {
   roomArea: string;
@@ -14,6 +23,21 @@ export interface GeminiExtractionLine {
   quantity: number;
   unit: string;
   notes: string;
+  /** When true, line calls out on-site / field assembly (KD, RTA, assemble on site). */
+  fieldAssembly?: boolean;
+  /** item | modifier | bundle — scope adders vs primary lines when obvious. */
+  lineKind?: string;
+  documentLineKind?: string;
+  pricingRole?: string;
+  scopeTarget?: string;
+  costDriver?: string;
+  applicationMethod?: string;
+  lineConfidence?: number;
+  rationale?: string;
+  evidenceText?: string;
+  requiresGroundingLine?: boolean;
+  parserBlockType?: string;
+  extractionBucket?: string;
 }
 
 export interface GeminiExtractionResult {
@@ -26,12 +50,23 @@ export interface GeminiExtractionResult {
   bidDate: string;
   proposalDate: string;
   estimator: string;
-  pricingBasis: '' | 'material_only' | 'labor_only' | 'labor_and_material';
+  pricingBasis: '' | 'material_only' | 'labor_only' | 'labor_and_material' | 'material_with_optional_install_quote';
   assumptions: IntakeProjectAssumption[];
   proposalAssist: IntakeProposalAssist;
   rooms: string[];
   parsedLines: GeminiExtractionLine[];
   warnings: string[];
+  documentType?: string;
+  documentRationale?: string;
+  documentConfidence?: number;
+  documentEvidence?: string;
+  suggestedGlobalModifiers?: Array<{
+    phrase: string;
+    confidence: number;
+    rationale: string;
+    evidenceText: string;
+  }>;
+  requiresGrounding?: string[];
 }
 
 interface ExtractInput {
@@ -62,10 +97,29 @@ function sanitizeResult(value: any): GeminiExtractionResult {
           itemName: asText(line?.itemName),
           description: asText(line?.description),
           quantity: asNumber(line?.quantity, 1),
-          unit: asText(line?.unit) || 'EA',
+          unit: normalizeIntakeUnit(asText(line?.unit)) || asText(line?.unit) || 'EA',
           notes: asText(line?.notes),
+          fieldAssembly: Boolean(line?.fieldAssembly),
+          lineKind: asText(line?.lineKind).toLowerCase(),
+          documentLineKind: asText(line?.documentLineKind).toLowerCase(),
+          pricingRole: asText(line?.pricingRole).toLowerCase(),
+          scopeTarget: asText(line?.scopeTarget).toLowerCase(),
+          costDriver: asText(line?.costDriver).toLowerCase(),
+          applicationMethod: asText(line?.applicationMethod).toLowerCase(),
+          lineConfidence: Number.isFinite(Number(line?.lineConfidence))
+            ? Math.max(0, Math.min(1, Number(line.lineConfidence)))
+            : undefined,
+          rationale: asText(line?.rationale),
+          evidenceText: asText(line?.evidenceText),
+          requiresGroundingLine: Boolean(line?.requiresGroundingLine),
+          parserBlockType: asText(line?.parserBlockType),
+          extractionBucket: asText(line?.extractionBucket),
         }))
         .filter((line: GeminiExtractionLine) => line.description || line.itemName)
+        .filter((line: GeminiExtractionLine) => {
+          const id = `${line.itemName} ${line.description}`.trim();
+          return !looksLikeIntakePricingSummaryOrDisclaimerLine(id);
+        })
     : [];
 
   const rooms = Array.isArray(value?.rooms)
@@ -91,8 +145,28 @@ function sanitizeResult(value: any): GeminiExtractionResult {
 
   const pricingBasis = asText(value?.pricingBasis).toLowerCase();
 
+  const rawProjectName = asText(value?.projectName);
+
+  const suggestedGlobalModifiers = Array.isArray(value?.suggestedGlobalModifiers)
+    ? value.suggestedGlobalModifiers
+        .map((entry: any) => ({
+          phrase: asText(entry?.phrase),
+          confidence: Number.isFinite(Number(entry?.confidence)) ? Math.max(0, Math.min(1, Number(entry.confidence))) : 0.5,
+          rationale: asText(entry?.rationale),
+          evidenceText: asText(entry?.evidenceText),
+        }))
+        .filter((entry: { phrase: string }) => entry.phrase)
+    : [];
+
+  const requiresGrounding = Array.isArray(value?.requiresGrounding)
+    ? value.requiresGrounding.map((g: unknown) => asText(g)).filter(Boolean)
+    : [];
+
+  const documentConfidenceRaw = Number(value?.documentConfidence);
+  const documentConfidence = Number.isFinite(documentConfidenceRaw) ? Math.max(0, Math.min(1, documentConfidenceRaw)) : 0;
+
   return {
-    projectName: asText(value?.projectName),
+    projectName: isPlausibleProjectTitle(rawProjectName) ? rawProjectName : '',
     projectNumber: asText(value?.projectNumber),
     bidPackage: asText(value?.bidPackage),
     client: asText(value?.client),
@@ -101,14 +175,24 @@ function sanitizeResult(value: any): GeminiExtractionResult {
     bidDate: asText(value?.bidDate),
     proposalDate: asText(value?.proposalDate),
     estimator: asText(value?.estimator),
-    pricingBasis: pricingBasis === 'material_only' || pricingBasis === 'labor_only' || pricingBasis === 'labor_and_material'
-      ? pricingBasis as GeminiExtractionResult['pricingBasis']
-      : '',
+    pricingBasis:
+      pricingBasis === 'material_only' ||
+      pricingBasis === 'labor_only' ||
+      pricingBasis === 'labor_and_material' ||
+      pricingBasis === 'material_with_optional_install_quote'
+        ? (pricingBasis as GeminiExtractionResult['pricingBasis'])
+        : '',
     assumptions,
     proposalAssist,
     rooms,
     parsedLines,
     warnings: Array.isArray(value?.warnings) ? value.warnings.map((warning: unknown) => asText(warning)).filter(Boolean) : [],
+    documentType: asText(value?.documentType).toLowerCase(),
+    documentRationale: asText(value?.documentRationale),
+    documentConfidence,
+    documentEvidence: asText(value?.documentEvidence),
+    suggestedGlobalModifiers,
+    requiresGrounding,
   };
 }
 
@@ -139,6 +223,65 @@ function addQualityWarnings(result: GeminiExtractionResult, input: ExtractInput)
   };
 }
 
+async function enrichGeminiResultWithNaturalLanguage(
+  result: GeminiExtractionResult,
+  input: ExtractInput
+): Promise<GeminiExtractionResult> {
+  const text = input.extractedText?.trim() || '';
+  if (text.length < 40) return result;
+
+  const hints = await extractIntakeMetadataHintsFromText(text);
+  if (!hints.client?.trim() && !hints.generalContractor?.trim() && !hints.address?.trim()) {
+    return result;
+  }
+
+  const merged = mergeNlpHintsIntoPartialMetadata(
+    {
+      client: result.client,
+      generalContractor: result.generalContractor,
+      address: result.address,
+    },
+    hints
+  );
+
+  return {
+    ...result,
+    client: merged.client ?? result.client,
+    generalContractor: merged.generalContractor ?? result.generalContractor,
+    address: merged.address ?? result.address,
+  };
+}
+
+async function enrichGeminiResultWithMapsGrounding(
+  result: GeminiExtractionResult,
+  input: ExtractInput
+): Promise<GeminiExtractionResult> {
+  const text = input.extractedText?.trim() || '';
+  if (text.length < 40 || !isMapsGroundingEnabled()) return result;
+  if (!shouldAttemptMapsGroundingForAddress(result.address)) return result;
+
+  const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || '';
+  if (!geminiKey) return result;
+
+  const enriched = await enrichSiteAddressWithMapsGrounding({
+    geminiApiKey: geminiKey,
+    contextText: text,
+    hintAddress: result.address,
+  });
+  if (!enriched?.addressLine?.trim()) return result;
+
+  const warnings = [...result.warnings];
+  if (enriched.placeUrl) {
+    warnings.push(`Google Maps source (show attribution near address): ${enriched.placeUrl}`);
+  }
+
+  return {
+    ...result,
+    address: enriched.addressLine,
+    warnings: Array.from(new Set(warnings)),
+  };
+}
+
 export async function extractIntakeFromGemini(input: ExtractInput): Promise<GeminiExtractionResult> {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || '';
   if (!apiKey) {
@@ -149,13 +292,23 @@ export async function extractIntakeFromGemini(input: ExtractInput): Promise<Gemi
 
   const prompt = [
     'You are an estimator intake extraction engine.',
+    ...(input.dataBase64 &&
+    (input.sourceType === 'pdf' || String(input.mimeType || '').toLowerCase().includes('pdf'))
+      ? [
+          'You are provided with the raw PDF file natively. Prioritize your visual understanding of the tables, matrices, and schedules in the PDF file over any provided text representations.',
+        ]
+      : []),
     'Extract project metadata and takeoff lines into strict JSON.',
     'Before emitting parsedLines, classify each source row or chunk as one of: project_metadata, header_row, section_header, actual_scope_line, or ignore.',
     'Only actual_scope_line content may appear in parsedLines.',
+    'Merge sentence fragments into a single parsedLines row per distinct scope or schedule line; do not emit one row per short phrase.',
     'Project metadata rows must populate project fields and must never appear in parsedLines.',
     'Header rows such as room/category/item/description/quantity/unit/labor/material/notes define structure only and must never appear in parsedLines.',
     'Section headers such as Toilet Accessories, Visual Display Boards, or Wall Protection may inform category context but must never appear in parsedLines unless a real scoped item is present.',
     'Ignore repeated field names, bid/proposal labels, generic setup text, parser artifacts, and long raw text blobs when they are not actual scoped items.',
+    'Never emit as parsedLines: lump-sum lines like "Material: $1234" or "Labor: $500", grand totals, or disclaimers such as "IF LABOR IS NEEDED PLEASE CALL FOR QUOTE" — those belong in assumptions or nowhere.',
+    'Never emit letterhead or contact blocks as parsedLines: company names alone, street/city/state/ZIP lines, phone, fax, email, URLs, job numbers that are not a scoped product line, or form labels like "BOND: Y / N" or column headers like "Quantity\'s Material".',
+    'Legal/proposal boilerplate (e.g. submittals, proposal validity, "days of proposal date") is not a takeoff line — omit from parsedLines or fold into assumptions if it affects pricing.',
     'Focus on finding: project name, project number or bid package, client, general contractor, full address, bid date, proposal date, estimator, room or area names, category, item identity, quantity, and unit.',
     'When the source is messy, use semantic reasoning to cleanly group scope lines and separate metadata from actual takeoff content.',
     'Prioritize accurate extraction over guessing; if uncertain, leave blank and add a warning.',
@@ -163,14 +316,24 @@ export async function extractIntakeFromGemini(input: ExtractInput): Promise<Gemi
     'For spreadsheets: use provided normalized rows as source of truth and improve categorization/mapping only.',
     'When structured fields are present in the source, split them into roomArea, category, itemName, description, quantity, unit, notes, and labor/material flags instead of dumping whole rows into description.',
     'For PDFs/messy docs: infer room area, item, quantity, and unit when explicitly stated or strongly implied by schedules and scope tables; avoid junk records.',
+    'For matrix or room×column schedules: treat row labels as room/location keys and column headers as model or product identifiers; emit one parsedLines row per non-empty cell with the quantity from that cell (use 1 when the schedule uses checkmarks or X only).',
+    'When a schedule shows qty in one column and description in another, merge into a single row; do not split into fragment rows per cell unless they are clearly separate line items.',
+    'Prefer quantities printed in quantity columns over footnote text; if OCR text conflicts with the visible PDF table, trust the table layout you see in the file.',
+    'Normalize units to short tokens (EA, LF, SF, SY, LS, SET, PR, HR, etc.); map EACH→EA, SQ FT/SQFT→SF, LNFT/L.F.→LF.',
     'Interpret common construction proposal and invitation-to-bid structures, including schedules, room finish legends, keyed notes, and bid package references.',
+    'Classify parsedLines rows: primary scope quantities (lineKind item), finish/adder/deduct lines (lineKind modifier), or grouped accessory packages (lineKind bundle).',
+    'Set fieldAssembly true when the line states KD, RTA, knock-down, or that fixtures (e.g. lockers, benches) must be assembled on site — those are still scope items, not modifiers.',
+    'Do not set lineKind modifier for a product line whose only special need is field assembly; use fieldAssembly true and lineKind item instead.',
     'Extract assumptions and commercial clues when present, including pricing basis, tax, delivery, freight, shipment, bond, unload, site visit, clarifications, exclusions, and alternates.',
+    'When a performance bond, bid bond, surety, or bonding percentage appears, add an assumption with kind bond and the exact text (e.g. "5% performance bond") so estimators get bond allowance prompts.',
     'Produce a short proposal assist object with intro, scope summary, clarifications, and exclusions when the source contains enough context.',
     '',
     `Source Type: ${input.sourceType}`,
     `File Name: ${input.fileName}`,
     'Return bidPackage when the document identifies a bid package or package number separately from the project number.',
-    input.extractedText ? `Extracted Text Preview:\n${input.extractedText.slice(0, 14000)}` : '',
+    input.extractedText
+      ? `Fallback Extracted Text (may contain OCR errors, rely on the raw file first):\n${input.extractedText.slice(0, 14000)}`
+      : '',
     input.normalizedRows?.length
       ? `Normalized Rows JSON (deterministic parse):\n${JSON.stringify(input.normalizedRows.slice(0, 500))}`
       : '',
@@ -178,6 +341,15 @@ export async function extractIntakeFromGemini(input: ExtractInput): Promise<Gemi
     'For structured spreadsheets, prefer the row/column structure over OCR-like interpretation.',
     'Do not invent room names. Only return rooms that are clearly present in the source.',
     'Do not invent assumptions that are not present or strongly implied by the source.',
+    '',
+    'Ontology pass (same JSON response): set documentType to one of: takeoff, finish_schedule, spec_excerpt, proposal, quote_request, addendum, general_notes, unknown.',
+    'Set documentRationale (short), documentConfidence (0-1), and documentEvidence (short quote from source) when you can justify documentType.',
+    'For each parsedLines row, when possible set: documentLineKind (item, modifier_candidate, bundle_candidate, exclusion, clarification, allowance, deduction, freight_delivery, demo, labor_note, material_note, informational_only, unknown),',
+    'pricingRole (base_material, base_install, optional_adder, global_adder, line_modifier, deduction, informational_only, unknown), scopeTarget (line, room, project, unknown), costDriver (material, labor, both, none, unknown),',
+    'applicationMethod (attach_to_item, apply_globally, info_only, unknown), lineConfidence (0-1), rationale (one sentence), evidenceText (short quote), requiresGroundingLine (true only if part numbers/spec language needs web lookup).',
+    'suggestedGlobalModifiers: array of { phrase, confidence, rationale, evidenceText } for project-wide conditions implied by the doc (night work, occupied building, prevailing wage, delivery, demo, etc.) — phrases only, not dollar amounts.',
+    'requiresGrounding: string array of reasons the model needs external verification (ambiguous manufacturer, unfamiliar spec section, etc.). Leave empty when not needed.',
+    getDiv10BidReasoningGeminiPromptAddendum(),
   ]
     .filter(Boolean)
     .join('\n');
@@ -234,7 +406,9 @@ export async function extractIntakeFromGemini(input: ExtractInput): Promise<Gemi
       parsed = {};
     }
 
-    return addQualityWarnings(sanitizeResult(parsed), input);
+    const base = addQualityWarnings(sanitizeResult(parsed), input);
+    const withNlp = await enrichGeminiResultWithNaturalLanguage(base, input);
+    return enrichGeminiResultWithMapsGrounding(withNlp, input);
   } finally {
     if (tempFilePath) {
       try {

@@ -1,5 +1,6 @@
 import type { PoolClient } from 'pg';
 import { getEstimatorDb } from './connection.ts';
+import { isPgCatalogBackend } from './catalogBackend.ts';
 import { isPgDriver } from './driver.ts';
 import { getPgPool } from './pgPool.ts';
 
@@ -27,6 +28,32 @@ export async function dbGet<T = Record<string, unknown>>(sql: string, params: un
 
 export async function dbRun(sql: string, params: unknown[] = []): Promise<{ changes: number }> {
   if (isPgDriver()) {
+    const result = await getPgPool().query(sqliteParamsToPg(sql), params);
+    return { changes: result.rowCount ?? 0 };
+  }
+  const info = getEstimatorDb().prepare(sql).run(...params);
+  return { changes: info.changes };
+}
+
+/** Catalog reads/writes — SQLite catalog tables when workbook-first mode (`DB_DRIVER=sqlite`), else Postgres pool when `DB_DRIVER=pg`. */
+export async function dbCatalogAll<T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<T[]> {
+  if (isPgCatalogBackend()) {
+    const { rows } = await getPgPool().query<T>(sqliteParamsToPg(sql), params);
+    return rows;
+  }
+  return getEstimatorDb().prepare(sql).all(...params) as T[];
+}
+
+export async function dbCatalogGet<T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<T | undefined> {
+  if (isPgCatalogBackend()) {
+    const { rows } = await getPgPool().query<T>(sqliteParamsToPg(sql), params);
+    return rows[0];
+  }
+  return getEstimatorDb().prepare(sql).get(...params) as T | undefined;
+}
+
+export async function dbCatalogRun(sql: string, params: unknown[] = []): Promise<{ changes: number }> {
+  if (isPgCatalogBackend()) {
     const result = await getPgPool().query(sqliteParamsToPg(sql), params);
     return { changes: result.rowCount ?? 0 };
   }
@@ -81,4 +108,20 @@ export async function withPgTransaction<T>(fn: (exec: DbExec) => Promise<T>): Pr
 export function withSqliteTransaction<T>(fn: () => T): T {
   const db = getEstimatorDb();
   return db.transaction(fn)();
+}
+
+/** Shared connection DbExec for SQLite (same thread / pool-less prepare). */
+export function createSqliteDbExec(): DbExec {
+  if (isPgCatalogBackend()) {
+    throw new Error('createSqliteDbExec() is only valid when catalog writes target SQLite');
+  }
+  const db = getEstimatorDb();
+  return {
+    all: async <T = Record<string, unknown>>(sql: string, params: unknown[] = []) =>
+      Promise.resolve(db.prepare(sql).all(...params) as T[]),
+    get: async <T = Record<string, unknown>>(sql: string, params: unknown[] = []) =>
+      Promise.resolve(db.prepare(sql).get(...params) as T | undefined),
+    run: async (sql: string, params: unknown[] = []) =>
+      Promise.resolve({ changes: db.prepare(sql).run(...params).changes }),
+  };
 }

@@ -1,0 +1,3 @@
+id,sku,category,manufacturer,description,base_labor_minutes,uom,reason_bucket
+sheet-item-SHOP-SUPPLIES,SHOP-SUPPLIES,Misc,,Misc Shop Supplies,0,EA,zero_active
+sheet-item-35,35,Visual Display,,MARKER WALL SF,0,EA,zero_active

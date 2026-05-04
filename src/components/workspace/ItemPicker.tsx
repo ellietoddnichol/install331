@@ -19,6 +19,11 @@ interface DraftItem {
   materialCost: number;
   laborMinutes: number;
   catalogItemId?: string | null;
+  catalogAttributeSnapshot?: Array<{
+    attributeType: 'finish' | 'coating' | 'grip' | 'mounting' | 'assembly';
+    attributeValue: string;
+    source: 'user' | 'inferred';
+  }> | null;
 }
 
 interface Props {
@@ -54,6 +59,13 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
   const [manualRoomId, setManualRoomId] = useState('');
   const [saving, setSaving] = useState(false);
   const [bundleApplyingId, setBundleApplyingId] = useState<string | null>(null);
+  const [searchResults, setSearchResults] = useState<CatalogItem[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [itemAttributes, setItemAttributes] = useState<Record<string, import('../../types').CatalogItemAttribute[]>>({});
+  const [attributesLoadingItemId, setAttributesLoadingItemId] = useState<string | null>(null);
+  const [attributePickerItemId, setAttributePickerItemId] = useState<string | null>(null);
+  const [attributeSelection, setAttributeSelection] = useState<Record<string, string[]>>({});
+  const [inferredAttributesByItemId, setInferredAttributesByItemId] = useState<Record<string, DraftItem['catalogAttributeSnapshot']>>({});
 
   useEffect(() => {
     if (!open) return;
@@ -70,6 +82,69 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
     setManualNotes('');
   }, [open, activeRoomId, rooms]);
 
+  useEffect(() => {
+    if (!open) return;
+    const q = search.trim();
+    if (!q) {
+      setSearchResults(null);
+      setSearchLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setSearchLoading(true);
+    void api
+      .searchCatalogItems({
+        query: q,
+        category: category && category !== 'all' ? category : undefined,
+        includeDeprecated: false,
+        includeNonCanonical: false,
+        includeInactive: false,
+      })
+      .then((rows) => {
+        if (cancelled) return;
+        setSearchResults(rows);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('Catalog search failed', err);
+        setSearchResults([]);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setSearchLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, search, category]);
+
+  function inferAttributesFromText(text: string): DraftItem['catalogAttributeSnapshot'] {
+    const t = text.toLowerCase();
+    const out: NonNullable<DraftItem['catalogAttributeSnapshot']> = [];
+    const push = (attributeType: DraftItem['catalogAttributeSnapshot'][number]['attributeType'], attributeValue: string) => {
+      out.push({ attributeType, attributeValue, source: 'inferred' });
+    };
+    if (t.includes('matte black')) push('finish', 'MATTE_BLACK');
+    if (t.includes('antimicrobial')) push('coating', 'ANTIMICROBIAL');
+    if (t.includes('peened')) push('grip', 'PEENED');
+    if (t.includes('semi-recess')) push('mounting', 'SEMI_RECESSED');
+    else if (t.includes('recess')) push('mounting', 'RECESSED');
+    if (t.includes('surface')) push('mounting', 'SURFACE');
+    if (t.includes('kd') || t.includes('knock down') || t.includes('knock-down')) push('assembly', 'KD');
+    return out.length ? out : null;
+  }
+
+  async function ensureAttributesLoaded(itemId: string) {
+    if (itemAttributes[itemId]) return;
+    setAttributesLoadingItemId(itemId);
+    try {
+      const rows = await api.listCatalogItemAttributes(itemId);
+      setItemAttributes((prev) => ({ ...prev, [itemId]: rows }));
+    } finally {
+      setAttributesLoadingItemId(null);
+    }
+  }
+
   const selectedCount = selectedIds.length;
   const queueTotal = draftItems.length;
   const queuedUnits = useMemo(
@@ -77,11 +152,48 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
     [draftItems]
   );
 
+  const canonicalDefaultItems = useMemo(() => {
+    return items.filter((i) => !i.deprecated && i.isCanonical !== false);
+  }, [items]);
+
+  const displayedItems = searchResults ?? canonicalDefaultItems;
+
+  useEffect(() => {
+    if (!open) return;
+    const q = search.trim();
+    if (!q) {
+      setInferredAttributesByItemId({});
+      return;
+    }
+    const inferred = inferAttributesFromText(q);
+    if (!inferred) {
+      setInferredAttributesByItemId({});
+      return;
+    }
+    // Apply inferred attributes to all items shown; user can override per item.
+    setInferredAttributesByItemId((prev) => {
+      const next: typeof prev = { ...prev };
+      for (const item of displayedItems) next[item.id] = inferred;
+      return next;
+    });
+  }, [open, search, displayedItems]);
+
   if (!open) return null;
 
   function stageCatalogItem(item: CatalogItem) {
     const roomId = bulkRoomId || activeRoomId || rooms[0]?.id || '';
     const qty = Math.max(1, Number(catalogQtyById[item.id] || 1));
+    const chosenValues = attributeSelection[item.id] || [];
+    const chosenAttributes =
+      chosenValues.length > 0
+        ? chosenValues.map((value) => {
+            // Encode as "type:value" for simplicity in this lightweight UI.
+            const [attributeType, ...rest] = value.split(':');
+            return { attributeType: attributeType as any, attributeValue: rest.join(':'), source: 'user' as const };
+          })
+        : null;
+    const inferred = inferredAttributesByItemId[item.id] || null;
+    const snapshot = (chosenAttributes && chosenAttributes.length ? chosenAttributes : inferred) || null;
     setDraftItems((prev) => ([
       ...prev,
       {
@@ -90,7 +202,7 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
         description: item.description,
         unit: item.uom,
         qty,
-        notes: '',
+        notes: snapshot ? `${snapshot.map((a) => `${a.attributeType}:${a.attributeValue}`).join(' · ')}` : '',
         sourceType: 'catalog',
         sku: item.sku,
         category: item.category,
@@ -98,8 +210,59 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
         materialCost: item.baseMaterialCost,
         laborMinutes: item.baseLaborMinutes,
         catalogItemId: item.id,
+        catalogAttributeSnapshot: snapshot,
       },
     ]));
+  }
+
+  function normalizePercentForDisplay(raw: number): number {
+    if (!Number.isFinite(raw)) return 0;
+    return Math.abs(raw) > 0 && Math.abs(raw) <= 1 ? raw * 100 : raw;
+  }
+
+  function describeAttributeDeltas(attr: import('../../types').CatalogItemAttribute): string[] {
+    const parts: string[] = [];
+    if (attr.materialDeltaType && attr.materialDeltaValue != null) {
+      const raw = Number(attr.materialDeltaValue || 0);
+      if (attr.materialDeltaType === 'absolute') parts.push(`${raw >= 0 ? '+' : ''}${formatCurrencySafe(raw)} material`);
+      if (attr.materialDeltaType === 'percent') {
+        const pct = normalizePercentForDisplay(raw);
+        parts.push(`${pct >= 0 ? '+' : ''}${formatNumberSafe(pct, 1)}% material`);
+      }
+    }
+    if (attr.laborDeltaType && attr.laborDeltaValue != null) {
+      const raw = Number(attr.laborDeltaValue || 0);
+      if (attr.laborDeltaType === 'minutes' || attr.laborDeltaType === 'absolute') parts.push(`${raw >= 0 ? '+' : ''}${formatNumberSafe(raw, 1)} min labor`);
+      if (attr.laborDeltaType === 'percent') {
+        const pct = normalizePercentForDisplay(raw);
+        parts.push(`${pct >= 0 ? '+' : ''}${formatNumberSafe(pct, 1)}% labor`);
+      }
+    }
+    return parts;
+  }
+
+  function applySelectedAttributeDeltas(
+    baseMaterialCost: number,
+    baseLaborMinutes: number,
+    attrs: import('../../types').CatalogItemAttribute[],
+    selectedKeys: Set<string>
+  ): { materialCost: number; laborMinutes: number; applied: import('../../types').CatalogItemAttribute[] } {
+    const percentFactor = (value: number) => (Math.abs(value) > 1 ? value / 100 : value);
+    const activeSelected = attrs.filter((a) => a.active && selectedKeys.has(`${a.attributeType}:${a.attributeValue}`));
+    let materialCost = baseMaterialCost;
+    let laborMinutes = baseLaborMinutes;
+    for (const a of activeSelected) {
+      const mType = a.materialDeltaType || null;
+      const mVal = Number(a.materialDeltaValue ?? 0);
+      if (mType === 'absolute') materialCost += mVal;
+      if (mType === 'percent') materialCost += baseMaterialCost * percentFactor(mVal);
+
+      const lType = a.laborDeltaType || null;
+      const lVal = Number(a.laborDeltaValue ?? 0);
+      if (lType === 'minutes' || lType === 'absolute') laborMinutes += lVal;
+      if (lType === 'percent') laborMinutes += baseLaborMinutes * percentFactor(lVal);
+    }
+    return { materialCost, laborMinutes, applied: activeSelected };
   }
 
   async function stageBundleDraft(bundleId: string) {
@@ -204,7 +367,7 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
         <div className="border-b border-slate-200 px-5 py-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Bulk Add Workflow</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Bulk Add Workflow</p>
               <h3 className="mt-1 text-base font-semibold text-slate-900">Add Items To Project Estimate</h3>
               <p className="mt-1 text-xs text-slate-600">Search the catalog, stage multiple items, assign rooms in bulk, add manual rows, and apply bundles without reopening the workflow.</p>
             </div>
@@ -217,7 +380,7 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
               <div className="flex flex-wrap items-center gap-2">
                 <div className="relative min-w-[220px] flex-1">
                   <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input value={search} onChange={(e) => onSearch(e.target.value)} className="h-10 w-full rounded-md border border-slate-300 pl-8 pr-3 text-sm" placeholder="Search catalog by SKU or description" />
+                  <input value={search} onChange={(e) => onSearch(e.target.value)} className="h-10 w-full rounded-md border border-slate-300 pl-10 pr-3 text-sm" placeholder="Search SKU, description, category, family, manufacturer, model, tags…" />
                 </div>
                 <select value={category} onChange={(e) => onCategory(e.target.value)} className="h-10 rounded-md border border-slate-300 px-3 text-sm">
                   {categories.map((entry) => <option key={entry} value={entry}>{entry === 'all' ? 'All Categories' : entry}</option>)}
@@ -231,7 +394,7 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
             <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">
               <div className="min-h-0 overflow-y-auto p-4">
                 <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
-                  {items.map((item) => (
+                  {displayedItems.map((item) => (
                     <div key={item.id} className="rounded-xl border border-slate-200 p-3 shadow-sm transition hover:border-blue-300 hover:bg-blue-50/30">
                       <div className="flex items-start justify-between gap-3">
                         <div>
@@ -241,6 +404,11 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
                         <span className="text-[11px] text-slate-500">{item.sku}</span>
                       </div>
                       <p className="mt-2 text-xs text-slate-600">Mat {formatCurrencySafe(item.baseMaterialCost)} • {formatNumberSafe(item.baseLaborMinutes, 1)} labor min • {item.uom}</p>
+                      {(inferredAttributesByItemId[item.id] && inferredAttributesByItemId[item.id]!.length > 0) ? (
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          Inferred: {inferredAttributesByItemId[item.id]!.map((a) => `${a.attributeType}:${a.attributeValue}`).join(' · ')}
+                        </p>
+                      ) : null}
                       <div className="mt-3 flex items-center justify-between gap-2">
                         <p className="text-[11px] text-slate-500">Stages into the queue without closing the modal.</p>
                         <div className="flex items-center gap-2">
@@ -252,6 +420,16 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
                             className="h-8 w-16 rounded-md border border-slate-300 px-2 text-[11px]"
                             aria-label={`Quantity for ${item.description}`}
                           />
+                          <button
+                            type="button"
+                            className="h-8 rounded-md border border-slate-300 px-2 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                            onClick={async () => {
+                              setAttributePickerItemId(item.id);
+                              await ensureAttributesLoaded(item.id);
+                            }}
+                          >
+                            Options
+                          </button>
                           <button onClick={() => stageCatalogItem(item)} className="inline-flex h-8 items-center gap-1 rounded-md border border-blue-300 bg-blue-50 px-2.5 text-[11px] font-semibold text-blue-800 hover:bg-blue-100">
                           <Plus className="h-3.5 w-3.5" />
                             {`Stage ${Math.max(1, Number(catalogQtyById[item.id] || 1))} ${Math.max(1, Number(catalogQtyById[item.id] || 1)) === 1 ? 'Item' : 'Items'}`}
@@ -260,13 +438,17 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
                       </div>
                     </div>
                   ))}
-                  {items.length === 0 ? <div className="rounded-xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">No catalog matches for the current search.</div> : null}
+                  {searchLoading ? (
+                    <div className="rounded-xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">Searching…</div>
+                  ) : displayedItems.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">No catalog matches for the current search.</div>
+                  ) : null}
                 </div>
               </div>
 
               <div className="border-t border-slate-200 bg-slate-50/60 p-4 lg:border-l lg:border-t-0">
                 <div className="rounded-xl border border-slate-200 bg-white p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Manual Add</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-500">Manual Add</p>
                   <div className="mt-2 space-y-2">
                     <input value={manualDescription} onChange={(e) => setManualDescription(e.target.value)} className="h-9 w-full rounded-md border border-slate-300 px-3 text-sm" placeholder="Manual description" />
                     <div className="grid grid-cols-3 gap-2">
@@ -284,7 +466,7 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
                 <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
                   <div className="flex items-center justify-between gap-2">
                     <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Quick Add Bundle</p>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-500">Quick Add Bundle</p>
                       <p className="mt-1 text-xs text-slate-600">Apply a prebuilt scope bundle to a room without leaving this session.</p>
                     </div>
                     <Layers3 className="h-4 w-4 text-slate-400" />
@@ -315,7 +497,7 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
             <div className="border-b border-slate-200 px-4 py-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Staged Queue</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-500">Staged Queue</p>
                   <h4 className="mt-1 text-sm font-semibold text-slate-900">{queueTotal} item{queueTotal === 1 ? '' : 's'} ready</h4>
                   <p className="mt-1 text-xs text-slate-600">Assign rooms per item, select a group, then push everything into the estimate at once.</p>
                 </div>
@@ -371,6 +553,117 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
           </aside>
         </div>
       </div>
+
+      {attributePickerItemId ? (
+        <div className="fixed inset-0 z-[60] bg-slate-950/45 p-3 sm:p-6" onClick={() => setAttributePickerItemId(null)}>
+          <div className="mx-auto w-full max-w-xl rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="border-b border-slate-200 px-5 py-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Item options</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">Choose attributes (optional)</p>
+                  <p className="mt-1 text-xs text-slate-600">Snapshot is stored on the new line; pricing preview updates as you toggle options.</p>
+                </div>
+                <button className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium hover:bg-slate-50" onClick={() => setAttributePickerItemId(null)}>
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="p-5">
+              {(() => {
+                const itemId = attributePickerItemId;
+                if (!itemId) return null;
+                const pickerItem = (displayedItems || []).find((i) => i.id === attributePickerItemId) || items.find((i) => i.id === attributePickerItemId) || null;
+                const baseMat = pickerItem?.baseMaterialCost ?? 0;
+                const baseMin = pickerItem?.baseLaborMinutes ?? 0;
+                const selectedKeys = new Set<string>(attributeSelection[itemId] || []);
+                const attrs = itemAttributes[itemId] || [];
+                const preview = applySelectedAttributeDeltas(baseMat, baseMin, attrs, selectedKeys);
+                const applied = preview.applied;
+                return (
+                  <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50/50 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Pricing preview</p>
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <div className="rounded-lg bg-white px-3 py-2 ring-1 ring-slate-200/80">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Base</p>
+                        <p className="mt-1 text-xs text-slate-700">
+                          Material {formatCurrencySafe(baseMat)} • Labor {formatNumberSafe(baseMin, 1)} min
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-white px-3 py-2 ring-1 ring-slate-200/80">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">With selected options</p>
+                        <p className="mt-1 text-xs font-semibold text-slate-900">
+                          Material {formatCurrencySafe(preview.materialCost)} • Labor {formatNumberSafe(preview.laborMinutes, 1)} min
+                        </p>
+                      </div>
+                    </div>
+                    {applied.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {applied.map((a) => {
+                          const key = `${a.attributeType}:${a.attributeValue}`;
+                          const deltas = describeAttributeDeltas(a);
+                          const label = deltas.length ? deltas.join(' • ') : 'No pricing effect';
+                          return (
+                            <span key={key} className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700 ring-1 ring-slate-200/80" title="Applied from selected options">
+                              {a.attributeType}:{a.attributeValue} — {label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-[11px] text-slate-500">Select options below to see the impact on this line.</p>
+                    )}
+                  </div>
+                );
+              })()}
+              {attributesLoadingItemId === attributePickerItemId && !itemAttributes[attributePickerItemId] ? (
+                <div className="text-sm text-slate-600">Loading attributes…</div>
+              ) : (
+                <div className="space-y-3">
+                  {(['finish', 'mounting', 'coating', 'grip', 'assembly'] as const).map((type) => {
+                    const options = (itemAttributes[attributePickerItemId] || []).filter((a) => a.active && a.attributeType === type);
+                    if (options.length === 0) return null;
+                    const selected = new Set<string>(attributeSelection[attributePickerItemId] || []);
+                    return (
+                      <div key={type} className="rounded-xl border border-slate-200 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-500">{type}</p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {options.map((opt) => {
+                            const key = `${opt.attributeType}:${opt.attributeValue}`;
+                            const active = selected.has(key);
+                            const deltaParts = describeAttributeDeltas(opt);
+                            return (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${active ? 'border-blue-300 bg-blue-50 text-blue-800' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
+                                onClick={() => {
+                                  setAttributeSelection((prev) => {
+                                    const current = new Set(prev[attributePickerItemId] || []);
+                                    if (current.has(key)) current.delete(key);
+                                    else current.add(key);
+                                    return { ...prev, [attributePickerItemId]: Array.from(current) };
+                                  });
+                                }}
+                                title={deltaParts.length ? deltaParts.join(' • ') : 'No pricing effect'}
+                              >
+                                <span className="inline-flex items-center gap-1.5">
+                                  <span>{opt.attributeValue}</span>
+                                  {deltaParts.length ? <span className="text-[10px] font-medium opacity-80">({deltaParts[0]})</span> : null}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

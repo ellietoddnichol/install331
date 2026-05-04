@@ -1,0 +1,284 @@
+{
+  "schema_version": "1.0",
+  "description": "Default crew by install_family plus +1 bump triggers (line text + labor-map signals). Recommended crew = clamp(default + sum(unique trigger deltas), 1, max_recommended_crew). Not quantity-driven.",
+  "max_recommended_crew": 4,
+  "families": {
+    "small_wall_accessory": {
+      "display_name": "Small wall accessories (dispensers, tissue, hooks)",
+      "default_crew": 1,
+      "rationale": "Single installer typical for light, one-point mounts when layout is straightforward."
+    },
+    "ada_structural_accessory": {
+      "display_name": "ADA / grab bars / structural accessories",
+      "default_crew": 1,
+      "rationale": "Code-sensitive mounting; default one installer when backing and substrate are known and simple."
+    },
+    "wall_loaded_accessory": {
+      "display_name": "Heavy wall-loaded accessories (e.g. baby changing)",
+      "default_crew": 1,
+      "rationale": "Often solo when wall is prepared; bump when load, backing, or handling warrants a second person."
+    },
+    "wall_accessory": {
+      "display_name": "Mirrors and standard wall accessories",
+      "default_crew": 1,
+      "rationale": "Default single installer; oversized or fragile units often need hold-and-fasten pairing."
+    },
+    "partition_system": {
+      "display_name": "Toilet partitions / cubicles",
+      "default_crew": 2,
+      "rationale": "Panel, brace, and door work aligns with two-person baseline for typical partition installs."
+    },
+    "partition_system_overhead_braced": {
+      "display_name": "Floor-mounted overhead-braced partitions",
+      "default_crew": 2,
+      "rationale": "Bracing and door hang benefit from two-person sequencing; bump for layout-heavy or existing conditions."
+    },
+    "locker_system": {
+      "display_name": "Locker banks / assembled locker systems",
+      "default_crew": 2,
+      "rationale": "Alignment, anchoring, and fillers match manufacturer-style two-person assembly guidance."
+    },
+    "locker_base_carpentry": {
+      "display_name": "Locker wood bases / carpentry prep",
+      "default_crew": 2,
+      "rationale": "Base framing, leveling, and coordination with locker set often needs two before counting long runs or fillers."
+    },
+    "fire_cabinet": {
+      "display_name": "Fire extinguisher cabinets",
+      "default_crew": 1,
+      "rationale": "Surface mount can be solo; recess/cut-in, heavy units, or awkward walls warrant a second person."
+    },
+    "ada_signage": {
+      "display_name": "ADA signage packages",
+      "default_crew": 1,
+      "rationale": "Single installer for typical tactile/room ID sets; bump for large packages or split layout workflows."
+    },
+    "wall_protection": {
+      "display_name": "Wall protection (sheet, rail, crash)",
+      "default_crew": 2,
+      "rationale": "Long runs, alignment, and simultaneous hold-fasten behave like light systems work."
+    }
+  },
+  "line_family_inference": [
+    {
+      "install_family": "small_wall_accessory",
+      "patterns": [
+        "\\bsoap\\s+dispenser\\b",
+        "\\b(paper\\s+)?towel\\s+dispenser\\b",
+        "\\btissue\\s+(holder|dispenser)\\b",
+        "\\btoilet\\s+tissue\\s+dispenser\\b",
+        "\\bcoat\\s+hook\\b",
+        "\\bhat\\s+hook\\b",
+        "\\bsanitary\\s+napkin\\b",
+        "\\bhand\\s+dryer\\b"
+      ]
+    },
+    {
+      "install_family": "wall_protection",
+      "patterns": [
+        "\\bwall\\s+guard\\b",
+        "\\bcrash\\s+rail\\b",
+        "\\bchair\\s+rail\\b",
+        "\\bwall\\s+protection\\s+(sheet|panel|rail)\\b",
+        "\\bcorner\\s+guard\\b"
+      ]
+    }
+  ],
+  "combo_triggers": [
+    {
+      "id": "wood_base_with_locker_set",
+      "crew_delta": 1,
+      "label": "Wood base prep coordinated with locker set",
+      "when": {
+        "all_install_ids": ["lockers", "locker_base_carpentry"]
+      }
+    }
+  ],
+  "signal_to_trigger": {
+    "unknown_substrate": "unknown_backing_or_substrate",
+    "tile_or_masonry": "tile_or_cmu_drilling",
+    "ada_field_verify": "ada_layout_or_backing_verify",
+    "wall_reinforcement_unknown": "heavy_unit_wall_uncertainty",
+    "ada_height_verify": "hold_and_fasten_or_verify_mirror",
+    "overhead_braced": "overhead_brace_handling",
+    "floor_mounted": "floor_anchor_partition_work",
+    "uneven_floor_risk": "uneven_floor_or_out_of_plumb",
+    "filler_end_panel": "fillers_end_panels_alignment",
+    "corner_condition": "corner_or_complex_geometry",
+    "base_called_out": "base_or_curb_called_out",
+    "semi_recessed": "recess_or_semi_recess_cut_in",
+    "recessed": "recess_or_semi_recess_cut_in",
+    "ada_path_projection": "projection_or_path_clearance_verify",
+    "tactile_braille": "tactile_braille_coordination",
+    "latch_side_coordination": "latch_side_coordination",
+    "carpentry_prep_before_system_install": "field_built_base_or_prep",
+    "layout_backing_verify": "layout_backing_partition_verify",
+    "clearance_coordination": "clearance_coordination_accessory",
+    "wall_cut_in_by_others_risk": "recess_scope_split_risk"
+  },
+  "triggers": [
+    {
+      "id": "heavy_awkward_handling",
+      "crew_delta": 1,
+      "label": "Heavy or awkward handling",
+      "line_patterns": ["\\boversize\\b", "\\bheavy\\s+gauge\\b", "\\bawkward\\b", "\\blarge\\s+format\\b"]
+    },
+    {
+      "id": "long_run_banked_system",
+      "crew_delta": 1,
+      "label": "Long run or multi-unit banked system",
+      "line_patterns": [
+        "\\blong\\s+run\\b",
+        "\\bmultiple\\s+banks?\\b",
+        "\\b\\d{2,}\\s*(ea|each)\\b.*\\b(locker|partition|stall)\\b",
+        "\\b\\d+\\s*stalls?\\b",
+        "\\bmany\\s+stalls?\\b",
+        "\\bextensive\\s+locker\\b"
+      ]
+    },
+    {
+      "id": "hold_and_fasten_pairing",
+      "crew_delta": 1,
+      "label": "Hold-while-fasten or level-while-mount workflow",
+      "line_patterns": ["\\bhold\\s+(while|and)\\b", "\\btwo\\s*[- ]?person\\b", "\\b2\\s*[- ]?person\\b", "\\bteam\\s+lift\\b"]
+    },
+    {
+      "id": "field_built_base_or_prep",
+      "crew_delta": 1,
+      "label": "Field-built prep (e.g. wood base / curb)",
+      "line_patterns": ["\\bwood\\s+bases?\\b", "\\bbuild\\s+base\\b", "\\bcarpentr(y|er)\\b", "\\bframe\\s+base\\b", "\\bcurb\\s+install\\b"]
+    },
+    {
+      "id": "existing_restroom_or_occupied",
+      "crew_delta": 1,
+      "label": "Existing restroom, occupied sequence, or field conditions",
+      "line_patterns": [
+        "\\bexisting\\s+(wall|restroom|bath|toilet)\\b",
+        "\\boccupied\\b",
+        "\\brenovation\\b",
+        "\\bretrofit\\b",
+        "\\bworking\\s+around\\b"
+      ]
+    },
+    {
+      "id": "tile_or_cmu_drilling",
+      "crew_delta": 1,
+      "label": "Tile, CMU, or hard substrate drilling",
+      "line_patterns": ["\\btile\\b", "\\bcmu\\b", "\\bmasonry\\b", "\\bstone\\b", "\\bblock\\s+wall\\b"]
+    },
+    {
+      "id": "unknown_backing_or_substrate",
+      "crew_delta": 1,
+      "label": "Unknown backing or substrate",
+      "line_patterns": ["\\bbacking\\s+(tbd|unknown|verify)\\b", "\\bsubstrate\\s+(unknown|verify)\\b", "\\bfield\\s+verify\\s+blocking\\b"]
+    },
+    {
+      "id": "swing_up_grab_bar",
+      "crew_delta": 1,
+      "label": "Swing-up or pivoting grab bar (extra handling/alignment)",
+      "line_patterns": ["\\bswing[-\\s]?up\\b", "\\bpivoting\\s+grab\\b"]
+    },
+    {
+      "id": "ada_layout_or_backing_verify",
+      "crew_delta": 1,
+      "label": "ADA layout or backing verification concurrent with install",
+      "line_patterns": ["\\bada\\s+compliance\\b", "\\bverify\\s+height\\b", "\\bblocking\\s+verify\\b"]
+    },
+    {
+      "id": "heavy_unit_wall_uncertainty",
+      "crew_delta": 1,
+      "label": "Substantial load; wall capacity uncertain",
+      "line_patterns": ["\\bqualified\\s+(person|carpenter)\\b", "\\bsubstantial\\s+load\\b", "\\bwall\\s+capable\\b"]
+    },
+    {
+      "id": "hold_and_fasten_or_verify_mirror",
+      "crew_delta": 1,
+      "label": "Large or fragile mirror — hold/level pairing",
+      "line_patterns": ["\\boversized\\s+mirror\\b", "\\blarge\\s+mirror\\b", "\\bfragile\\b.*\\bmirror\\b", "\\bfull\\s*[- ]?height\\s+mirror\\b"]
+    },
+    {
+      "id": "overhead_brace_handling",
+      "crew_delta": 1,
+      "label": "Overhead brace sequence / hardware coordination",
+      "line_patterns": ["\\boverhead\\s+brac", "\\bfloor\\s+mounted.*\\boverhead\\b"]
+    },
+    {
+      "id": "floor_anchor_partition_work",
+      "crew_delta": 1,
+      "label": "Floor-anchored partition run (layout + anchor intensity)",
+      "line_patterns": ["\\bfloor\\s+mount(ed)?\\b.*\\bpartition\\b", "\\bpartition\\b.*\\bfloor\\s+mount"]
+    },
+    {
+      "id": "uneven_floor_or_out_of_plumb",
+      "crew_delta": 1,
+      "label": "Uneven floor or out-of-plumb risk",
+      "line_patterns": ["\\buneven\\s+floor\\b", "\\bout\\s+of\\s+plumb\\b", "\\bshim\\s+heavy\\b"]
+    },
+    {
+      "id": "fillers_end_panels_alignment",
+      "crew_delta": 1,
+      "label": "Fillers, end panels, or exposed-end conditions",
+      "line_patterns": ["\\bfiller\\b", "\\bend\\s+panels?\\b", "\\bexposed\\s+end\\b", "\\bcorner\\s+filler\\b"]
+    },
+    {
+      "id": "corner_or_complex_geometry",
+      "crew_delta": 1,
+      "label": "Corner or complex geometry",
+      "line_patterns": ["\\bcorner\\s+unit\\b", "\\breturn\\s+wall\\b", "\\balcove\\b", "\\bangled\\s+run\\b"]
+    },
+    {
+      "id": "base_or_curb_called_out",
+      "crew_delta": 1,
+      "label": "Base, curb, or integrated platform called out",
+      "line_patterns": ["\\bwood\\s+base\\b", "\\bconcrete\\s+curb\\b", "\\bintegral\\s+base\\b", "\\btoe\\s*[- ]?kick\\s+platform\\b"]
+    },
+    {
+      "id": "recess_or_semi_recess_cut_in",
+      "crew_delta": 1,
+      "label": "Recessed / semi-recessed — cut-in or projection coordination",
+      "line_patterns": ["\\bsemi[-\\s]?recessed\\b", "\\brecessed\\s+cabinet\\b", "\\bcut[-\\s]?in\\b", "\\brough\\s+opening\\b"]
+    },
+    {
+      "id": "projection_or_path_clearance_verify",
+      "crew_delta": 1,
+      "label": "Projection or accessible-path clearance check",
+      "line_patterns": ["\\bprojection\\b", "\\bada\\s+path\\b", "\\bclearance\\b.*\\bcabinet\\b"]
+    },
+    {
+      "id": "tactile_braille_coordination",
+      "crew_delta": 1,
+      "label": "Tactile / Braille sign package coordination",
+      "line_patterns": ["\\bbraille\\b", "\\btactile\\b", "\\braised\\s+characters\\b"]
+    },
+    {
+      "id": "latch_side_coordination",
+      "crew_delta": 1,
+      "label": "Latch-side or hardware coordination across sign schedule",
+      "line_patterns": ["\\blatch\\s+side\\b", "\\broom\\s+id\\s+package\\b", "\\bsign\\s+schedule\\b"]
+    },
+    {
+      "id": "layout_backing_partition_verify",
+      "crew_delta": 1,
+      "label": "Partition layout / backing verification intensity",
+      "line_patterns": ["\\blayout\\s+verify\\b", "\\bbacking\\s+at\\s+bracket\\b", "\\banchor\\s+points?\\b"]
+    },
+    {
+      "id": "clearance_coordination_accessory",
+      "crew_delta": 1,
+      "label": "Clearance coordination with adjacent accessories",
+      "line_patterns": ["\\bclearance\\b.*\\b(dispenser|grab|bar)\\b", "\\bconflict\\b.*\\bmount\\b"]
+    },
+    {
+      "id": "recess_scope_split_risk",
+      "crew_delta": 1,
+      "label": "Recess scope split (by others vs installer)",
+      "line_patterns": ["\\bby\\s+others\\b.*\\b(recess|rough)\\b", "\\brough\\s+in\\s+by\\s+others\\b"]
+    },
+    {
+      "id": "accelerated_schedule",
+      "crew_delta": 1,
+      "label": "Aggressive schedule or compressed window",
+      "line_patterns": ["\\btight\\s+schedule\\b", "\\baccelerated\\b", "\\bshort\\s+window\\b", "\\bnext\\s+day\\b", "\\burgent\\b"]
+    }
+  ]
+}

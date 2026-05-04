@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0",
+  "description": "Document-level confidence bumps. Install-family default crew and +1 bump triggers live in div10_crew_suggestion_rules.json; defaults_by_install_family below is fallback only if that file is missing or returns no sizing.",
+  "defaults_by_install_family": {
+    "ada_structural_accessory": { "suggested_crew_size": 2, "reasoning": "Layout + mount often paired" },
+    "wall_loaded_accessory": { "suggested_crew_size": 2, "reasoning": "Lift + fasten" },
+    "wall_accessory": { "suggested_crew_size": 2, "reasoning": "Typical two-person mirror/accessory set" },
+    "partition_system": { "suggested_crew_size": 2, "reasoning": "Panels/bracing" },
+    "partition_system_overhead_braced": { "suggested_crew_size": 2, "reasoning": "Bracing and door hang" },
+    "locker_system": { "suggested_crew_size": 2, "reasoning": "Bank alignment" },
+    "locker_base_carpentry": { "suggested_crew_size": 2, "reasoning": "Base build + locker coordination" },
+    "fire_cabinet": { "suggested_crew_size": 2, "reasoning": "Mount + verify projection" },
+    "ada_signage": { "suggested_crew_size": 1, "reasoning": "Often single installer with layout verify" }
+  },
+  "document_bump_factors": {
+    "no_site_visit": {
+      "hidden_scope_risk_points": 12,
+      "line_confidence_penalty": 0.08,
+      "label": "Site visit excluded — elevate field-verify risk"
+    },
+    "labor_call_for_quote": {
+      "scope_completeness_penalty": 0.18,
+      "line_confidence_penalty": 0.05,
+      "label": "Labor quoted separately — material-forward scope"
+    },
+    "base_bid_specs_only_short_line": {
+      "needs_spec_crosscheck": true,
+      "line_confidence_penalty": 0.05,
+      "label": "Spec reference without line detail"
+    },
+    "semi_recessed_without_wall_cue": {
+      "hidden_scope_risk_points": 15,
+      "label": "Recessed/semi-recessed without wall condition called out"
+    }
+  }
+}

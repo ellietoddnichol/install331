@@ -4,8 +4,6 @@
 
 **Phase 2 (additive norm layer, no bulk data migration):** [ESTIMATOR_CATALOG_NORM_V1.md](./ESTIMATOR_CATALOG_NORM_V1.md) — `0003` migration, `estimatorNormCatalogRepo` / `resolveTargetCatalogItemIdBySkuOrAlias`.
 
-**Phase 3 (proposal only, for `items_clean`):** run `npm run catalog:propose` after setting `GOOGLE_SHEETS_TAB_ITEMS=CLEAN_ITEMS`. Outputs go to `reports/catalog-transform-proposal/`.
-
 **Premise:** This is a **database migration + catalog normalization** program, not a one-shot “clean the spreadsheet” task. Cursor Agent is strong at reading the repo, changing scripts, running `npm`/`tsx`, and iterating—but **broad, vague goals invite unintended pricing and matching regressions**. Work in **phases with audit artifacts and human review** between merges.
 
 **Hard rules (all phases):**

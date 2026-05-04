@@ -1,5 +1,12 @@
 import { Router } from 'express';
-import { createTakeoffLine, deleteTakeoffLine, listTakeoffLines, updateTakeoffLine } from '../../repos/takeoffRepo.ts';
+import {
+  bulkMoveTakeoffLinesToRoom,
+  createTakeoffLine,
+  deleteTakeoffLine,
+  duplicateTakeoffLine,
+  listTakeoffLines,
+  updateTakeoffLine,
+} from '../../repos/takeoffRepo.ts';
 import { recalculateProjectLinePricing } from '../../repos/modifiersRepo.ts';
 import { getProject } from '../../repos/projectsRepo.ts';
 import { calculateEstimateSummary } from '../../services/estimateEngineV1.ts';
@@ -30,6 +37,23 @@ takeoffRouter.post('/lines', (req, res) => {
   return res.status(201).json({ data: line });
 });
 
+takeoffRouter.post('/lines/bulk-move', (req, res) => {
+  const roomId = String(req.body?.roomId ?? '').trim();
+  const rawIds = req.body?.lineIds;
+  const lineIds = Array.isArray(rawIds) ? rawIds.map((id: unknown) => String(id ?? '').trim()).filter(Boolean) : [];
+
+  if (!roomId || lineIds.length === 0) {
+    return res.status(400).json({ error: 'roomId and a non-empty lineIds array are required' });
+  }
+
+  const result = bulkMoveTakeoffLinesToRoom(lineIds, roomId);
+  if ('error' in result) {
+    return res.status(400).json({ error: result.error });
+  }
+
+  return res.json({ data: result.lines });
+});
+
 takeoffRouter.put('/lines/:lineId', (req, res) => {
   const line = updateTakeoffLine(req.params.lineId, req.body ?? {});
   if (!line) {
@@ -46,6 +70,20 @@ takeoffRouter.delete('/lines/:lineId', (req, res) => {
   }
 
   return res.json({ data: { deleted: true } });
+});
+
+takeoffRouter.post('/lines/:lineId/duplicate', (req, res) => {
+  const roomId = String(req.body?.roomId ?? '').trim();
+  if (!roomId) {
+    return res.status(400).json({ error: 'roomId is required' });
+  }
+
+  const line = duplicateTakeoffLine(req.params.lineId, roomId);
+  if (!line) {
+    return res.status(404).json({ error: 'Takeoff line not found or room is not in this project' });
+  }
+
+  return res.status(201).json({ data: line });
 });
 
 takeoffRouter.post('/finalize-parser-lines', (req, res) => {

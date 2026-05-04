@@ -1,0 +1,12 @@
+phase,rank_within_phase,queue_key,issue_summary,primary_workbook_tabs,remediation_letters,in_app_queue_csv,notes
+1,1,duplicate_sku_groups,"Multiple rows share canonical SKU identity",CLEAN_ITEMS,"b|c|a",duplicate_sku_groups,"Pick ACTIVE canonical winner; deactivate losers (c); fix typos (a)"
+1,2,duplicate_sku_groups,"Same normalized manufacturer+SKU with divergent descriptions",CLEAN_ITEMS,"b|c",duplicate_sku_groups,"Merge or split intentionally distinct installs (b)"
+2,1,alias_collisions,"One alias resolves to competing targets",ALIASES,"b|a",alias_collisions,"Retarget rows or diversify alias strings (b)"
+2,2,alias_collisions,"Legacy crosswalk collides new CLEAN_ITEMS entries",ALIASES;CLEAN_ITEMS,b,alias_collisions,"Document intent in sheet notes column if present (b)"
+3,1,orphan_bundle_skus,"Bundle child SKU absent from curated catalog",BUNDLES;CLEAN_ITEMS,"a|c",orphan_bundle_skus,"Typo fix (a) or deactivate line until SKU curated (c)"
+3,2,unknown_modifiers,"Bundle references modifier_key not in MODIFIERS",MODIFIERS;BUNDLES,"b|a",unknown_modifiers,"Add modifier row (b) or rename key (a)"
+3,3,orphan_bundle_skus,"Dash/case drift between bundle SKU and CLEAN_ITEMS SKU",CLEAN_ITEMS;BUNDLES,a,orphan_bundle_skus,"Align tokens to importer normalization"
+4,1,orphan_attribute_skus,"ATTRIBUTE canonical SKU not found",ATTRIBUTES;CLEAN_ITEMS,"a|c",orphan_attribute_skus,"Fix pointer or deactivate orphaned attribute row (c)"
+4,2,orphan_alias_skus,"ALIASES target canonical SKU missing from curated set",ALIASES;CLEAN_ITEMS,"a|c",orphan_alias_skus,"Fix target SKU or deactivate speculative alias"
+5,1,labor_outliers,"Labor minutes heuristic outlier vs category",CLEAN_ITEMS,b,labor_outliers,"Estimator-validated minutes; use ATTRIBUTES deltas if modeled"
+5,2,labor_outliers,"Partition-like copy with unrealistic minutes heuristic",CLEAN_ITEMS,"b|d",labor_outliers,"Prefer (b); threshold tuning (d) only after identity refs clean"

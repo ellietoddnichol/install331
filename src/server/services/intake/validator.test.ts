@@ -4,6 +4,110 @@ import { buildParseConfidenceSummary } from './confidence.ts';
 import { validateNormalizedItems } from './validator.ts';
 import type { NormalizedIntakeItem } from '../../../shared/types/intake.ts';
 
+test('validator drops section header lines and adds a single summary warning', () => {
+  const items: NormalizedIntakeItem[] = [
+    {
+      sourceType: 'excel',
+      sourceRef: { fileName: 'fixture.xlsx', sheetName: 'Takeoff', rowNumber: 1 },
+      itemType: 'item',
+      category: null,
+      roomName: null,
+      description: 'Qty Description Unit',
+      quantity: null,
+      unit: null,
+      manufacturer: null,
+      model: null,
+      finish: null,
+      modifiers: [],
+      bundleCandidates: [],
+      notes: [],
+      alternate: false,
+      exclusion: false,
+      confidence: 0.9,
+    },
+    {
+      sourceType: 'excel',
+      sourceRef: { fileName: 'fixture.xlsx', sheetName: 'Takeoff', rowNumber: 2 },
+      itemType: 'item',
+      category: null,
+      roomName: '101',
+      description: 'Grab bar 36 inch stainless',
+      quantity: 2,
+      unit: 'EA',
+      manufacturer: null,
+      model: null,
+      finish: null,
+      modifiers: [],
+      bundleCandidates: [],
+      notes: [],
+      alternate: false,
+      exclusion: false,
+      confidence: 0.85,
+    },
+  ];
+
+  const validation = validateNormalizedItems(items);
+
+  assert.equal(validation.correctedItems?.length, 1);
+  assert.equal(validation.correctedItems?.[0]?.description, 'Grab bar 36 inch stainless');
+  assert.equal(
+    validation.warnings.some((w) => w.includes('section titles or table headers')),
+    true
+  );
+});
+
+test('validator drops contact/letterhead lines and normalizes units', () => {
+  const items: NormalizedIntakeItem[] = [
+    {
+      sourceType: 'excel',
+      sourceRef: { fileName: 'bid.xlsx', sheetName: 'Scope', rowNumber: 1 },
+      itemType: 'item',
+      category: null,
+      roomName: null,
+      description: 'latina@contractor.com',
+      quantity: 1,
+      unit: 'EA',
+      manufacturer: null,
+      model: null,
+      finish: null,
+      modifiers: [],
+      bundleCandidates: [],
+      notes: [],
+      alternate: false,
+      exclusion: false,
+      confidence: 0.5,
+    },
+    {
+      sourceType: 'excel',
+      sourceRef: { fileName: 'bid.xlsx', sheetName: 'Scope', rowNumber: 2 },
+      itemType: 'item',
+      category: 'Toilet Accessories',
+      roomName: '101',
+      description: 'Grab bar 36 inch',
+      quantity: 2,
+      unit: 'each',
+      manufacturer: null,
+      model: null,
+      finish: null,
+      modifiers: [],
+      bundleCandidates: [],
+      notes: [],
+      alternate: false,
+      exclusion: false,
+      confidence: 0.8,
+    },
+  ];
+
+  const validation = validateNormalizedItems(items);
+
+  assert.equal(validation.correctedItems?.length, 1);
+  assert.equal(validation.correctedItems?.[0]?.unit, 'EA');
+  assert.equal(
+    validation.warnings.some((w) => w.includes('letterhead, contact info')),
+    true
+  );
+});
+
 test('validator flags modifiers and confidence recommends review when warnings accumulate', () => {
   const items: NormalizedIntakeItem[] = [
     {
@@ -34,6 +138,40 @@ test('validator flags modifiers and confidence recommends review when warnings a
   assert.equal(validation.correctedItems?.[0]?.itemType, 'modifier');
   assert.equal(validation.warnings.length > 0, true);
   assert.equal(confidence.recommendedAction, 'review-before-import');
+});
+
+test('validator buckets sparse PDF lines into General and drops per-item room warnings', () => {
+  const items: NormalizedIntakeItem[] = Array.from({ length: 20 }, (_v, index) => ({
+    sourceType: 'pdf' as const,
+    sourceRef: { fileName: 'bid.pdf', pageNumber: index + 1, chunkId: `page-${index + 1}-chunk-1` },
+    itemType: 'item' as const,
+    category: 'Signage',
+    roomName: index === 0 ? 'Lobby' : null,
+    description: `Sign type ${index + 1}`,
+    quantity: 1,
+    unit: 'EA' as const,
+    manufacturer: null,
+    model: null,
+    finish: null,
+    modifiers: [],
+    bundleCandidates: [],
+    notes: [],
+    alternate: false,
+    exclusion: false,
+    confidence: 0.7,
+  }));
+
+  const validation = validateNormalizedItems(items);
+
+  assert.equal(validation.correctedItems?.every((line) => line.roomName === 'General'), true);
+  assert.equal(
+    validation.warnings.some((w) => w.includes('PDF import: room labels')),
+    true
+  );
+  assert.equal(
+    validation.warnings.some((w) => w.includes('no room while multiple rooms')),
+    false
+  );
 });
 
 test('validator warns when a parsed line looks like a room header false positive', () => {

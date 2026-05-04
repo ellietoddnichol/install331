@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0",
+  "description": "Maps install objects / semantic intents to work-package families and future labor recipe IDs (minutes live in catalog/engine).",
+  "by_install_object_id": {
+    "grab_bars": {
+      "install_family": "ada_structural_accessory",
+      "labor_recipe_ids": ["accessory_verify_backing_and_mount"],
+      "crew_bump_signals": ["unknown_substrate", "tile_or_masonry", "ada_field_verify"]
+    },
+    "baby_changing_station": {
+      "install_family": "wall_loaded_accessory",
+      "labor_recipe_ids": ["heavy_wall_accessory_mount"],
+      "crew_bump_signals": ["wall_reinforcement_unknown"]
+    },
+    "mirrors": {
+      "install_family": "wall_accessory",
+      "labor_recipe_ids": ["mirror_mount_finish_protect"],
+      "crew_bump_signals": ["ada_height_verify"]
+    },
+    "toilet_partitions": {
+      "install_family": "partition_system",
+      "labor_recipe_ids": ["partition_layout_anchor_plumb"],
+      "crew_bump_signals": ["overhead_braced", "floor_mounted", "uneven_floor_risk"]
+    },
+    "lockers": {
+      "install_family": "locker_system",
+      "labor_recipe_ids": ["locker_bank_align_anchor_fillers"],
+      "crew_bump_signals": ["filler_end_panel", "corner_condition", "base_called_out"]
+    },
+    "fire_extinguishers_and_cabinets": {
+      "install_family": "fire_cabinet",
+      "labor_recipe_ids": ["cabinet_mount_projection_check"],
+      "crew_bump_signals": ["semi_recessed", "recessed", "ada_path_projection"]
+    },
+    "ada_signage": {
+      "install_family": "ada_signage",
+      "labor_recipe_ids": ["sign_schedule_mount_verify"],
+      "crew_bump_signals": ["tactile_braille", "latch_side_coordination"]
+    }
+  },
+  "by_normalized_intent": {
+    "locker_base_carpentry": {
+      "install_family": "locker_base_carpentry",
+      "labor_recipe_ids": ["wood_base_frame_level_before_locker_set"],
+      "crew_bump_signals": ["carpentry_prep_before_system_install"]
+    },
+    "partition_install_overhead_braced": {
+      "install_family": "partition_system_overhead_braced",
+      "labor_recipe_ids": ["partition_floor_anchor_overhead_brace_sequence"],
+      "crew_bump_signals": ["layout_backing_verify"]
+    },
+    "ada_accessory_install": {
+      "install_family": "ada_structural_accessory",
+      "labor_recipe_ids": ["accessory_verify_backing_and_mount"],
+      "crew_bump_signals": ["clearance_coordination"]
+    },
+    "fire_cabinet_projection_logic": {
+      "install_family": "fire_cabinet",
+      "labor_recipe_ids": ["cabinet_recess_or_surface_scope_split"],
+      "crew_bump_signals": ["wall_cut_in_by_others_risk"]
+    }
+  }
+}

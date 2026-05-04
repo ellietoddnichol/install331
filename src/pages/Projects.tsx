@@ -1,15 +1,31 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowUpDown, Archive, Filter, Plus, Search } from 'lucide-react';
 import { format } from 'date-fns';
 import { ResumeProjectBanner } from '../components/ResumeProjectBanner';
 import { api } from '../services/api';
-import { fireCatalogSyncForNewWork } from '../utils/catalogBackgroundSync';
-import { ProjectRecord } from '../shared/types/estimator';
+import { useProjectsQuery } from '../hooks/api/useProjectsQuery.ts';
+import { queryKeys } from '../lib/queryKeys.ts';
 import { getCanonicalProjectDateTimestamp } from '../shared/utils/projectDates';
 
 type SortValue = 'newest' | 'oldest' | 'name';
 type ProjectFilterValue = 'all' | 'active' | 'Draft' | 'Submitted' | 'Awarded' | 'Lost' | 'completed' | 'Archived' | 'due-soon' | 'draft-proposals';
+
+/**
+ * Map the project's textual `status` into a left-accent tone + status-chip tone
+ * so the Projects table reads like the rest of the workstation app. Fallback
+ * is slate for unknown/custom statuses.
+ */
+function statusTone(status: string | null | undefined): { accent: string; chip: string } {
+  const s = String(status || '').toLowerCase();
+  if (s === 'draft') return { accent: 'border-l-amber-500', chip: 'ui-mono-chip ui-mono-chip--warn' };
+  if (s === 'submitted') return { accent: 'border-l-blue-500', chip: 'ui-mono-chip ui-mono-chip--info' };
+  if (s === 'awarded') return { accent: 'border-l-emerald-500', chip: 'ui-mono-chip ui-mono-chip--ok' };
+  if (s === 'lost') return { accent: 'border-l-rose-500', chip: 'ui-mono-chip ui-mono-chip--danger' };
+  if (s === 'archived') return { accent: 'border-l-slate-400', chip: 'ui-mono-chip ui-mono-chip--mute' };
+  return { accent: 'border-l-slate-300', chip: 'ui-mono-chip ui-mono-chip--mute' };
+}
 
 function resolveFilterLabel(filter: ProjectFilterValue): string {
   if (filter === 'active') return 'Active projects';
@@ -22,25 +38,21 @@ function resolveFilterLabel(filter: ProjectFilterValue): string {
 
 export function Projects() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { data: projects = [], isLoading, isError, error, refetch } = useProjectsQuery();
+  const deleteMutation = useMutation({
+    mutationFn: (projectId: string) => api.deleteV1Project(projectId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.projects.list });
+    },
+  });
   const [searchParams, setSearchParams] = useSearchParams();
-  const [projects, setProjects] = useState<ProjectRecord[]>([]);
-  const [loading, setLoading] = useState(true);
   const initialSearch = searchParams.get('search') || '';
   const initialFilter = (searchParams.get('filter') as ProjectFilterValue | null) || 'all';
   const initialSort = (searchParams.get('sort') as SortValue | null) || 'newest';
   const [search, setSearch] = useState(initialSearch);
   const [status, setStatus] = useState<ProjectFilterValue>(initialFilter);
   const [sort, setSort] = useState<SortValue>(initialSort);
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        setProjects(await api.getV1Projects());
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
 
   useEffect(() => {
     const next = new URLSearchParams();
@@ -87,10 +99,9 @@ export function Projects() {
     if (!confirmed) return;
 
     try {
-      await api.deleteV1Project(projectId);
-      setProjects((prev) => prev.filter((project) => project.id !== projectId));
-    } catch (error) {
-      console.error('Unable to delete project', error);
+      await deleteMutation.mutateAsync(projectId);
+    } catch (err) {
+      console.error('Unable to delete project', err);
       window.alert('Unable to delete this project right now.');
     }
   }
@@ -102,18 +113,21 @@ export function Projects() {
 
   return (
     <div className="ui-page space-y-4">
-      <ResumeProjectBanner />
-      <div className="ui-surface px-5 py-4 md:px-6 md:py-5 flex items-end justify-between gap-4">
+      <div className="ui-panel flex items-end justify-between gap-4 px-4 py-3.5">
         <div>
-          <p className="ui-eyebrow">Project Library</p>
-          <h1 className="ui-title mt-1">Projects</h1>
-          <p className="ui-subtitle mt-1">Search, filter, sort, and manage every estimate from one operational index.</p>
+          <div className="flex items-center gap-2.5">
+            <span className="ui-status-live">Live</span>
+            <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+              Brighten Builders <span className="mx-1 text-slate-300">/</span> Project Library
+            </span>
+          </div>
+          <h1 className="mt-1.5 text-[24px] font-semibold leading-tight tracking-tight text-slate-950 md:text-[28px]">Projects</h1>
+          <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.06em] text-slate-500">
+            Search · Filter · Sort · Manage Every Estimate
+          </p>
         </div>
-        <button
-          onClick={() => goNewProject()}
-          className="ui-btn-primary h-10 px-4 inline-flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" /> New Project
+        <button onClick={() => navigate('/project/new')} className="ui-btn-cta">
+          <Plus className="mr-1.5 h-3.5 w-3.5" /> New Project
         </button>
       </div>
 
@@ -124,7 +138,7 @@ export function Projects() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by project, client, or number"
-            className="ui-input pl-9"
+            className="ui-input ui-input--leading-icon"
           />
         </div>
 
@@ -155,11 +169,11 @@ export function Projects() {
       </div>
 
       <div className="px-1 flex flex-wrap items-center gap-2 text-xs">
-        <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 font-medium text-blue-800">
+        <span className="ui-chip-soft">
           Filter: {activeFilterLabel}
         </span>
         {search.trim() ? (
-          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-600">
+          <span className="ui-chip-soft">
             Search: {search.trim()}
           </span>
         ) : null}
@@ -171,7 +185,7 @@ export function Projects() {
               setStatus('all');
               setSort('newest');
             }}
-            className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-600 hover:bg-slate-50"
+            className="ui-ghost-btn h-8 rounded-full px-3 text-[11px]"
           >
             Clear Filters
           </button>
@@ -179,7 +193,14 @@ export function Projects() {
       </div>
 
       <div className="ui-surface overflow-hidden">
-        {loading ? (
+        {isError ? (
+          <div className="p-10 text-center text-sm text-red-700">
+            Could not load projects.{error instanceof Error ? ` ${error.message}` : ''}{' '}
+            <button type="button" className="ml-2 underline" onClick={() => void refetch()}>
+                Retry
+              </button>
+          </div>
+        ) : isLoading ? (
           <div className="p-10 text-center text-sm text-slate-500">Loading projects...</div>
         ) : filtered.length === 0 ? (
           <div className="p-10 text-center">
@@ -189,48 +210,67 @@ export function Projects() {
         ) : (
           <table className="w-full text-left">
             <thead>
-              <tr className="bg-slate-100/75 border-b border-slate-200">
-                <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Project</th>
-                <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Client</th>
-                <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
-                <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Created</th>
-                <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide text-right">Action</th>
+              <tr className="sticky top-0 z-10 border-b border-[var(--line)] bg-[var(--surface-soft)]/95 backdrop-blur-sm">
+                <th className="ui-table-th px-5 py-3">Project</th>
+                <th className="ui-table-th px-5 py-3">Client</th>
+                <th className="ui-table-th px-5 py-3">Status</th>
+                <th className="ui-table-th px-5 py-3">Created</th>
+                <th className="ui-table-th-end px-5 py-3">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filtered.map((project) => (
-                <tr key={project.id} className="hover:bg-slate-50/80">
-                  <td className="px-5 py-4">
-                    <p className="text-sm font-semibold text-slate-900">{project.projectName}</p>
-                    <p className="text-xs text-slate-500">{project.projectNumber ? `#${project.projectNumber}` : 'No project number'} · {project.address || 'No address'}</p>
-                  </td>
-                  <td className="px-5 py-4 text-sm text-slate-700">{project.clientName || 'No client'}</td>
-                  <td className="px-5 py-4">
-                    <span className="ui-chip border-slate-200 bg-slate-100 text-slate-700">{project.status}</span>
-                  </td>
-                  <td className="px-5 py-4 text-sm text-slate-600">
-                    {project.createdAt && !Number.isNaN(new Date(project.createdAt).getTime())
-                      ? format(new Date(project.createdAt), 'MMM d, yyyy')
-                      : 'N/A'}
-                  </td>
-                  <td className="px-5 py-4 text-right">
-                    <div className="inline-flex items-center gap-2">
+            <tbody className="divide-y divide-[color-mix(in_srgb,var(--line)_55%,white)]">
+              {filtered.map((project, idx) => {
+                const tone = statusTone(project.status);
+                const rowNumber = String(idx + 1).padStart(3, '0');
+                return (
+                  <tr
+                    key={project.id}
+                    role="button"
+                    tabIndex={0}
+                    title="Click row to open"
+                    className={`cursor-pointer border-l-[3px] ${tone.accent} outline-none hover:bg-[var(--surface-soft)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus-ring)]`}
+                    onClick={() => navigate(`/project/${project.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        navigate(`/project/${project.id}`);
+                      }
+                    }}
+                  >
+                    <td className="px-5 py-3.5">
+                      <div className="mb-0.5 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.05em] text-slate-400">
+                        <span className="font-semibold tabular-nums">{rowNumber}</span>
+                        {project.projectNumber ? (
+                          <span>· IDREF <span className="text-slate-600">{project.projectNumber}</span></span>
+                        ) : null}
+                      </div>
+                      <p className="text-sm font-semibold text-slate-900">{project.projectName}</p>
+                      <p className="text-xs text-slate-500">{project.address || 'No address'}</p>
+                    </td>
+                    <td className="px-5 py-3.5 text-sm text-slate-700">{project.clientName || 'No client'}</td>
+                    <td className="px-5 py-3.5">
+                      <span className={tone.chip}>{project.status || 'Unknown'}</span>
+                    </td>
+                    <td className="px-5 py-3.5 font-mono text-[11px] uppercase tracking-[0.1em] text-slate-600">
+                      {project.createdAt && !Number.isNaN(new Date(project.createdAt).getTime())
+                        ? format(new Date(project.createdAt), 'MMM d, yyyy')
+                        : 'N/A'}
+                    </td>
+                    <td className="px-5 py-3.5 text-right" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
                       <button
-                        onClick={() => navigate(`/project/${project.id}`)}
-                        className="ui-btn-secondary h-8 px-3 text-xs"
-                      >
-                        Open
-                      </button>
-                      <button
-                        onClick={() => void deleteProject(project.id, project.projectName)}
-                        className="ui-btn-danger h-8 px-3 text-xs"
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void deleteProject(project.id, project.projectName);
+                        }}
+                        className="h-8 rounded-md border border-red-200 px-3 font-mono text-[10px] font-semibold uppercase tracking-[0.06em] text-red-700 outline-none hover:bg-red-50 focus-visible:ring-2 focus-visible:ring-red-400/40"
                       >
                         Delete
                       </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

@@ -1,5 +1,13 @@
+// Import implementation directly — package `index.js` runs a debug harness when `module.parent` is unset under ESM.
+import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 import type { ExtractedPdfBlock, ExtractedPdfDocument, IntakeProjectMetadata, PdfExtractionProvider } from '../../../shared/types/intake.ts';
-import { extractMetadataFromText } from '../metadataExtractorService.ts';
+import {
+  extractMetadataFromText,
+  mergeMetadataHint,
+  metadataHintsFromPdfFileInfo,
+  stripIntakeControlCharacters,
+} from '../metadataExtractorService.ts';
+import { GoogleDocumentAiProvider } from './googleDocumentAiProvider.ts';
 
 export interface PdfChunk {
   chunkId: string;
@@ -34,7 +42,9 @@ function extractPrintableTextFromPdf(buffer: Buffer): string {
     .filter(Boolean);
 
   const extracted = extractedByPage.join('\f');
-  return extracted || latin;
+  // Never return raw `latin` — it is the entire PDF file as bytes interpreted as Latin-1,
+  // which floods metadata heuristics with binary garbage (e.g. fake "project titles").
+  return extracted.trim() ? extracted : '';
 }
 
 function splitIntoPages(text: string): string[] {
@@ -60,9 +70,43 @@ function classifyBlock(line: string): ExtractedPdfBlock {
   return { type: 'line', text: trimmed, confidence: 0.66 };
 }
 
+/** Word/Acrobat-exported PDFs: decode real text streams via pdf.js (pdf-parse). */
+async function tryExtractWithPdfParse(buffer: Buffer): Promise<ExtractedPdfDocument | null> {
+  try {
+    const data = await pdfParse(buffer, { max: 0 });
+    const rawText = String(data.text ?? '').replace(/\r\n/g, '\n');
+    const text = stripIntakeControlCharacters(rawText).trim();
+    if (text.length < 12) return null;
+
+    const pageParts = text.split(/\f+/).map((page) => page.trim()).filter(Boolean);
+    const segments = pageParts.length > 0 ? pageParts : [text];
+    const pages = segments.map((pageText, index) => ({
+      pageNumber: index + 1,
+      text: pageText,
+      blocks: pageText
+        .split(/\n/)
+        .map((line) => classifyBlock(line))
+        .filter((block) => block.text),
+    }));
+
+    return {
+      pages,
+      documentText: text,
+      extractionWarnings: [],
+      pdfFileInfo: data.info && typeof data.info === 'object' ? { ...data.info } : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export class FallbackPdfExtractionProvider implements PdfExtractionProvider {
   async extract(file: Buffer): Promise<ExtractedPdfDocument> {
-    const text = extractPrintableTextFromPdf(file);
+    const parsed = await tryExtractWithPdfParse(file);
+    if (parsed) return parsed;
+
+    const raw = extractPrintableTextFromPdf(file);
+    const text = stripIntakeControlCharacters(raw);
     const pages = splitIntoPages(text).map((pageText, index) => ({
       pageNumber: index + 1,
       text: pageText,
@@ -72,10 +116,18 @@ export class FallbackPdfExtractionProvider implements PdfExtractionProvider {
         .filter((block) => block.text),
     }));
 
+    const extractionWarnings: string[] = [];
+    if (!raw.trim()) {
+      extractionWarnings.push('PDF fallback could not extract text streams (compressed or image-only PDFs need Document AI / export to text).');
+    } else if (!text.trim()) {
+      extractionWarnings.push('PDF text was only control/binary noise after sanitization.');
+    }
+
     return {
       pages,
       documentText: text,
-      extractionWarnings: text.trim() ? [] : ['PDF fallback extraction returned no readable text.'],
+      extractionWarnings,
+      pdfFileInfo: undefined,
     };
   }
 }
@@ -122,9 +174,8 @@ function chunkPdfDocument(document: ExtractedPdfDocument): PdfChunk[] {
 
 function getPdfExtractionProvider(): PdfExtractionProvider {
   const provider = String(process.env.UPLOAD_PDF_PROVIDER || 'fallback-text').toLowerCase();
-  if (provider === 'google-document-ai' || provider === 'azure-document-intelligence') {
-    // TODO: wire external PDF extraction providers using service credentials.
-    return new FallbackPdfExtractionProvider();
+  if (provider === 'google-document-ai') {
+    return new GoogleDocumentAiProvider();
   }
   return new FallbackPdfExtractionProvider();
 }
@@ -144,6 +195,9 @@ export async function parsePdfUpload(input: { fileName: string; mimeType: string
       fileName: input.fileName,
       pagesProcessed: document.pages.map((page) => page.pageNumber),
     },
-    metadata: extractMetadataFromText(document.documentText),
+    metadata: mergeMetadataHint(
+      extractMetadataFromText(document.documentText),
+      metadataHintsFromPdfFileInfo(document.pdfFileInfo),
+    ),
   };
 }

@@ -2,8 +2,9 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { EstimateSummary, InstallReviewEmailDraft, ProjectRecord, TakeoffLineRecord } from '../../shared/types/estimator.ts';
 import { buildProposalLineItems } from '../../shared/utils/proposalDocument.ts';
 import { buildProjectConditionSummaryLines, getProjectConditions } from '../../shared/utils/jobConditions.ts';
-import { formatWorkWeeksLabel } from '../../shared/utils/workDuration.ts';
 import { formatCurrencySafe, formatNumberSafe } from '../../utils/numberFormat.ts';
+import { isPlausibleProposalScopeSnippet } from '../../shared/utils/intakeTextGuards.ts';
+import { buildGeminiSummaryPrompt } from './geminiSummaryPrompt.ts';
 
 interface InstallReviewInsights {
 	considerations: string[];
@@ -25,10 +26,11 @@ function summarizeLocation(project: ProjectRecord): string {
 }
 
 function buildScopeLines(lines: TakeoffLineRecord[]): string[] {
-	const grouped = buildProposalLineItems(lines);
+	const grouped = buildProposalLineItems(lines).filter((line) => isPlausibleProposalScopeSnippet(line.description || ''));
 	const visible = grouped.slice(0, 20).map((line) => {
 		const quantity = Number.isInteger(line.quantity) ? String(line.quantity) : formatNumberSafe(line.quantity, 2);
-		return `${line.description}: ${quantity} ${line.unit}`;
+		const detail = line.subtitle ? ` (${line.subtitle})` : '';
+		return `${line.description}${detail}: ${quantity} ${line.unit}`;
 	});
 
 	if (grouped.length > 20) {
@@ -122,32 +124,24 @@ async function generateGeminiInsights(input: InstallReviewEmailInput): Promise<I
 	if (!apiKey) return null;
 
 	const ai = new GoogleGenAI({ apiKey });
-	const prompt = [
-		'You are helping an install estimator prepare an internal install review email.',
-		'Write concise internal operations bullets only.',
-		'Do not use sales language.',
-		'Do not restate pricing totals or scope lines in paragraph form.',
-		'Do not invent missing project details.',
-		'If uncertain, say verify with field conditions.',
-		'Do not mention union wage as an adder or modifier.',
-		'',
-		`Project: ${input.project.projectName}`,
-		`Location: ${summarizeLocation(input.project)}`,
-		`Bid Due Date: ${input.project.bidDate || input.project.proposalDate || input.project.dueDate || 'Not provided'}`,
-		`Crew Size: ${input.project.jobConditions.installerCount}`,
-		`Estimated Work Weeks: ${formatWorkWeeksLabel(input.summary.durationWeeks || 0)}`,
-		`Estimated Days On Site: ${formatNumberSafe(input.summary.durationDays || 0, 1)}`,
-		`Material Total: ${formatCurrencySafe(input.summary.materialSubtotal || 0)}`,
-		`Labor Total: ${formatCurrencySafe(input.summary.adjustedLaborSubtotal || input.summary.laborSubtotal || 0)}`,
-		`Proposal Total: ${formatCurrencySafe(input.summary.baseBidTotal || 0)}`,
-		`Project Conditions: ${JSON.stringify(buildProjectConditionSummaryLines(input.project.jobConditions))}`,
-		`Scope Summary: ${JSON.stringify(buildScopeLines(input.lines))}`,
-		`Special Notes: ${JSON.stringify([asText(input.project.specialNotes), asText(input.project.notes)].filter(Boolean))}`,
-		'',
-		'Return JSON only with:',
-		'- considerations: 4 to 6 concise install-risk bullets',
-		'- reviewQuestions: 5 concise install-review questions that cover crew size, timeline, missing scope, risks, and night work/access when relevant',
-	].join('\n');
+	const prompt = buildGeminiSummaryPrompt({
+		mode: 'install_review',
+		projectName: input.project.projectName,
+		clientName: input.project.clientName || '',
+		location: summarizeLocation(input.project),
+		bidDate: input.project.bidDate || input.project.proposalDate || input.project.dueDate || 'Not provided',
+		crewSize: input.project.jobConditions.installerCount,
+		totalLaborHours: formatNumberSafe(input.summary.totalLaborHours || 0, 1),
+		totalDays: formatNumberSafe(input.summary.durationDays || 0, 1),
+		materialTotal: formatCurrencySafe(input.summary.materialSubtotal || 0),
+		laborTotal: formatCurrencySafe(
+			input.summary.laborLoadedSubtotal ?? input.summary.adjustedLaborSubtotal ?? input.summary.laborSubtotal ?? 0
+		),
+		proposalTotal: formatCurrencySafe(input.summary.baseBidTotal || 0),
+		assumptions: buildProjectConditionSummaryLines(input.project.jobConditions),
+		scopeLines: buildScopeLines(input.lines),
+		specialNotes: [asText(input.project.specialNotes), asText(input.project.notes)].filter(Boolean),
+	});
 
 	const response = await ai.models.generateContent({
 		model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
@@ -197,27 +191,21 @@ export async function generateInstallReviewEmailDraft(input: InstallReviewEmailI
 	const insights = (await generateGeminiInsights(input)) || buildFallbackInsights(input);
 	const pricingLines = [
 		`Material Cost: ${formatCurrencySafe(input.summary.materialSubtotal || 0)}`,
-		`Labor Cost: ${formatCurrencySafe(input.summary.adjustedLaborSubtotal || input.summary.laborSubtotal || 0)}`,
+		`Labor Cost: ${formatCurrencySafe(input.summary.laborLoadedSubtotal ?? input.summary.adjustedLaborSubtotal ?? input.summary.laborSubtotal ?? 0)}`,
 		`Total Estimated Price: ${formatCurrencySafe(input.summary.baseBidTotal || 0)}`,
 	];
-	const cr = input.summary.crewRecommendation;
-	const crewGuidanceLine = cr
-		? `Crew guidance (schedule): minimum ${cr.minimumCrew}, recommended ${cr.recommendedCrew} (~${formatNumberSafe(cr.daysAtRecommendedCrew, 0)} field days at recommended); installers in Setup: ${crewSize ?? 1}`
-		: null;
 	const laborScheduleLines = [
-		`Estimated install duration: ${formatWorkWeeksLabel(input.summary.durationWeeks || 0)}`,
-		`Estimated days on site: ${formatNumberSafe(input.summary.durationDays || 0, 1)} (from work-week model; labor $ unchanged)`,
+		`Total estimated install hours: ${formatNumberSafe(input.summary.totalLaborHours || 0, 1)}`,
+		`Estimated days on site: ${formatNumberSafe(input.summary.durationDays || 0, 1)}`,
 		`Suggested crew size: ${crewSize ?? 'TBD'}`,
-		...(crewGuidanceLine ? [crewGuidanceLine] : []),
 		`Timing assumptions: ${input.project.bidDate || input.project.proposalDate || input.project.dueDate || 'Verify schedule window with field conditions.'}`,
 	];
 	const projectOverviewLines = [
 		`Project Name: ${input.project.projectName}`,
 		`Location: ${location}`,
 		`Expected Project Timing / Start Date: ${input.project.bidDate || input.project.proposalDate || input.project.dueDate || 'Not provided'}`,
-		`Estimated Install Duration: ${formatWorkWeeksLabel(input.summary.durationWeeks || 0)}`,
+		`Estimated Install Duration: ${formatNumberSafe(input.summary.durationDays || 0, 1)} day${Number(input.summary.durationDays || 0) === 1 ? '' : 's'}`,
 		`Suggested Crew Size: ${crewSize ?? 'TBD'}`,
-		...(cr ? [`App crew recommendation: ${cr.recommendedCrew} installers (~${formatNumberSafe(cr.daysAtRecommendedCrew, 0)} field days)`] : []),
 	];
 	const projectModifierLines = [
 		...conditionLines,
@@ -240,12 +228,12 @@ export async function generateInstallReviewEmailDraft(input: InstallReviewEmailI
 		summary: {
 			projectName: input.project.projectName,
 			location,
+			timeline: input.project.bidDate || input.project.proposalDate || input.project.dueDate || null,
 			crewSize,
 			estimatedHours: Number(input.summary.totalLaborHours || 0),
 			estimatedDays: Number(input.summary.durationDays || 0),
-			estimatedWeeks: Number(input.summary.durationWeeks || 0),
 			materialTotal: Number(input.summary.materialSubtotal || 0),
-			laborTotal: Number(input.summary.adjustedLaborSubtotal || input.summary.laborSubtotal || 0),
+			laborTotal: Number(input.summary.laborLoadedSubtotal ?? input.summary.adjustedLaborSubtotal ?? input.summary.laborSubtotal ?? 0),
 			proposalTotal: Number(input.summary.baseBidTotal || 0),
 			projectConditions: projectModifierLines,
 		},

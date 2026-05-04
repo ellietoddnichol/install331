@@ -2,8 +2,9 @@ import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 import type { NextFunction, Request, Response } from 'express';
 import type { Session, User } from '@supabase/supabase-js';
+import { isPasswordLoginConfigured, readPasswordSessionEmail } from './passwordSession.ts';
 
-export type AuthedRequest = Request & { authUser?: User; authSession?: Session | null };
+export type AuthedRequest = Request & { authUser?: User; authSession?: Session | null; authEmail?: string };
 
 function authRequired(): boolean {
   const v = String(process.env.AUTH_REQUIRED || '').trim().toLowerCase();
@@ -85,18 +86,35 @@ export async function requireSession(req: Request, res: Response, next: NextFunc
 
   const url = String(process.env.SUPABASE_URL || '').trim();
   const anonKey = String(process.env.SUPABASE_ANON_KEY || '').trim();
-  if (!url || !anonKey) {
-    res.status(503).json({ error: 'Server auth is required but SUPABASE_URL / SUPABASE_ANON_KEY are not configured.' });
+  const supabaseConfigured = Boolean(url && anonKey);
+
+  if (supabaseConfigured) {
+    const session = await getSupabaseSessionForRequest(req, res);
+    if (session?.user) {
+      (req as AuthedRequest).authUser = session.user;
+      (req as AuthedRequest).authSession = session;
+      next();
+      return;
+    }
+  }
+
+  if (isPasswordLoginConfigured()) {
+    const email = readPasswordSessionEmail(req);
+    if (email) {
+      (req as AuthedRequest).authEmail = email;
+      (req as AuthedRequest).authUser = { id: 'password-session', email } as User;
+      next();
+      return;
+    }
+  }
+
+  if (!supabaseConfigured && !isPasswordLoginConfigured()) {
+    res.status(503).json({
+      error:
+        'Server auth is required (AUTH_REQUIRED=1) but neither Supabase (SUPABASE_URL / SUPABASE_ANON_KEY) nor password login (AUTH_LOGIN_PASSWORD) is configured.',
+    });
     return;
   }
 
-  const session = await getSupabaseSessionForRequest(req, res);
-  if (!session?.user) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-
-  (req as AuthedRequest).authUser = session.user;
-  (req as AuthedRequest).authSession = session;
-  next();
+  res.status(401).json({ error: 'Unauthorized' });
 }

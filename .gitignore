@@ -11,20 +11,18 @@ gen-lang-client-*.json
 estimator.db
 estimator.db-shm
 estimator.db-wal
-node_modules
 
-# Generated reports (regenerate, do not commit)
-reports/catalog-audit/
-reports/catalog-transform-proposal/
+# Generated catalog audit outputs (regenerate with npm run catalog:audit)
+reports/catalog-audit/*.csv
 
-# Local bid / intake artifacts (keep out of git)
-*.pdf
-*.docx
-*.xlsx
-*.zip
+# Root-level client uploads / samples (avoid accidental commits)
+/*.docx
+/*.pdf
+/*.xlsx
+
+# Local starter pack (re-extract ZIP when needed; keep image/repo small)
+div10_starter_pack.zip
 div10_starter_pack_extracted/
-PR_BODY.md
 
-# Cursor / agent local state
-.agents/
-skills-lock.json
+.commit-msg.tmp
+

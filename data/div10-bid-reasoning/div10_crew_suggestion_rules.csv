@@ -1,0 +1,28 @@
+kind,id,default_crew,crew_delta,label_or_display_name,patterns_or_notes
+family,small_wall_accessory,1,,"Small wall accessories (dispensers, tissue, hooks)",inference: soap dispenser; towel dispenser; tissue holder; coat hook; hand dryer
+family,ada_structural_accessory,1,,"ADA / grab bars / structural accessories",labor map install_family grab_bars path
+family,wall_loaded_accessory,1,,"Heavy wall-loaded accessories (e.g. baby changing)",labor map baby_changing_station
+family,wall_accessory,1,,"Mirrors and standard wall accessories",labor map mirrors
+family,partition_system,2,,"Toilet partitions / cubicles",labor map toilet_partitions
+family,partition_system_overhead_braced,2,,"Floor-mounted overhead-braced partitions",intent partition_install_overhead_braced
+family,locker_system,2,,"Locker banks / assembled locker systems",labor map lockers
+family,locker_base_carpentry,2,,"Locker wood bases / carpentry prep",intent locker_base_carpentry
+family,fire_cabinet,1,,"Fire extinguisher cabinets",labor map fire_extinguishers_and_cabinets
+family,ada_signage,1,,"ADA signage packages",labor map ada_signage
+family,wall_protection,2,,"Wall protection (sheet, rail, crash)",inference: wall guard; crash rail; wall protection sheet
+trigger,heavy_awkward_handling,,1,"Heavy or awkward handling",oversize; heavy gauge; awkward; large format
+trigger,long_run_banked_system,,1,"Long run or multi-unit banked system",long run; multiple banks; many stalls; extensive locker
+trigger,hold_and_fasten_pairing,,1,"Hold-while-fasten or level-while-mount workflow",hold while; two person; team lift
+trigger,field_built_base_or_prep,,1,"Field-built prep (e.g. wood base / curb)",wood base; frame base; carpentry
+trigger,existing_restroom_or_occupied,,1,"Existing restroom occupied sequence or field conditions",existing wall/restroom; occupied; renovation; retrofit
+trigger,tile_or_cmu_drilling,,1,"Tile CMU or hard substrate drilling",tile; cmu; masonry; block wall
+trigger,unknown_backing_or_substrate,,1,"Unknown backing or substrate",backing unknown; substrate verify
+trigger,swing_up_grab_bar,,1,"Swing-up grab bar extra handling",swing-up; pivoting grab
+trigger,ada_layout_or_backing_verify,,1,"ADA layout or backing verification",ada compliance; verify height; blocking verify
+trigger,heavy_unit_wall_uncertainty,,1,"Substantial load wall capacity uncertain",qualified carpenter; substantial load
+trigger,hold_and_fasten_or_verify_mirror,,1,"Large fragile mirror hold/level pairing",oversized mirror; large mirror; full-height mirror
+trigger,wood_base_with_locker_set,,1,"Wood base prep coordinated with locker set",COMBO: install ids lockers + locker_base_carpentry
+signal_map,unknown_substrate -> unknown_backing_or_substrate,,,,labor map crew_bump_signals
+signal_map,tile_or_masonry -> tile_or_cmu_drilling,,,,labor map crew_bump_signals
+signal_map,filler_end_panel -> fillers_end_panels_alignment,,,,labor map lockers
+signal_map,semi_recessed -> recess_or_semi_recess_cut_in,,,,labor map fire cabinet

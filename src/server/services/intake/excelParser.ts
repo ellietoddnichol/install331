@@ -2,9 +2,8 @@ import * as xlsx from 'xlsx';
 import { parse as parseCsv } from 'csv-parse/sync';
 import type { ExtractedSpreadsheetRow, IntakeProjectMetadata, UploadFileType } from '../../../shared/types/intake.ts';
 import { extractMetadataFromText, intakeAsText, mergeMetadataHint, normalizeComparableText } from '../metadataExtractorService.ts';
-import { analyzeMatrixTakeoffSheet, detectMatrixTakeoffSheet, type MatrixSheetAnalysis } from './workbookShapeDetector.ts';
+import { analyzeMatrixTakeoffSheet, detectMatrixTakeoffSheet, isTotalsRow, type MatrixSheetAnalysis } from './workbookShapeDetector.ts';
 import { parseMatrixTakeoffSheet } from './matrixTakeoffParser.ts';
-import { matchesPreferredTemplate } from '../../../shared/utils/importTemplate.ts';
 
 export interface ExcelParseOutput {
   fileType: Extract<UploadFileType, 'excel' | 'csv'>;
@@ -20,28 +19,16 @@ export interface ExcelParseOutput {
 type CanonicalColumn = keyof ExtractedSpreadsheetRow['mappedFields'];
 
 const HEADER_ALIASES: Record<CanonicalColumn, string[]> = {
-  roomName: ['room', 'room name', 'area', 'area name', 'area room', 'area / room', 'space', 'zone', 'phase', 'location'],
-  itemDescription: [
-    'item', 'item name', 'description', 'scope item', 'work description', 'product',
-    // Preferred template keeps "Item Name" and "Description" as separate columns; parser merges them below.
-  ],
+  roomName: ['room', 'room name', 'area', 'area name', 'space', 'zone', 'phase', 'location'],
+  itemDescription: ['item', 'item name', 'description', 'scope item', 'work description', 'product', 'material'],
   quantity: ['qty', 'quantity', 'count', 'amount'],
   unit: ['unit', 'uom', 'measure', 'unit of measure'],
-  manufacturer: ['manufacturer', 'mfr', 'vendor'],
-  model: ['model', 'model number', 'series', 'part number', 'model sku', 'model / sku', 'sku'],
-  finish: ['finish', 'color', 'coating', 'finish color', 'finish / color'],
+  manufacturer: ['manufacturer', 'mfr', 'brand', 'vendor'],
+  model: ['model', 'model number', 'series', 'part number'],
+  finish: ['finish', 'color', 'coating'],
   notes: ['notes', 'remarks', 'comments', 'clarifications', 'exclusions', 'inclusions'],
-  cost: ['cost', 'price', 'rate', 'material cost', 'unit cost'],
+  cost: ['cost', 'price', 'rate', 'amount', 'material cost', 'unit cost'],
 };
-
-// Extra preferred-template columns that we surface via mappedFields notes/metadata.
-const EXTENDED_TEMPLATE_COLUMNS: Array<{ key: string; aliases: string[] }> = [
-  { key: 'mounting', aliases: ['mounting', 'install type', 'mounting install type', 'mounting / install type', 'installation'] },
-  { key: 'alternate', aliases: ['alternate', 'allowance', 'alternate allowance', 'alternate / allowance', 'bid alternate'] },
-  { key: 'adders', aliases: ['adders', 'modifiers', 'adders modifiers', 'adders / modifiers', 'add-ons'] },
-  { key: 'laborScope', aliases: ['labor scope', 'labor', 'install scope'] },
-  { key: 'materialScope', aliases: ['material scope', 'supply scope', 'material'] },
-];
 
 function tokenize(value: string): string[] {
   return normalizeComparableText(value).split(/\s+/).filter(Boolean);
@@ -96,12 +83,9 @@ function bestColumnForAlias(headers: string[], aliases: string[], used: Set<numb
   return bestScore >= 0.45 ? bestIndex : null;
 }
 
-function detectColumnMap(
-  headerRow: unknown[],
-  preReserved: Set<number> = new Set<number>(),
-): Partial<Record<CanonicalColumn, number>> {
+function detectColumnMap(headerRow: unknown[]): Partial<Record<CanonicalColumn, number>> {
   const headers = headerRow.map((cell) => intakeAsText(cell));
-  const used = new Set<number>(preReserved);
+  const used = new Set<number>();
   const output: Partial<Record<CanonicalColumn, number>> = {};
 
   (Object.keys(HEADER_ALIASES) as CanonicalColumn[]).forEach((key) => {
@@ -165,26 +149,6 @@ function extractMatrixMetadata(rows: unknown[][], analysis: MatrixSheetAnalysis)
   return extractMetadataFromText(metadataLines.join('\n'));
 }
 
-function detectExtendedColumns(headerRow: unknown[], used: Set<number>): Record<string, number> {
-  const headers = headerRow.map((cell) => intakeAsText(cell));
-  const output: Record<string, number> = {};
-  EXTENDED_TEMPLATE_COLUMNS.forEach(({ key, aliases }) => {
-    const index = bestColumnForAlias(headers, aliases, used);
-    if (index !== null) {
-      used.add(index);
-      output[key] = index;
-    }
-  });
-  return output;
-}
-
-function detectItemNameColumn(headerRow: unknown[], used: Set<number>): number | null {
-  const headers = headerRow.map((cell) => intakeAsText(cell));
-  const index = bestColumnForAlias(headers, ['item name'], used);
-  if (index !== null) used.add(index);
-  return index;
-}
-
 function extractSectionRows(input: {
   rows: unknown[][];
   headerIndex: number;
@@ -194,23 +158,7 @@ function extractSectionRows(input: {
 }): ExtractedSpreadsheetRow[] {
   const { rows, headerIndex, nextHeaderIndex, sourceSheet, sourceSheetHidden } = input;
   const headerRow = rows[headerIndex] || [];
-  const headerTexts = headerRow.map((cell) => intakeAsText(cell));
-  const isPreferredTemplate = matchesPreferredTemplate(headerTexts);
-
-  // When the preferred template is detected, pre-bind Item Name so the itemDescription
-  // heuristic picks the Description column (not Item Name). That keeps both values and
-  // merges them below. Only do this when the template is confidently the preferred one;
-  // otherwise legacy sheets that use "Item Name" as the single description column would
-  // break.
-  const preferredItemNameIndex = isPreferredTemplate
-    ? detectItemNameColumn(headerRow, new Set<number>())
-    : null;
-  const preReserved = new Set<number>();
-  if (preferredItemNameIndex !== null) preReserved.add(preferredItemNameIndex);
-  const columnMap = detectColumnMap(headerRow, preReserved);
-  const usedIndexes = new Set<number>(Object.values(columnMap).filter((value): value is number => value !== undefined));
-  if (preferredItemNameIndex !== null) usedIndexes.add(preferredItemNameIndex);
-  const extendedColumns = detectExtendedColumns(headerRow, usedIndexes);
+  const columnMap = detectColumnMap(headerRow);
   const output: ExtractedSpreadsheetRow[] = [];
 
   for (let rowIndex = headerIndex + 1; rowIndex < nextHeaderIndex; rowIndex += 1) {
@@ -224,35 +172,8 @@ function extractSectionRows(input: {
       rawRow[key] = row[index] ?? null;
     });
 
-    const itemName = preferredItemNameIndex !== null ? intakeAsText(row[preferredItemNameIndex]) : '';
-    const descriptionCell = columnMap.itemDescription !== undefined ? intakeAsText(row[columnMap.itemDescription]) : '';
-    // Merge Item Name + Description when both are present (preferred template).
-    const itemDescription = itemName && descriptionCell && itemName.toLowerCase() !== descriptionCell.toLowerCase()
-      ? `${itemName} — ${descriptionCell}`
-      : (itemName || descriptionCell);
+    const itemDescription = columnMap.itemDescription !== undefined ? intakeAsText(row[columnMap.itemDescription]) : '';
     const quantity = columnMap.quantity !== undefined ? parseNumericValue(row[columnMap.quantity]) : null;
-
-    const extraNotes: string[] = [];
-    const readExtended = (key: string): string | null => {
-      const index = extendedColumns[key];
-      if (index === undefined) return null;
-      const value = intakeAsText(row[index]);
-      return value || null;
-    };
-    const mounting = readExtended('mounting');
-    const alternate = readExtended('alternate');
-    const adders = readExtended('adders');
-    const laborScope = readExtended('laborScope');
-    const materialScope = readExtended('materialScope');
-    if (mounting) extraNotes.push(`Mounting: ${mounting}`);
-    if (alternate) extraNotes.push(`Alternate: ${alternate}`);
-    if (adders) extraNotes.push(`Adders: ${adders}`);
-    if (laborScope) extraNotes.push(`Labor: ${laborScope}`);
-    if (materialScope) extraNotes.push(`Material: ${materialScope}`);
-
-    const notesCell = columnMap.notes !== undefined ? intakeAsText(row[columnMap.notes]) : '';
-    const mergedNotes = [notesCell, extraNotes.join(' | ')].filter(Boolean).join(' | ') || null;
-
     const mappedFields: ExtractedSpreadsheetRow['mappedFields'] = {
       roomName: columnMap.roomName !== undefined ? intakeAsText(row[columnMap.roomName]) || undefined : undefined,
       itemDescription: itemDescription || undefined,
@@ -261,7 +182,7 @@ function extractSectionRows(input: {
       manufacturer: columnMap.manufacturer !== undefined ? intakeAsText(row[columnMap.manufacturer]) || null : null,
       model: columnMap.model !== undefined ? intakeAsText(row[columnMap.model]) || null : null,
       finish: columnMap.finish !== undefined ? intakeAsText(row[columnMap.finish]) || null : null,
-      notes: mergedNotes,
+      notes: columnMap.notes !== undefined ? intakeAsText(row[columnMap.notes]) || null : null,
       cost: columnMap.cost !== undefined ? parseNumericValue(row[columnMap.cost]) : null,
     };
 
@@ -269,7 +190,6 @@ function extractSectionRows(input: {
     if (!itemDescription) parsingNotes.push('Item description was not mapped from a recognized header.');
     if (quantity === null) parsingNotes.push('Quantity was missing or not numeric.');
     if (!mappedFields.unit) parsingNotes.push('Unit was not mapped from a recognized header.');
-    if (isPreferredTemplate) parsingNotes.push('Parsed using preferred import template (high confidence).');
 
     output.push({
       sourceSheet,
@@ -309,6 +229,22 @@ function readWorkbook(input: { fileName: string; mimeType: string; dataBase64: s
   };
 }
 
+/** Generic Column1… row + `JOB:` with no value and no data rows — blank matrix template (see repo sample TA Takeoff.xlsx). */
+function looksLikeEmptyMatrixTakeoffTemplate(rows: unknown[][]): boolean {
+  const r0 = rows[0] || [];
+  const labeled = r0.map((cell) => intakeAsText(cell)).filter(Boolean);
+  if (labeled.length < 3) return false;
+  if (!labeled.every((cell) => /^column\s*\d+$/i.test(cell))) return false;
+  const jobCell = intakeAsText((rows[1] || [])[0] || '');
+  if (!/^job:\s*$/i.test(jobCell.trim())) return false;
+  for (let i = 2; i < Math.min(40, rows.length); i += 1) {
+    const row = rows[i] || [];
+    if (isTotalsRow(row)) continue;
+    if (row.some((cell) => intakeAsText(cell))) return false;
+  }
+  return true;
+}
+
 export function parseExcelUpload(input: { fileName: string; mimeType: string; dataBase64: string }): ExcelParseOutput {
   const { workbook, fileType } = readWorkbook(input);
   const extractedRows: ExtractedSpreadsheetRow[] = [];
@@ -343,6 +279,11 @@ export function parseExcelUpload(input: { fileName: string; mimeType: string; da
 
     if (!headerRows.length) {
       warnings.push(`No confident header row was detected on sheet ${sheetName}.`);
+      if (looksLikeEmptyMatrixTakeoffTemplate(rows)) {
+        warnings.push(
+          `Sheet "${sheetName}" looks like an empty matrix takeoff template (Column1… headers and JOB: with no shorthand row or room quantities). Export a completed grid or fill the template, then re-upload.`
+        );
+      }
       return;
     }
 

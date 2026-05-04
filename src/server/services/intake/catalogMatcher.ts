@@ -1,9 +1,11 @@
 import type { CatalogItem } from '../../../types.ts';
 import type { CatalogMatchCandidate, IntakeCatalogMatch, NormalizedIntakeItem } from '../../../shared/types/intake.ts';
-import { normalizeComparableText } from '../metadataExtractorService.ts';
-import { inferInstallFamily, resolveLaborMinutesWithInstallFamily } from '../pricing/installFamilyPricing.ts';
-import { normalizeStructuredModifiers } from '../pricing/structuredModifiers.ts';
-import { interpretTakeoffHeader } from './headerInterpreter.ts';
+import { intakeAsText, normalizeComparableText } from '../metadataExtractorService.ts';
+import { prepareCatalogMatch } from '../intakeCatalogMatching.ts';
+import { interpretTakeoffHeader, normalizeTakeoffHeader } from './headerInterpreter.ts';
+
+/** Ranked alternatives returned per header — scoring still runs over the full catalog. */
+export const MAX_CATALOG_MATCH_CANDIDATES = 30;
 
 function clamp(value: number): number {
   return Number(Math.max(0, Math.min(1, value)).toFixed(2));
@@ -31,7 +33,7 @@ function tokenize(value: unknown): string[] {
 }
 
 function extractDimensionsFromCatalog(item: CatalogItem): number[] {
-  const text = `${item.sku} ${item.description} ${item.model || ''}`;
+  const text = `${item.sku} ${item.description} ${item.model || ''} ${item.modelNumber || ''}`;
   const output: number[] = [];
   text.match(/\b\d{2}(?:x\d{2})?\b/gi)?.forEach((token) => {
     token.split('x').forEach((part) => {
@@ -59,6 +61,17 @@ function extractCatalogFamilies(item: CatalogItem): string[] {
   if (searchText.includes('shower curtain hook')) families.push('shower curtain hooks');
   if (searchText.includes('folding shower seat') || searchText.includes('fold down shower seat')) families.push('folding shower seat');
   if (searchText.includes('mirror')) families.push('mirror');
+  if (searchText.includes('toilet partition') || searchText.includes('partition compartment')) families.push('toilet partition');
+  if (searchText.includes('urinal screen')) families.push('urinal screen');
+  if (searchText.includes('pilaster')) families.push('pilaster');
+  if (searchText.includes('partition hardware')) families.push('partition hardware');
+  if (searchText.includes('hdpe')) families.push('hdpe');
+  if (searchText.includes('phenolic')) families.push('phenolic');
+  if (searchText.includes('stainless steel') || /\bstainless\b/.test(searchText)) families.push('stainless');
+  if (searchText.includes('powder coat')) families.push('powder coated');
+  if (searchText.includes('overhead braced')) families.push('overhead braced');
+  if (searchText.includes('floor mounted')) families.push('floor mounted');
+  if (searchText.includes('ceiling hung')) families.push('ceiling hung');
   return Array.from(new Set(families));
 }
 
@@ -70,10 +83,73 @@ function buildSearchText(item: CatalogItem): string {
     item.subcategory,
     item.family,
     item.manufacturer,
+    item.brand,
     item.model,
+    item.modelNumber,
+    item.series,
     item.notes,
     ...(item.tags || []),
   ].filter(Boolean).join(' ');
+}
+
+/** Matrix-style shorthand (GB 36, CH B212) — family gating applies. Long Excel descriptions use full-text scoring. */
+function isNarrowMatrixShorthand(rawHeader: string): boolean {
+  const t = intakeAsText(rawHeader);
+  if (!t || t.length > 96) return false;
+  const tokens = normalizeComparableText(t).split(/\s+/).filter(Boolean);
+  return tokens.length <= 12;
+}
+
+/**
+ * When the matrix-style scorer finds nothing, score every catalog row on lexical overlap + description containment.
+ * Matches full spreadsheet lines against your full catalog (SKU, mfr, model, tags, etc. in buildSearchText).
+ */
+function lexicalCatalogCandidates(rawHeader: string, catalogItems: CatalogItem[]): CatalogMatchCandidate[] {
+  const normalized = normalizeTakeoffHeader(rawHeader);
+  if (normalized.length < 8) return [];
+  const queryTokens = tokenize(normalized);
+  if (queryTokens.length < 2) return [];
+
+  const candidates: CatalogMatchCandidate[] = [];
+
+  for (const item of catalogItems) {
+    const itemTokens = tokenize(buildSearchText(item));
+    const ov = overlap(queryTokens, itemTokens);
+    const normDesc = normalizeComparableText(item.description).slice(0, 240);
+    const sub =
+      normalized.length >= 10 &&
+      (normDesc.includes(normalized) ||
+        normalized.includes(normDesc.slice(0, Math.min(140, normDesc.length))));
+
+    let score = 0.1;
+    if (sub) score += 0.52;
+    score += 0.44 * Math.min(1, ov);
+    if (score < 0.2) continue;
+
+    const reasons: string[] = [];
+    if (sub) reasons.push('Catalog description aligns with takeoff line text');
+    if (ov > 0.12) reasons.push(`Token overlap with catalog fields (${Math.round(ov * 100)}%)`);
+
+    candidates.push(
+      toCandidate(
+        item,
+        Math.min(0.92, score),
+        'fuzzy',
+        reasons,
+        {
+          parsedFamily: null,
+          parsedModelTokens: [],
+          parsedDimensions: [],
+          familyOnly: false,
+          catalogCoverageGap: false,
+        }
+      )
+    );
+  }
+
+  return candidates
+    .sort((left, right) => right.confidence - left.confidence)
+    .slice(0, MAX_CATALOG_MATCH_CANDIDATES);
 }
 
 function overlap(left: string[], right: string[]): number {
@@ -118,6 +194,63 @@ function toCandidate(
   };
 }
 
+function mergePrepareCatalogMatch(
+  rawHeader: string,
+  interpretation: ReturnType<typeof interpretTakeoffHeader>,
+  merged: CatalogMatchCandidate[],
+  catalogItems: CatalogItem[]
+): CatalogMatchCandidate[] {
+  if (!catalogItems.length) return merged;
+  const prep = prepareCatalogMatch(
+    {
+      description: rawHeader,
+      itemName: rawHeader,
+      category: interpretation.categoryHint || '',
+      notes: '',
+    },
+    catalogItems
+  );
+  const prepMatch = prep.catalogMatch || prep.suggestedMatch;
+  if (!prepMatch?.catalogItemId) return merged;
+
+  const byId = new Map<string, CatalogMatchCandidate>();
+  for (const c of merged) {
+    if (c.catalogItemId) byId.set(c.catalogItemId, c);
+  }
+
+  const base = typeof prepMatch.score === 'number' ? prepMatch.score : 0.45;
+  const tierBoost = prepMatch.confidence === 'strong' ? 0.06 : prepMatch.confidence === 'possible' ? 0.03 : 0;
+  const pc: CatalogMatchCandidate = {
+    catalogItemId: prepMatch.catalogItemId,
+    matchedName: prepMatch.description,
+    description: prepMatch.description,
+    sku: prepMatch.sku,
+    category: prepMatch.category,
+    unit: prepMatch.unit,
+    manufacturer: null,
+    model: null,
+    materialCost: prepMatch.materialCost,
+    laborMinutes: prepMatch.laborMinutes,
+    matchMethod: 'fuzzy',
+    confidence: clamp(Math.min(0.9, base + tierBoost)),
+    reasons: [`Intake catalog match: ${prepMatch.reason}`],
+    parsedFamily: interpretation.parsedFamily,
+    parsedModelTokens: interpretation.modelTokens,
+    parsedDimensions: interpretation.dimensions.inches || [],
+    familyOnly: false,
+    catalogCoverageGap: false,
+  };
+
+  const prev = byId.get(pc.catalogItemId);
+  if (!prev || pc.confidence > prev.confidence) {
+    byId.set(pc.catalogItemId, pc);
+  }
+
+  return Array.from(byId.values())
+    .sort((left, right) => right.confidence - left.confidence || Number(Boolean(right.catalogCoverageGap)) - Number(Boolean(left.catalogCoverageGap)))
+    .slice(0, MAX_CATALOG_MATCH_CANDIDATES);
+}
+
 function buildCoverageGapCandidate(rawHeader: string, input: {
   parsedFamily: string | null;
   parsedModelTokens: string[];
@@ -139,6 +272,9 @@ function buildCoverageGapCandidate(rawHeader: string, input: {
 
 export function matchMatrixHeaderToCatalog(rawHeader: string, catalogItems: CatalogItem[]): CatalogMatchCandidate[] {
   const interpretation = interpretTakeoffHeader(rawHeader);
+  const narrowShorthand = isNarrowMatrixShorthand(rawHeader);
+  const minScoreToInclude =
+    interpretation.normalizedSearchText.length > 72 ? 0.18 : narrowShorthand ? 0.28 : 0.22;
   const rawCode = normalizeCode(rawHeader);
   const expandedTokens = interpretation.expandedTokens;
   const rawTokens = tokenize(rawHeader);
@@ -152,9 +288,15 @@ export function matchMatrixHeaderToCatalog(rawHeader: string, catalogItems: Cata
   const exactModelInFamily = familyCandidates.some((item) => {
     const normalizedModel = normalizeCode(item.model);
     const normalizedSku = normalizeCode(item.sku);
+    const normalizedModelNum = normalizeCode(item.modelNumber);
     return parsedModelTokens.some((token) => {
       const normalizedToken = normalizeCode(token);
-      return normalizedToken && (normalizedToken === normalizedModel || normalizedToken === normalizedSku);
+      return (
+        Boolean(normalizedToken) &&
+        (normalizedToken === normalizedModel ||
+          normalizedToken === normalizedSku ||
+          Boolean(normalizedModelNum && normalizedToken === normalizedModelNum))
+      );
     });
   });
 
@@ -165,11 +307,15 @@ export function matchMatrixHeaderToCatalog(rawHeader: string, catalogItems: Cata
     const itemTokens = tokenize(itemSearchText);
     const itemModel = normalizeCode(item.model);
     const itemSku = normalizeCode(item.sku);
+    const itemModelNumber = normalizeCode(item.modelNumber);
     const itemFamilies = extractCatalogFamilies(item);
-    const modelExact = rawCode && (rawCode === itemModel || rawCode === itemSku);
+    const modelExact = rawCode && (rawCode === itemModel || rawCode === itemSku || (itemModelNumber && rawCode === itemModelNumber));
     const modelTokenMatch = interpretation.modelTokens.some((token) => {
       const normalized = normalizeCode(token);
-      return normalized && (normalized === itemModel || normalized === itemSku);
+      return (
+        Boolean(normalized) &&
+        (normalized === itemModel || normalized === itemSku || Boolean(itemModelNumber && normalized === itemModelNumber))
+      );
     });
     const modelFamilyMatch = isModelFamilyMatch(parsedModelTokens, item) && !modelTokenMatch;
     const tokenOverlap = overlap(expandedTokens, itemTokens);
@@ -188,7 +334,8 @@ export function matchMatrixHeaderToCatalog(rawHeader: string, catalogItems: Cata
     const accessoryMatch = interpretation.accessoryTokens.some((token) => normalizedItemSearchText.includes(normalizeComparableText(token)));
     const familyOnly = Boolean(familyAliasMatch || modelFamilyMatch) && !modelExact && !modelTokenMatch;
     const coverageGapPenalty = familyOnly && parsedModelTokens.length > 0 && !exactModelInFamily ? 0.1 : 0;
-    const unrelatedFamilyPenalty = parsedFamily && !familyAliasMatch && !modelFamilyMatch && !categoryMatch ? 0.32 : 0;
+    const unrelatedFamilyPenalty =
+      narrowShorthand && parsedFamily && !familyAliasMatch && !modelFamilyMatch && !categoryMatch ? 0.32 : 0;
 
     let score = 0;
     if (modelExact) {
@@ -257,11 +404,11 @@ export function matchMatrixHeaderToCatalog(rawHeader: string, catalogItems: Cata
               ? 'fuzzy'
               : 'unmatched';
 
-    if (score >= 0.28 || familyOnly) {
+    if (score >= minScoreToInclude || familyOnly) {
       const boundedScore = familyOnly && !modelExact && !modelTokenMatch
         ? Math.min(Math.max(score, 0.46), 0.74)
         : score;
-      if (parsedFamily && boundedScore < 0.28 && !familyOnly) {
+      if (narrowShorthand && parsedFamily && boundedScore < 0.28 && !familyOnly) {
         return;
       }
       candidates.push(toCandidate(item, boundedScore, method, reasons, {
@@ -275,59 +422,57 @@ export function matchMatrixHeaderToCatalog(rawHeader: string, catalogItems: Cata
   });
 
   if (!candidates.length) {
+    const lexical = lexicalCatalogCandidates(rawHeader, catalogItems);
+    if (lexical.length) {
+      return mergePrepareCatalogMatch(rawHeader, interpretation, lexical, catalogItems);
+    }
     if (parsedFamily) {
-      return [buildCoverageGapCandidate(rawHeader, {
+      return mergePrepareCatalogMatch(rawHeader, interpretation, [buildCoverageGapCandidate(rawHeader, {
         parsedFamily,
         parsedModelTokens,
         parsedDimensions: requestedDimensions,
         reason: parsedModelTokens.length > 0
           ? `No catalog candidate found for ${parsedFamily} with model ${parsedModelTokens.join(', ')}. Catalog coverage may be missing.`
           : `No catalog candidate found for inferred family ${parsedFamily}. Catalog coverage may be missing.`,
-      })];
+      })], catalogItems);
     }
-    return [buildCoverageGapCandidate(rawHeader, {
+    return mergePrepareCatalogMatch(rawHeader, interpretation, [buildCoverageGapCandidate(rawHeader, {
       parsedFamily: null,
       parsedModelTokens,
       parsedDimensions: requestedDimensions,
       reason: `No catalog candidate found for header "${rawHeader}".`,
-    })];
+    })], catalogItems);
   }
 
-  return candidates
+  let merged = candidates
     .sort((left, right) => right.confidence - left.confidence || Number(Boolean(right.catalogCoverageGap)) - Number(Boolean(left.catalogCoverageGap)))
-    .slice(0, 3);
+    .slice(0, MAX_CATALOG_MATCH_CANDIDATES);
+
+  const bestConf = merged[0]?.confidence ?? 0;
+  if (bestConf < 0.42 && catalogItems.length > 0) {
+    const lexical = lexicalCatalogCandidates(rawHeader, catalogItems);
+    const byId = new Map<string, CatalogMatchCandidate>();
+    for (const c of merged) {
+      if (c.catalogItemId) byId.set(c.catalogItemId, c);
+    }
+    for (const c of lexical) {
+      if (!c.catalogItemId) continue;
+      const prev = byId.get(c.catalogItemId);
+      if (!prev || c.confidence > prev.confidence) {
+        byId.set(c.catalogItemId, c);
+      }
+    }
+    merged = Array.from(byId.values())
+      .sort((left, right) => right.confidence - left.confidence || Number(Boolean(right.catalogCoverageGap)) - Number(Boolean(left.catalogCoverageGap)))
+      .slice(0, MAX_CATALOG_MATCH_CANDIDATES);
+  }
+
+  merged = mergePrepareCatalogMatch(rawHeader, interpretation, merged, catalogItems);
+  return merged;
 }
 
-export function candidateToIntakeCatalogMatch(
-  candidate: CatalogMatchCandidate | null | undefined,
-  context?: {
-    description?: string | null;
-    notes?: string[] | string | null;
-    modifiers?: string[] | null;
-  }
-): IntakeCatalogMatch | null {
+export function candidateToIntakeCatalogMatch(candidate: CatalogMatchCandidate | null | undefined): IntakeCatalogMatch | null {
   if (!candidate.catalogItemId || !candidate.sku || !candidate.description || !candidate.category || !candidate.unit) return null;
-  const normalized = normalizeStructuredModifiers({
-    modifierStrings: context?.modifiers || [],
-    description: context?.description || candidate.description,
-    notes: context?.notes || null,
-  });
-  const installFamily = inferInstallFamily({
-    category: candidate.category,
-    description: context?.description || candidate.description,
-    unit: candidate.unit,
-    structuredModifiers: normalized.installModifiers,
-  });
-  const resolvedLabor = resolveLaborMinutesWithInstallFamily({
-    catalogLaborMinutes: Number(candidate.laborMinutes || 0),
-    installFamily,
-    structuredModifiers: [
-      ...normalized.installModifiers,
-      ...normalized.internalConditions,
-      ...normalized.proposalVisibleOptions,
-      ...normalized.productAttributes,
-    ],
-  });
   return {
     catalogItemId: candidate.catalogItemId,
     sku: candidate.sku,
@@ -335,19 +480,7 @@ export function candidateToIntakeCatalogMatch(
     category: candidate.category,
     unit: candidate.unit,
     materialCost: Number(candidate.materialCost || 0),
-    laborMinutes: resolvedLabor.laborMinutes,
-    installFamily: installFamily === 'unknown' ? null : installFamily,
-    structuredModifiers: Array.from(new Set([
-      ...normalized.installModifiers,
-      ...normalized.internalConditions,
-      ...normalized.proposalVisibleOptions,
-      ...normalized.productAttributes,
-    ])),
-    laborOrigin: resolvedLabor.origin,
-    reviewFlags: Array.from(new Set([
-      ...normalized.reviewFlags,
-      ...resolvedLabor.reviewFlags,
-    ])),
+    laborMinutes: Number(candidate.laborMinutes || 0),
     score: candidate.confidence,
     confidence: candidate.confidence >= 0.75 ? 'strong' : candidate.confidence >= 0.4 ? 'possible' : 'none',
     reason: candidate.reasons.join('; '),

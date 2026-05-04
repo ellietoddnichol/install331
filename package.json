@@ -1,5 +1,5 @@
 {
-  "name": "react-example",
+  "name": "331",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -12,18 +12,28 @@
     "lint": "tsc --noEmit",
     "test": "tsx --test \"src/**/*.test.ts\"",
     "test:intake": "tsx --test src/server/services/intake/**/*.test.ts",
+    "smoke:intake-env": "tsx scripts/intake-env-smoke.ts",
+    "import:div10": "tsx scripts/import-div10-csv.ts",
+    "import:div10-starter": "tsx scripts/import-div10-starter-pack.ts",
+    "eval:div10": "tsx scripts/run-div10-evals.ts",
+    "extract-sa-pem": "node scripts/extract-service-account-pem.mjs",
     "db:migrate": "node scripts/run-pg-migrations.mjs",
     "migrate:sqlite-to-pg": "tsx scripts/migrate-sqlite-to-pg.ts",
     "catalog:audit": "tsx scripts/catalog-audit.ts",
-    "catalog:propose": "tsx scripts/catalog-transform-proposal.ts"
+    "catalog:audit:supabase": "tsx scripts/auditCatalogSupabase.ts",
+    "catalog:audit:supabase-phase": "tsx scripts/supabase-catalog-phase-audit.ts",
+    "catalog:audit:identity-mfr-sku": "tsx scripts/identity-risk-mfr-sku-audit.ts",
+    "catalog:publish:blockers": "tsx scripts/publish-blockers-report.ts"
   },
   "dependencies": {
+    "@google-cloud/documentai": "^9.6.0",
     "@google-cloud/storage": "^7.19.0",
     "@google/genai": "^1.29.0",
     "@hookform/resolvers": "^5.2.2",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.103.0",
     "@tailwindcss/vite": "^4.1.14",
+    "@tanstack/react-query": "^5.99.0",
     "@tanstack/react-table": "^8.21.3",
     "@vitejs/plugin-react": "^5.0.4",
     "better-sqlite3": "^12.6.2",
@@ -38,7 +48,9 @@
     "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "openai": "^4.104.0",
     "pg": "^8.13.1",
+    "pdf-parse": "^1.1.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-dropzone": "^14.4.1",
@@ -46,17 +58,19 @@
     "react-router-dom": "^7.13.1",
     "recharts": "^2.15.4",
     "tailwind-merge": "^3.5.0",
+    "tsx": "^4.21.0",
     "vite": "^6.2.0",
     "xlsx": "^0.18.5",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@types/pg": "^8.11.11",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "@types/pg": "^8.11.11",
     "autoprefixer": "^10.4.21",
     "tailwindcss": "^4.1.14",
-    "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

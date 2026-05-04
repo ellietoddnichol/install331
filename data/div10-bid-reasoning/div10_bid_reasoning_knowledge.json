@@ -1,0 +1,648 @@
+{
+  "schema_version": "2.0",
+  "title": "Division 10 Bid Reasoning & Install Intelligence",
+  "purpose": "A deeper reasoning layer for commercial Division 10 intake, scope interpretation, bid building, hidden-scope detection, and labor-operation inference.",
+  "design_principles": [
+    "Understand document meaning before mapping products.",
+    "Separate scope from commercial terms, pricing boilerplate, and proposal metadata.",
+    "Infer work operations from construction language, not just SKU matches.",
+    "Flag hidden scope, assumptions, and likely exclusions so the app can reason like an estimator."
+  ],
+  "document_understanding": {
+    "block_types": [
+      {
+        "type": "company_header",
+        "description": "Seller identity and contact block.",
+        "examples": [
+          "CWA Specialties Inc.",
+          "14254 182nd Street",
+          "913-526-9834",
+          "email lines"
+        ],
+        "parser_action": "ignore_for_scope; retain for document metadata only"
+      },
+      {
+        "type": "proposal_metadata",
+        "description": "Project name, proposal date, plans dated, addenda, acceptance timing.",
+        "examples": [
+          "Project: Fire Fighters Hall",
+          "Proposal Date",
+          "Plans Dated",
+          "Addendums",
+          "notified within 30 days"
+        ],
+        "parser_action": "store as proposal metadata; do not create labor or material lines"
+      },
+      {
+        "type": "scope_header",
+        "description": "Manufacturer or category header that introduces scope items.",
+        "examples": [
+          "Bradley Toilet Acc.",
+          "Bobrick \u2013 Toilet Accessories",
+          "Activar \u2013 Fire Extinguishers / Cabinets",
+          "Hadrian Partitions"
+        ],
+        "parser_action": "open a new scope group"
+      },
+      {
+        "type": "scope_item",
+        "description": "A line that contains quantity and product description/model.",
+        "examples": [
+          "2 963 baby change station",
+          "2 Sets B6806 Grab Bars \u2013 18, 36, 42",
+          "1 C1017F10 Semi-Recessed Cabinet"
+        ],
+        "parser_action": "extract as item line with product attributes"
+      },
+      {
+        "type": "scope_option",
+        "description": "An alternate material or finish option, often with separate pricing.",
+        "examples": [
+          "Powder coated: $7,998.00",
+          "HDPE Solid Plastic: $15,036.00"
+        ],
+        "parser_action": "capture as alternate pricing / material option, not duplicate base scope"
+      },
+      {
+        "type": "subtotal_or_price_line",
+        "description": "Material subtotal or category price line.",
+        "examples": [
+          "Materials: $2,912.00",
+          "Material: $2,689"
+        ],
+        "parser_action": "store pricing metadata; never treat as item scope"
+      },
+      {
+        "type": "commercial_term",
+        "description": "Bid conditions and commercial qualifiers.",
+        "examples": [
+          "ADD FOR SALES TAX",
+          "BOND: NO",
+          "IF LABOR IS NEEDED, PLEASE CALL FOR QUOTE",
+          "CUSTOMER TO RECEIVE/UNLOAD",
+          "JOB SITE VISIT: NO",
+          "BASE BID PER SPECS AND PLANS"
+        ],
+        "parser_action": "route to commercial assumptions / exclusions / logistics; do not create scope items"
+      },
+      {
+        "type": "inclusion_note",
+        "description": "A short phrase that indicates included accessories or hardware.",
+        "examples": [
+          "standard colors, hardware & brackets",
+          "non rated materials"
+        ],
+        "parser_action": "attach to current item/group as inclusion or spec qualifier"
+      }
+    ],
+    "hard_ignore_patterns": [
+      "CWA Specialties Inc",
+      "Linwood",
+      "913-",
+      "@",
+      "Project:",
+      "Proposal Date:",
+      "Plans Dated:",
+      "Addendums:",
+      "To secure pricing",
+      "30 days of proposal date"
+    ],
+    "commercial_term_patterns": [
+      "ADD FOR SALES TAX",
+      "BOND:",
+      "IF LABOR IS NEEDED",
+      "CUSTOMER TO RECEIVE/UNLOAD",
+      "SINGLE SHIPMENT",
+      "JOB SITE VISIT:",
+      "BASE BID PER SPECS AND PLANS"
+    ],
+    "reasoning_rules": [
+      "If a line is mostly identity/contact text, classify as non-scope.",
+      "If a line contains quantity plus model/description, classify as scope_item.",
+      "If a line contains price only and no install noun, treat as subtotal/option.",
+      "If a line contains tax, bond, unload, shipment, or bid language, route to commercial_terms.",
+      "If a line contains material family + price and is adjacent to another family + price, treat as alternates."
+    ]
+  },
+  "bid_reasoning_flow": [
+    {
+      "step": 1,
+      "name": "Normalize document",
+      "machine_thought": "Clean headers/footers, merge broken OCR lines, keep nearby context.",
+      "outputs": [
+        "normalized_blocks"
+      ]
+    },
+    {
+      "step": 2,
+      "name": "Classify blocks",
+      "machine_thought": "Separate scope lines, option lines, metadata, pricing lines, and commercial terms.",
+      "outputs": [
+        "classified_blocks"
+      ]
+    },
+    {
+      "step": 3,
+      "name": "Build scope groups",
+      "machine_thought": "Attach items to the nearest manufacturer/category header and preserve options.",
+      "outputs": [
+        "scope_groups"
+      ]
+    },
+    {
+      "step": 4,
+      "name": "Interpret construction meaning",
+      "machine_thought": "Map not just products but work operations, install dependencies, and code-sensitive conditions.",
+      "outputs": [
+        "labor_operations",
+        "assumptions",
+        "warnings"
+      ]
+    },
+    {
+      "step": 5,
+      "name": "Detect hidden scope",
+      "machine_thought": "Look for common Division 10 phrases that imply extra prep, carpentry, backing, anchoring, layout, or field verification.",
+      "outputs": [
+        "hidden_scope_flags"
+      ]
+    },
+    {
+      "step": 6,
+      "name": "Build bid package",
+      "machine_thought": "Separate material pricing, labor pricing, logistics, tax, bond, exclusions, alternates, and clarifications.",
+      "outputs": [
+        "estimate_lines",
+        "proposal_notes",
+        "commercial_terms"
+      ]
+    }
+  ],
+  "construction_semantics": [
+    {
+      "phrase_family": "wood bases for lockers",
+      "normalized_intent": "locker_base_carpentry",
+      "meaning": "This is not a generic locker set. It is a separate carpentry/prep operation before locker placement.",
+      "implied_operations": [
+        "measure locker run and base depth",
+        "frame base or curb",
+        "anchor base to wall/floor as applicable",
+        "shim and level base",
+        "install plywood or runner decking if base type requires",
+        "set lockers on base",
+        "continue standard locker anchoring/alignment"
+      ],
+      "when_to_add_labor": "Always add separate labor before locker installation unless proposal explicitly says base by others.",
+      "common_assumptions": [
+        "Base height and toe-kick detail are shown on drawings.",
+        "Locker dimensions are known before base fabrication.",
+        "Substrate is suitable for anchorage."
+      ],
+      "risk_flags": [
+        "If base detail is missing, add field verify / detail-required flag.",
+        "If existing slab is uneven, elevate leveling labor.",
+        "If finish carpentry appearance matters, do not bury labor under generic locker minutes."
+      ],
+      "sources": [
+        "https://pages.zogics.com/hubfs/Zogics%20Flooring%20and%20Locker%20Sheets/Zogics%20Lockers%20Installation.pdf",
+        "https://cdn2.hubspot.net/hubfs/443567/Wood%20Locker%20Installation%20Quick%20Guide.pdf"
+      ]
+    },
+    {
+      "phrase_family": "floor mounted overhead braced partitions",
+      "normalized_intent": "partition_install_overhead_braced",
+      "meaning": "Partition style determines anchoring, hardware, alignment, and install sequence.",
+      "implied_operations": [
+        "layout stalls from drawings",
+        "locate brackets and anchorage points",
+        "verify wall backing at required points",
+        "anchor to floor",
+        "plumb stiles and panels",
+        "set overhead brace",
+        "hang doors and adjust hardware for true openings"
+      ],
+      "when_to_add_labor": "Whenever partition mounting type is specified; labor differs from ceiling-hung and floor-to-ceiling conditions.",
+      "common_assumptions": [
+        "Backing exists where required",
+        "Finished floor allows anchors",
+        "Layout dimensions are reliable"
+      ],
+      "risk_flags": [
+        "Uneven floor or out-of-plumb walls increase install difficulty.",
+        "Accessible stall geometry may require more layout verification than stall count suggests."
+      ],
+      "sources": [
+        "https://www.bobrick.com/wp-content/uploads/1080-69_ii.pdf",
+        "https://www.bobrick.com/wp-content/uploads/1540-69_ii.pdf"
+      ]
+    },
+    {
+      "phrase_family": "ADA grab bars / restroom accessories",
+      "normalized_intent": "ada_accessory_install",
+      "meaning": "Install is code-sensitive and often backing-sensitive; not just quantity times SKU.",
+      "implied_operations": [
+        "verify location and mounting height",
+        "confirm backing or reinforcement",
+        "choose substrate-appropriate fasteners",
+        "install and final-check clearances"
+      ],
+      "when_to_add_labor": "Always; elevate further for existing finished restroom, tile/masonry substrate, or unknown backing.",
+      "common_assumptions": [
+        "Blocking/backing exists or is by others unless priced.",
+        "Heights and locations come from drawings or field verification."
+      ],
+      "risk_flags": [
+        "Unknown backing in existing walls",
+        "Tile or CMU drilling",
+        "Conflicts with dispenser clearances or grab bar position"
+      ],
+      "sources": [
+        "https://www.bobrick.com/wp-content/uploads/4998_ii.pdf",
+        "https://www.access-board.gov/aba/guides/chapter-6-toilet-rooms/",
+        "https://www.access-board.gov/ada/chapter/ch06/"
+      ]
+    },
+    {
+      "phrase_family": "surface / semi-recessed fire extinguisher cabinet",
+      "normalized_intent": "fire_cabinet_projection_logic",
+      "meaning": "Cabinet type affects projection compliance and wall-condition scope.",
+      "implied_operations": [
+        "confirm cabinet type",
+        "check wall condition and recess requirement",
+        "review protrusion risk in path of travel",
+        "install at approved location"
+      ],
+      "when_to_add_labor": "Whenever cabinet type appears; separate cut-in/recess framing from surface mount logic.",
+      "common_assumptions": [
+        "Wall condition matches cabinet type",
+        "Location is approved by drawings/code review"
+      ],
+      "risk_flags": [
+        "Surface-mounted cabinet may violate projection constraints in circulation path.",
+        "Recessed units may require framing/cut-in by others unless included."
+      ],
+      "sources": [
+        "https://www.larsensmfg.com/ada-guidelines/",
+        "https://www.activarcpg.com/wp-content/uploads/Technical-Article-Cabinet-ADA-Mounting-Height-and-Projection.pdf"
+      ]
+    }
+  ],
+  "install_objects": [
+    {
+      "object_id": "grab_bars",
+      "category": "Toilet Accessories",
+      "trigger_terms": [
+        "grab bar",
+        "ADA bar",
+        "36 grab bar",
+        "42 grab bar",
+        "18 grab bar",
+        "swing-up grab bar"
+      ],
+      "general_knowledge": [
+        "Grab bars are structural accessories, not finish trim.",
+        "Backing or reinforcement is a core install dependency.",
+        "ADA location and accessory clearance can matter."
+      ],
+      "hidden_scope": [
+        "backing review",
+        "existing wall investigation",
+        "tile/masonry drilling",
+        "ADA field verification"
+      ],
+      "proposal_assumptions_default": [
+        "Adequate backing by others unless specifically included.",
+        "Final mounting locations per approved drawings/field verification."
+      ],
+      "sources": [
+        "https://www.bobrick.com/wp-content/uploads/4998_ii.pdf",
+        "https://www.access-board.gov/aba/guides/chapter-6-toilet-rooms/"
+      ]
+    },
+    {
+      "object_id": "baby_changing_station",
+      "category": "Toilet Accessories",
+      "trigger_terms": [
+        "baby change station",
+        "baby changing station",
+        "changing table"
+      ],
+      "general_knowledge": [
+        "Wall-supported accessory with significant load and mounting sensitivity.",
+        "Existing-wall substrate and reinforcement can materially affect install."
+      ],
+      "hidden_scope": [
+        "backing investigation",
+        "layout height verification",
+        "wall repair or reinforcement by others unless priced"
+      ],
+      "proposal_assumptions_default": [
+        "Suitable wall support exists or is by others.",
+        "Locations coordinated with room layout."
+      ],
+      "sources": [
+        "https://www.bobrick.com/wp-content/uploads/2016_Bobrick_Planning_Guide.pdf"
+      ]
+    },
+    {
+      "object_id": "mirrors",
+      "category": "Toilet Accessories",
+      "trigger_terms": [
+        "mirror",
+        "framed mirror",
+        "tilt mirror"
+      ],
+      "general_knowledge": [
+        "Often lower complexity than grab bars but still substrate-sensitive and layout-sensitive.",
+        "ADA height and edge conditions can matter depending on mirror type/location."
+      ],
+      "hidden_scope": [
+        "layout verification",
+        "substrate anchor selection",
+        "existing-finish protection"
+      ],
+      "proposal_assumptions_default": [
+        "Suitable wall surface ready to receive accessories."
+      ],
+      "sources": [
+        "https://www.access-board.gov/aba/guides/chapter-6-toilet-rooms/"
+      ]
+    },
+    {
+      "object_id": "toilet_partitions",
+      "category": "Toilet Partitions",
+      "trigger_terms": [
+        "partition stall",
+        "privacy screen",
+        "overhead braced",
+        "ceiling hung",
+        "floor mounted",
+        "alcove"
+      ],
+      "general_knowledge": [
+        "Mounting style drives install method.",
+        "Backing, floor anchors, plumb/level, and hardware adjustment are integral."
+      ],
+      "hidden_scope": [
+        "wall backing review",
+        "uneven floor shimming",
+        "layout complexity",
+        "ADA stall geometry review"
+      ],
+      "proposal_assumptions_default": [
+        "Layout dimensions and mounting conditions per approved drawings.",
+        "Adequate backing exists where required unless explicitly included."
+      ],
+      "sources": [
+        "https://www.bobrick.com/wp-content/uploads/1080-69_ii.pdf",
+        "https://www.bobrick.com/wp-content/uploads/1540-69_ii.pdf"
+      ]
+    },
+    {
+      "object_id": "lockers",
+      "category": "Lockers",
+      "trigger_terms": [
+        "locker",
+        "locker bank",
+        "metal locker",
+        "phenolic locker",
+        "end panel",
+        "filler panel",
+        "corner filler",
+        "sloped top"
+      ],
+      "general_knowledge": [
+        "Locker runs are systems, not just individual boxes.",
+        "Filler/end/corner conditions and anchoring are common hidden labor."
+      ],
+      "hidden_scope": [
+        "filler panels",
+        "end panels",
+        "corner fillers",
+        "anchoring to wall/floor",
+        "plumb and level",
+        "base construction if called out"
+      ],
+      "proposal_assumptions_default": [
+        "Wall/floor suitable for anchoring.",
+        "Layout dimensions and fillers per drawings."
+      ],
+      "sources": [
+        "https://www.republicstorage.com/wp-content/uploads/republic-assembly-standard-and-heavy-duty-locker-instructions.pdf",
+        "https://media.bradleycorp.com/view/31808/215-1960.pdf",
+        "https://products.storemorestore.com/hubfs/StoreMoreStore/Lockers/Phenolic-Locker/Assembly-Guide.pdf"
+      ]
+    },
+    {
+      "object_id": "fire_extinguishers_and_cabinets",
+      "category": "Fire Protection Specialties",
+      "trigger_terms": [
+        "fire extinguisher",
+        "fire cabinet",
+        "semi-recessed cabinet",
+        "recessed cabinet",
+        "surface mounted cabinet"
+      ],
+      "general_knowledge": [
+        "Extinguishers and cabinets are not the same install condition.",
+        "Cabinet projection and mounting condition can create ADA/path-of-travel issues."
+      ],
+      "hidden_scope": [
+        "cabinet cut-in or recess work",
+        "projection review",
+        "location verification"
+      ],
+      "proposal_assumptions_default": [
+        "Approved mounting locations by others unless field verification included."
+      ],
+      "sources": [
+        "https://www.larsensmfg.com/ada-guidelines/",
+        "https://www.activarcpg.com/wp-content/uploads/Technical-Article-Cabinet-ADA-Mounting-Height-and-Projection.pdf"
+      ]
+    },
+    {
+      "object_id": "ada_signage",
+      "category": "Signage",
+      "trigger_terms": [
+        "ADA sign",
+        "tactile sign",
+        "braille sign",
+        "room sign"
+      ],
+      "general_knowledge": [
+        "Location is part of compliance, not an afterthought.",
+        "Signs can fail inspection even when neatly mounted."
+      ],
+      "hidden_scope": [
+        "field location verification",
+        "door swing / latch side coordination",
+        "clear floor space review"
+      ],
+      "proposal_assumptions_default": [
+        "Approved sign schedule and mounting locations provided."
+      ],
+      "sources": [
+        "https://www.access-board.gov/ada/guides/chapter-7-signs/"
+      ]
+    }
+  ],
+  "commercial_reasoning": {
+    "term_meanings": [
+      {
+        "term": "ADD FOR SALES TAX",
+        "meaning": "Commercial pricing qualifier, not scope.",
+        "app_behavior": "Treat as pricing rule / tax toggle."
+      },
+      {
+        "term": "BOND: NO / Y / N",
+        "meaning": "Commercial requirement flag, not labor scope.",
+        "app_behavior": "Store as bond toggle; never parse as item."
+      },
+      {
+        "term": "IF LABOR IS NEEDED, PLEASE CALL FOR QUOTE",
+        "meaning": "This proposal is material-only or incomplete scope for labor.",
+        "app_behavior": "Set proposal_scope_type = material_only unless contradicted elsewhere."
+      },
+      {
+        "term": "CUSTOMER TO RECEIVE/UNLOAD",
+        "meaning": "Delivery/unloading responsibility qualifier.",
+        "app_behavior": "Store in logistics; do not price unload labor unless scope says otherwise."
+      },
+      {
+        "term": "JOB SITE VISIT: NO",
+        "meaning": "Field verification was excluded from base price.",
+        "app_behavior": "Flag uncertainty for dimensions / substrate / unknown conditions."
+      },
+      {
+        "term": "BASE BID PER SPECS AND PLANS",
+        "meaning": "Generic compliance statement; too broad to create scope by itself.",
+        "app_behavior": "Use only as supporting metadata."
+      }
+    ]
+  },
+  "hidden_scope_recipes": [
+    {
+      "recipe_id": "existing_wall_accessory_install",
+      "trigger_conditions": [
+        "accessory on existing wall",
+        "ADA accessory",
+        "unknown substrate",
+        "no site visit"
+      ],
+      "add_operations": [
+        "field verify substrate",
+        "coordinate locations",
+        "select anchors",
+        "allow for slow drilling / finish protection"
+      ],
+      "assumption_if_not_priced": "Existing walls are ready and adequately reinforced where required."
+    },
+    {
+      "recipe_id": "locker_run_with_fillers",
+      "trigger_conditions": [
+        "locker",
+        "run ends at wall",
+        "corner condition",
+        "banked units"
+      ],
+      "add_operations": [
+        "fit filler panel",
+        "scribe filler if needed",
+        "align locker run",
+        "anchor to wall"
+      ],
+      "assumption_if_not_priced": "Fillers/end panels per manufacturer layout are included only if clearly shown."
+    },
+    {
+      "recipe_id": "partition_install_in_existing_restroom",
+      "trigger_conditions": [
+        "partition",
+        "existing restroom",
+        "overhead braced",
+        "no site visit"
+      ],
+      "add_operations": [
+        "field verify layout",
+        "account for floor irregularity",
+        "verify backing",
+        "increase hardware adjustment time"
+      ],
+      "assumption_if_not_priced": "Walls/floors are true enough for standard install."
+    },
+    {
+      "recipe_id": "cabinet_recess_condition",
+      "trigger_conditions": [
+        "recessed cabinet",
+        "semi-recessed cabinet"
+      ],
+      "add_operations": [
+        "check wall depth/framing compatibility",
+        "separate cut-in/framing by others vs included work"
+      ],
+      "assumption_if_not_priced": "Opening/framing by others unless proposal expressly includes it."
+    }
+  ],
+  "example_reasoning_from_uploaded_files": [
+    {
+      "document_name": "Black & McDonald Warehouse proposal",
+      "observed_pattern": "Header metadata + material groups + material subtotals + commercial qualifiers",
+      "what_scope_exists": [
+        "Bobrick toilet accessories",
+        "Activar fire extinguishers / cabinets"
+      ],
+      "what_should_not_become_scope": [
+        "sales tax line",
+        "bond line",
+        "customer receive/unload",
+        "base bid per specs and plans",
+        "proposal date/contact info"
+      ],
+      "estimator_thought": [
+        "This appears material-oriented, not a full install quote, because it literally says labor should be quoted separately.",
+        "Semi-recessed cabinet line carries location/projection logic but not enough info to assume recess framing is included."
+      ]
+    },
+    {
+      "document_name": "Fire Fighters Hall proposal + takeoff",
+      "observed_pattern": "Takeoff names the products; proposal compresses them into grouped pricing and adds alternate partition material options.",
+      "what_scope_exists": [
+        "Bradley toilet accessories",
+        "Hadrian partition stalls and screens"
+      ],
+      "what_hidden_scope_is_likely": [
+        "ADA grab bar layout/backing risk",
+        "Partition mounting and adjustment labor driven by overhead-braced floor-mounted condition",
+        "Potential ADA stall/layout sensitivity not visible from stall count alone"
+      ],
+      "what_should_not_become_scope": [
+        "job site visit no",
+        "bond no",
+        "sales tax",
+        "single shipment"
+      ],
+      "estimator_thought": [
+        "The takeoff is useful for product count, but the proposal reveals commercial assumptions and alternates.",
+        "14 stalls does not fully describe labor; mounting type and field condition matter."
+      ]
+    }
+  ],
+  "self_questions_for_reasoning_engine": [
+    "Is this line a product/scope line, or a commercial/metadata line?",
+    "Does the phrase imply a separate operation before or after the main install?",
+    "Is the document material-only, install-only, or both?",
+    "Are there code-sensitive items where location matters, not just quantity?",
+    "Did the proposal exclude site visit, unload, or labor, which increases uncertainty?",
+    "Does a mounting style or base condition imply carpentry, anchoring, layout, or shimming labor?"
+  ],
+  "recommended_app_outputs": [
+    "scope_lines",
+    "commercial_terms",
+    "alternates",
+    "hidden_scope_flags",
+    "labor_operations",
+    "assumptions",
+    "clarifications",
+    "exclusions",
+    "confidence_score"
+  ]
+}

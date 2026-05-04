@@ -1,5 +1,9 @@
 import { randomUUID } from 'crypto';
-import { estimatorDb } from '../db/connection.ts';
+import fs from 'fs';
+import path from 'path';
+import { isPgDriver } from '../db/driver.ts';
+import { dbAll, dbGet, dbRun } from '../db/query.ts';
+import { getProjectFilesBucket, getServiceSupabase, isSupabaseStorageConfigured } from '../supabase/serviceClient.ts';
 import { ProjectFileRecord } from '../../shared/types/estimator.ts';
 import {
   buildProjectFileObjectName,
@@ -16,7 +20,29 @@ export type ProjectFileStoredRow = ProjectFileRecord & {
   gcsObjectName: string | null;
 };
 
-function mapProjectFileRow(row: any): ProjectFileRecord {
+const LOCAL_DISK_PREFIX = 'local:';
+
+function useLocalDiskForProjectFiles(): boolean {
+  return !isPgDriver() && String(process.env.PROJECT_FILES_STORAGE || '').toLowerCase() === 'disk';
+}
+
+function projectFilesDiskRoot(): string {
+  const raw = String(process.env.PROJECT_FILES_DIR || path.join('data', 'project-files')).trim();
+  return path.isAbsolute(raw) ? raw : path.join(process.cwd(), raw);
+}
+
+type ProjectFileDbRow = {
+  id: string;
+  project_id: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  data_base64?: string | null;
+  storage_object_key?: string | null;
+  created_at: string;
+};
+
+function mapProjectFileRow(row: ProjectFileDbRow): ProjectFileRecord {
   return {
     id: row.id,
     projectId: row.project_id,
@@ -27,11 +53,12 @@ function mapProjectFileRow(row: any): ProjectFileRecord {
   };
 }
 
-export function listProjectFiles(projectId: string): ProjectFileRecord[] {
-  const rows = estimatorDb
-    .prepare('SELECT id, project_id, file_name, mime_type, size_bytes, created_at FROM project_files_v1 WHERE project_id = ? ORDER BY created_at DESC')
-    .all(projectId);
-  return rows.map(mapProjectFileRow);
+export async function listProjectFiles(projectId: string): Promise<ProjectFileRecord[]> {
+  const rows = await dbAll(
+    'SELECT id, project_id, file_name, mime_type, size_bytes, created_at FROM project_files_v1 WHERE project_id = ? ORDER BY created_at DESC',
+    [projectId]
+  );
+  return (rows as ProjectFileDbRow[]).map(mapProjectFileRow);
 }
 
 export async function createProjectFile(input: {
@@ -50,107 +77,109 @@ export async function createProjectFile(input: {
     createdAt: new Date().toISOString(),
   };
 
-  const buffer = Buffer.from(input.dataBase64, 'base64');
-  if (buffer.length === 0) {
-    throw new Error('Empty file payload.');
-  }
-
-  const bucketName = getGcsProjectFilesBucketName();
-  if (bucketName) {
-    if (!isGcsProjectFilesEnabled()) {
-      throw new Error(
-        'GCS_PROJECT_FILES_BUCKET is set but Google service account credentials are missing. Configure GOOGLE_SERVICE_ACCOUNT_FILE (or equivalent).'
-      );
-    }
-    const objectName = buildProjectFileObjectName(input.projectId, record.id, input.fileName);
-    await uploadProjectFileToGcs({
-      bucket: bucketName,
-      objectName,
-      buffer,
+  const useStorage = isPgDriver() && isSupabaseStorageConfigured();
+  if (useLocalDiskForProjectFiles()) {
+    const root = projectFilesDiskRoot();
+    const dir = path.join(root, input.projectId);
+    fs.mkdirSync(dir, { recursive: true });
+    const rel = path.join(input.projectId, record.id);
+    const fullPath = path.join(root, rel);
+    const bytes = Buffer.from(input.dataBase64, 'base64');
+    fs.writeFileSync(fullPath, bytes);
+    const storageKey = `${LOCAL_DISK_PREFIX}${fullPath}`;
+    await dbRun(
+      `INSERT INTO project_files_v1 (id, project_id, file_name, mime_type, size_bytes, data_base64, storage_object_key, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [record.id, record.projectId, record.fileName, record.mimeType, record.sizeBytes, null, storageKey, record.createdAt]
+    );
+  } else if (useStorage) {
+    const bucket = getProjectFilesBucket();
+    const objectKey = `${input.projectId}/${record.id}`;
+    const bytes = Buffer.from(input.dataBase64, 'base64');
+    const supabase = getServiceSupabase();
+    const { error } = await supabase.storage.from(bucket).upload(objectKey, bytes, {
       contentType: input.mimeType,
+      upsert: true,
     });
-
-    estimatorDb
-      .prepare(
-        `INSERT INTO project_files_v1 (id, project_id, file_name, mime_type, size_bytes, data_base64, created_at, gcs_bucket, gcs_object_name)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        record.id,
-        record.projectId,
-        record.fileName,
-        record.mimeType,
-        record.sizeBytes,
-        '',
-        record.createdAt,
-        bucketName,
-        objectName
-      );
+    if (error) {
+      throw new Error(`Supabase storage upload failed: ${error.message}`);
+    }
+    await dbRun(
+      `INSERT INTO project_files_v1 (id, project_id, file_name, mime_type, size_bytes, data_base64, storage_object_key, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [record.id, record.projectId, record.fileName, record.mimeType, record.sizeBytes, null, objectKey, record.createdAt]
+    );
   } else {
-    estimatorDb
-      .prepare(
-        `INSERT INTO project_files_v1 (id, project_id, file_name, mime_type, size_bytes, data_base64, created_at, gcs_bucket, gcs_object_name)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        record.id,
-        record.projectId,
-        record.fileName,
-        record.mimeType,
-        record.sizeBytes,
-        input.dataBase64,
-        record.createdAt,
-        null,
-        null
-      );
+    await dbRun(
+      `INSERT INTO project_files_v1 (id, project_id, file_name, mime_type, size_bytes, data_base64, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [record.id, record.projectId, record.fileName, record.mimeType, record.sizeBytes, input.dataBase64, record.createdAt]
+    );
   }
 
   return record;
 }
 
-export function getProjectFile(projectId: string, fileId: string): ProjectFileStoredRow | null {
-  const row = estimatorDb
-    .prepare(
-      `SELECT id, project_id, file_name, mime_type, size_bytes, data_base64, created_at, gcs_bucket, gcs_object_name
+export async function getProjectFile(
+  projectId: string,
+  fileId: string
+): Promise<(ProjectFileRecord & { dataBase64: string }) | null> {
+  const row = (await dbGet(
+    `SELECT id, project_id, file_name, mime_type, size_bytes, data_base64, storage_object_key, created_at
        FROM project_files_v1
-       WHERE project_id = ? AND id = ?`
-    )
-    .get(projectId, fileId) as any;
+       WHERE project_id = ? AND id = ?`,
+    [projectId, fileId]
+  )) as ProjectFileDbRow | undefined;
 
   if (!row) return null;
+
+  let dataBase64 = String(row.data_base64 ?? '');
+  const storageKey = row.storage_object_key ? String(row.storage_object_key) : '';
+  if (storageKey.startsWith(LOCAL_DISK_PREFIX)) {
+    const fullPath = storageKey.slice(LOCAL_DISK_PREFIX.length);
+    if (fs.existsSync(fullPath)) {
+      dataBase64 = fs.readFileSync(fullPath).toString('base64');
+    } else {
+      dataBase64 = '';
+    }
+  } else if (storageKey && isSupabaseStorageConfigured()) {
+    const supabase = getServiceSupabase();
+    const bucket = getProjectFilesBucket();
+    const { data, error } = await supabase.storage.from(bucket).download(storageKey);
+    if (error) {
+      throw new Error(`Supabase storage download failed: ${error.message}`);
+    }
+    const buf = Buffer.from(await data.arrayBuffer());
+    dataBase64 = buf.toString('base64');
+  }
 
   return {
     ...mapProjectFileRow(row),
-    dataBase64: row.data_base64 ?? '',
-    gcsBucket: row.gcs_bucket ?? null,
-    gcsObjectName: row.gcs_object_name ?? null,
+    dataBase64,
   };
 }
 
-export async function readProjectFileBuffer(projectId: string, fileId: string): Promise<Buffer | null> {
-  const row = getProjectFile(projectId, fileId);
-  if (!row) return null;
-
-  if (row.gcsBucket && row.gcsObjectName) {
-    return downloadProjectFileFromGcs(row.gcsBucket, row.gcsObjectName);
-  }
-
-  if (!row.dataBase64) {
-    return null;
-  }
-
-  return Buffer.from(row.dataBase64, 'base64');
-}
-
 export async function deleteProjectFile(projectId: string, fileId: string): Promise<boolean> {
-  const row = getProjectFile(projectId, fileId);
-  if (!row) return false;
+  const row = (await dbGet(
+    'SELECT storage_object_key FROM project_files_v1 WHERE project_id = ? AND id = ?',
+    [projectId, fileId]
+  )) as { storage_object_key?: string | null } | undefined;
 
-  if (row.gcsBucket && row.gcsObjectName) {
-    await deleteProjectFileFromGcs(row.gcsBucket, row.gcsObjectName);
+  const storageKey = row?.storage_object_key ? String(row.storage_object_key) : '';
+  if (storageKey.startsWith(LOCAL_DISK_PREFIX)) {
+    const fullPath = storageKey.slice(LOCAL_DISK_PREFIX.length);
+    try {
+      if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+    } catch {
+      /* best-effort */
+    }
+  } else if (storageKey && isSupabaseStorageConfigured()) {
+    const supabase = getServiceSupabase();
+    const bucket = getProjectFilesBucket();
+    await supabase.storage.from(bucket).remove([storageKey]);
   }
 
-  const result = estimatorDb.prepare('DELETE FROM project_files_v1 WHERE project_id = ? AND id = ?').run(projectId, fileId);
+  const result = await dbRun('DELETE FROM project_files_v1 WHERE project_id = ? AND id = ?', [projectId, fileId]);
   return result.changes > 0;
 }
 

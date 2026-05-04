@@ -1,6 +1,5 @@
 import pg from 'pg';
 import { assertPgEnv } from './driver.ts';
-import { resolvePgSslConfig } from './pgSsl.ts';
 
 let pool: pg.Pool | null = null;
 
@@ -13,7 +12,6 @@ export function getPgPool(): pg.Pool {
   if (!pool) {
     pool = new pg.Pool({
       connectionString: url,
-      ssl: resolvePgSslConfig(),
       max: Number(process.env.PG_POOL_MAX || 20),
       idleTimeoutMillis: 30_000,
     });

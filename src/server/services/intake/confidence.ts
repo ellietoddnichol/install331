@@ -1,4 +1,5 @@
 import type { NormalizedIntakeItem, ParseConfidenceSummary, ValidationResult } from '../../../shared/types/intake.ts';
+import { buildWarningPenaltyFromWarningStrings } from '../../../shared/utils/parseWarningPenalty.ts';
 
 function average(values: number[]): number {
   if (!values.length) return 0;
@@ -7,31 +8,6 @@ function average(values: number[]): number {
 
 function clamp(value: number): number {
   return Number(Math.max(0, Math.min(1, value)).toFixed(2));
-}
-
-function normalizeWarningSignature(warning: string): string {
-  return String(warning || '')
-    .toLowerCase()
-    .replace(/item\s+[a-z0-9 _./:-]+/g, 'item <source>')
-    .replace(/from header\s+"[^"]+"/g, 'from header <header>')
-    .replace(/\([^\)]*\)/g, '(<detail>)')
-    .replace(/\b\d+(?:\.\d+)?\b/g, '<n>')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function buildWarningPenalty(validation: ValidationResult, itemCount: number): number {
-  if (!validation.warnings.length) return 0;
-
-  const uniqueWarningSignatures = new Set(validation.warnings.map(normalizeWarningSignature)).size;
-  const repeatedWarningCount = Math.max(0, validation.warnings.length - uniqueWarningSignatures);
-  const uniquePenalty = uniqueWarningSignatures * 0.025;
-  const repeatedPenalty = Math.min(0.08, repeatedWarningCount * 0.0015);
-  const coveragePenalty = itemCount > 0
-    ? Math.min(0.06, (uniqueWarningSignatures / Math.max(itemCount, 1)) * 0.35)
-    : 0.06;
-
-  return Math.min(0.22, uniquePenalty + repeatedPenalty + coveragePenalty);
 }
 
 export function buildParseConfidenceSummary(items: NormalizedIntakeItem[], validation: ValidationResult): ParseConfidenceSummary {
@@ -47,13 +23,33 @@ export function buildParseConfidenceSummary(items: NormalizedIntakeItem[], valid
     if (item.alternate || item.exclusion) score -= 0.03;
     const bestCatalogCandidate = item.catalogMatchCandidates?.[0];
     if (bestCatalogCandidate?.matchMethod === 'unmatched') score -= 0.08;
-    else if (bestCatalogCandidate) score += Math.min(0.08, bestCatalogCandidate.confidence * 0.08);
-    if (item.reviewRequired) score -= 0.05;
+    else if (bestCatalogCandidate) {
+      const c = bestCatalogCandidate.confidence;
+      const method = bestCatalogCandidate.matchMethod;
+      if (method === 'exact' || (c >= 0.88 && (method === 'model' || method === 'dimension'))) {
+        score += 0.24;
+      } else if (c >= 0.72 || method === 'model') {
+        score += 0.17;
+      } else if (c >= 0.48) {
+        score += 0.11;
+      } else {
+        score += Math.min(0.09, c * 0.14);
+      }
+    }
+    if (item.reviewRequired) {
+      const best = item.catalogMatchCandidates?.[0];
+      const catalogStrong =
+        best &&
+        best.matchMethod !== 'unmatched' &&
+        !best.catalogCoverageGap &&
+        best.confidence >= 0.78;
+      if (!catalogStrong) score -= 0.05;
+    }
     return clamp(score);
   });
 
   const itemConfidenceAverage = clamp(average(perItem));
-  const warningPenalty = buildWarningPenalty(validation, items.length);
+  const warningPenalty = buildWarningPenaltyFromWarningStrings(validation.warnings, items.length);
   const overallConfidence = clamp(itemConfidenceAverage - warningPenalty - (validation.errors.length * 0.08));
   const lowConfidenceItems = items
     .filter((_item, index) => perItem[index] < 0.5)
