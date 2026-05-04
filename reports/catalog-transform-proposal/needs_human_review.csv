@@ -1,0 +1,679 @@
+sku,issue,details,confidence
+ANNIN-182005,"weak_canonical_candidate","canonical=ANNIN-182005 method=fallback_single_token attrs= desc_fp=3 ft x 5 ft u s flag annin tough tex 2 p",0.740
+ANNIN-182008,"weak_canonical_candidate","canonical=ANNIN-182008 method=fallback_single_token attrs= desc_fp=5 ft x 8 ft u s flag annin tough tex 2 p",0.740
+ANNIN-2270,"weak_canonical_candidate","canonical=ANNIN-2270 method=fallback_single_token attrs= desc_fp=5 ft x 8 ft u s flag annin nyl glo nylon",0.740
+ASI-0197-TURBO-MB,"weak_canonical_candidate","canonical=ASI-0197-TURBO-MB method=fallback_single_token attrs=finish desc_fp=high speed hand dryer matte finish",0.740
+ASI-SC,"weak_canonical_candidate","canonical=ASI-SC method=fallback_single_token attrs=finish desc_fp=vinyl shower curtain",0.740
+ASI-PLAM-OH,"weak_canonical_candidate","canonical=ASI-PLAM-OH method=fallback_single_token attrs=mounting desc_fp=plastic laminate toilet compartment floo",0.740
+ASI-UP-PHEN,"weak_canonical_candidate","canonical=ASI-UP-PHEN method=fallback_single_token attrs=material desc_fp=high privacy phenolic toilet compartment",0.740
+ASI-PLAS-1T,"weak_canonical_candidate","canonical=ASI-PLAS-1T method=fallback_single_token attrs= desc_fp=plastic locker high humidity or moisture",0.740
+ASI-PLAS-2T,"weak_canonical_candidate","canonical=ASI-PLAS-2T method=fallback_single_token attrs= desc_fp=plastic locker high humidity or moisture",0.740
+ASI-PLAS-Z,"weak_canonical_candidate","canonical=ASI-PLAS-Z method=fallback_single_token attrs= desc_fp=plastic two person z locker compact full",0.740
+ASI-PHEN-1T,"weak_canonical_candidate","canonical=ASI-PHEN-1T method=fallback_single_token attrs=material desc_fp=phenolic locker moisture corrosion high ",0.740
+ASI-PHEN-2T,"weak_canonical_candidate","canonical=ASI-PHEN-2T method=fallback_single_token attrs=material desc_fp=phenolic locker moisture corrosion high ",0.740
+ASI-PHEN-Z,"weak_canonical_candidate","canonical=ASI-PHEN-Z method=fallback_single_token attrs=material desc_fp=phenolic two person z locker compact ful",0.740
+BOB-B224,"weak_canonical_candidate","canonical=BOB-B224 method=fallback_single_token attrs=mounting desc_fp=mounted mop broom holder utility hooks",0.740
+BOB-1180-FA,"weak_canonical_candidate","canonical=BOB-1180-FA method=fallback_single_token attrs=material desc_fp=solid phenolic cgl toilet compartment fl",0.740
+BOB-2080-CH,"weak_canonical_candidate","canonical=BOB-2080-CH method=fallback_single_token attrs=material desc_fp=solid phenolic cgl toilet compartment ce",0.740
+BOB-2180-FTC,"weak_canonical_candidate","canonical=BOB-2180-FTC method=fallback_single_token attrs=material desc_fp=solid phenolic cgl toilet compartment fl",0.740
+BOB-US-PHEN,"weak_canonical_candidate","canonical=BOB-US-PHEN method=fallback_single_token attrs=material desc_fp=solid phenolic cgl urinal screen wall br",0.740
+BOB-B-2706,"weak_canonical_candidate","canonical=BOB-B-2706 method=fallback_single_token attrs=mounting desc_fp=mounted sanitary napkin tampon vendor al",0.740
+BR-6B1-110000T,"weak_canonical_candidate","canonical=BR-6B1-110000T method=fallback_single_token attrs=mounting desc_fp=manual liquid soap gel sanitizer dispens",0.740
+BR-2A02,"weak_canonical_candidate","canonical=BR-2A02 method=fallback_single_token attrs=mounting desc_fp=sensored roll towel dispenser",0.740
+BR-2A05,"weak_canonical_candidate","canonical=BR-2A05 method=fallback_single_token attrs=mounting desc_fp=folded towel dispenser 12 gallon waste c",0.740
+BR-2B5-113400,"weak_canonical_candidate","canonical=BR-2B5-113400 method=fallback_single_token attrs=mounting desc_fp=mounted towel dispenser waste receptacle",0.740
+BR-2B5-110000,"weak_canonical_candidate","canonical=BR-2B5-110000 method=fallback_single_token attrs=mounting desc_fp=mounted towel dispenser waste receptacle",0.740
+BR-2B5-113600,"weak_canonical_candidate","canonical=BR-2B5-113600 method=fallback_single_token attrs=mounting desc_fp=mounted towel dispenser waste receptacle",0.740
+BR-5B2-110000,"weak_canonical_candidate","canonical=BR-5B2-110000 method=fallback_single_token attrs=mounting desc_fp=mounted dual roll toilet tissue dispense",0.740
+BR-5B2-000000,"weak_canonical_candidate","canonical=BR-5B2-000000 method=fallback_single_token attrs=mounting desc_fp=dual roll toilet tissue dispenser medium",0.740
+BR-5B2-110089,"weak_canonical_candidate","canonical=BR-5B2-110089 method=fallback_single_token attrs= desc_fp=toilet tissue dispenser integrated shelf",0.740
+BR-5B1-110000,"weak_canonical_candidate","canonical=BR-5B1-110000 method=fallback_single_token attrs=mounting desc_fp=mounted toilet seat cover dispenser medi",0.740
+BR-5B1-113600,"weak_canonical_candidate","canonical=BR-5B1-113600 method=fallback_single_token attrs=mounting desc_fp=mounted toilet seat cover dispenser larg",0.740
+BR-5B1-003600,"weak_canonical_candidate","canonical=BR-5B1-003600 method=fallback_single_token attrs=mounting desc_fp=toilet seat cover dispenser large capaci",0.740
+BR-ELX-2,"weak_canonical_candidate","canonical=BR-ELX-2 method=fallback_single_token attrs=mounting desc_fp=express lavatory system 2 station solid",0.740
+CONCORD-AT20-SATIN,"weak_canonical_candidate","canonical=CONCORD-AT20-SATIN method=fallback_single_token attrs= desc_fp=20 ft tapered aluminum sectional flagpol",0.740
+CONCORD-AT20-SATIN-FC,"weak_canonical_candidate","canonical=CONCORD-AT20-SATIN-FC method=fallback_single_token attrs= desc_fp=20 ft tapered aluminum flagpole kit fini",0.740
+ACRO-CG-150N,"weak_canonical_candidate","canonical=ACRO-CG-150N method=fallback_single_token attrs=mounting desc_fp=mounted rigid vinyl corner guard 90 degr",0.740
+ACRO-CG-160BN,"weak_canonical_candidate","canonical=ACRO-CG-160BN method=fallback_single_token attrs= desc_fp=bullnose rigid vinyl corner guard rounde",0.740
+ACRO-CR-BG30,"weak_canonical_candidate","canonical=ACRO-CR-BG30 method=fallback_single_token attrs= desc_fp=crash rail wall guard aluminum retainer ",0.740
+ACRO-HR-HR6C,"weak_canonical_candidate","canonical=ACRO-HR-HR6C method=fallback_single_token attrs= desc_fp=handrail wall protection function contin",0.740
+ACRO-RS-RUB,"weak_canonical_candidate","canonical=ACRO-RS-RUB method=fallback_single_token attrs= desc_fp=wall rub strip bumper strip low impact w",0.740
+EDER-TH25,"weak_canonical_candidate","canonical=EDER-TH25 method=fallback_single_token attrs= desc_fp=25 ft aluminum residential flagpole set ",0.740
+EDER-WB-ALUM,"weak_canonical_candidate","canonical=EDER-WB-ALUM method=fallback_single_token attrs= desc_fp=aluminum wall bracket small residential ",0.740
+EDER-MULTI-BRKT,"weak_canonical_candidate","canonical=EDER-MULTI-BRKT method=fallback_single_token attrs= desc_fp=aluminum multi purpose flagpole bracket ",0.740
+EDER-OUTRIGGER-BRKT,"weak_canonical_candidate","canonical=EDER-OUTRIGGER-BRKT method=fallback_single_token attrs= desc_fp=outrigger wall mount flagpole bracket on",0.740
+EDER-WS100,"weak_canonical_candidate","canonical=EDER-WS100 method=fallback_single_token attrs= desc_fp=ws 100 aluminum wall shield bracket",0.740
+XL-SB-REC-KIT,"weak_canonical_candidate","canonical=XL-SB-REC-KIT method=fallback_single_token attrs=mounting desc_fp=high speed hand dryer wall kit allowance",0.740
+FL-4C16D-20,"weak_canonical_candidate","canonical=FL-4C16D-20 method=fallback_single_token attrs= desc_fp=4c horizontal mailbox unit 20 tenant doo",0.740
+FL-4C12D,"weak_canonical_candidate","canonical=FL-4C12D method=fallback_single_token attrs= desc_fp=4c horizontal mailbox unit 12 tenant doo",0.740
+FL-4C16D,"weak_canonical_candidate","canonical=FL-4C16D method=fallback_single_token attrs= desc_fp=4c horizontal mailbox unit 16 tenant doo",0.740
+MAIL-4C-12,"weak_canonical_candidate","canonical=MAIL-4C-12 method=fallback_single_token attrs= desc_fp=usps style 4c mailbox unit 12 tenant doo",0.740
+MAILBOX-4C-ALLOW,"weak_canonical_candidate","canonical=MAILBOX-4C-ALLOW method=fallback_single_token attrs=mounting desc_fp=usps style 4c mailbox unit allowance wal",0.740
+MAIL-4C-PARCEL,"weak_canonical_candidate","canonical=MAIL-4C-PARCEL method=fallback_single_token attrs= desc_fp=4c parcel locker module or parcel compar",0.740
+MAIL-4C-OUTGOING,"weak_canonical_candidate","canonical=MAIL-4C-OUTGOING method=fallback_single_token attrs= desc_fp=outgoing mail compartment or outgoing ma",0.740
+MAIL-COLL-WM,"weak_canonical_candidate","canonical=MAIL-COLL-WM method=fallback_single_token attrs= desc_fp=wall mounted mail collection box",0.740
+MAIL-COLL-FS,"weak_canonical_candidate","canonical=MAIL-COLL-FS method=fallback_single_token attrs= desc_fp=freestanding mail collection box or drop",0.740
+MAIL-CBU-08,"weak_canonical_candidate","canonical=MAIL-CBU-08 method=fallback_single_token attrs= desc_fp=standard cluster box unit 8 tenant doors",0.740
+MAIL-CBU-12,"weak_canonical_candidate","canonical=MAIL-CBU-12 method=fallback_single_token attrs= desc_fp=standard cluster box unit 12 tenant door",0.740
+MAIL-CBU-16,"weak_canonical_candidate","canonical=MAIL-CBU-16 method=fallback_single_token attrs= desc_fp=standard cluster box unit 16 tenant door",0.740
+MAIL-SLOT-BRASS,"weak_canonical_candidate","canonical=MAIL-SLOT-BRASS method=fallback_single_token attrs= desc_fp=door mail slot brass finish trim allowan",0.740
+MAIL-KEY,"weak_canonical_candidate","canonical=MAIL-KEY method=fallback_single_token attrs= desc_fp=replacement mailbox lock key set",0.740
+MAIL-TENANT-LABEL,"weak_canonical_candidate","canonical=MAIL-TENANT-LABEL method=fallback_single_token attrs= desc_fp=tenant identification label number plate",0.740
+MAIL-DIR,"weak_canonical_candidate","canonical=MAIL-DIR method=fallback_single_token attrs= desc_fp=mailbox directory panel or tenant direct",0.740
+MAIL-KEYKEEPER,"weak_canonical_candidate","canonical=MAIL-KEYKEEPER method=fallback_single_token attrs= desc_fp=postal key keeper or usps access device ",0.740
+MAIL-REPAIR-HDW,"weak_canonical_candidate","canonical=MAIL-REPAIR-HDW method=fallback_single_token attrs= desc_fp=mailbox repair hardware allowance hinges",0.740
+HALYARD-KIT-50,"weak_canonical_candidate","canonical=HALYARD-KIT-50 method=fallback_single_token attrs= desc_fp=50 ft flagpole rope clips kit cleat hook",0.740
+HALYARD-KIT-100,"weak_canonical_candidate","canonical=HALYARD-KIT-100 method=fallback_single_token attrs= desc_fp=100 ft flagpole rope kit cleat hook 4 sw",0.740
+SH-SEAT-PHEN,"weak_canonical_candidate","canonical=SH-SEAT-PHEN method=fallback_single_token attrs=material desc_fp=folding shower seat phenolic seat allowa",0.740
+MC-REC,"weak_canonical_candidate","canonical=MC-REC method=fallback_single_token attrs=mounting desc_fp=medicine cabinet allowance",0.740
+INPRO-CG-160,"weak_canonical_candidate","canonical=INPRO-CG-160 method=fallback_single_token attrs=mounting desc_fp=mounted rigid vinyl corner guard standar",0.740
+INPRO-CR-1500,"weak_canonical_candidate","canonical=INPRO-CR-1500 method=fallback_single_token attrs= desc_fp=impact resistant crash rail wall guard r",0.740
+INPRO-HR-1600,"weak_canonical_candidate","canonical=INPRO-HR-1600 method=fallback_single_token attrs= desc_fp=commercial handrail impact resistant cov",0.740
+JL-1015F10,"weak_canonical_candidate","canonical=JL-1015F10 method=fallback_single_token attrs=compliance desc_fp=flat trim steel fire extinguisher cabine",0.740
+KORO-G800,"weak_canonical_candidate","canonical=KORO-G800 method=fallback_single_token attrs= desc_fp=textured vinyl corner guard light medium",0.740
+KORO-SHEET-500,"weak_canonical_candidate","canonical=KORO-SHEET-500 method=fallback_single_token attrs= desc_fp=semi rigid protective wallcovering sheet",0.740
+KORO-HR-K,"weak_canonical_candidate","canonical=KORO-HR-K method=fallback_single_token attrs= desc_fp=commercial wall protection handrail syst",0.740
+PEN-GUARD-1T,"weak_canonical_candidate","canonical=PEN-GUARD-1T method=fallback_single_token attrs=mounting desc_fp=upgraded employee steel locker pocket ha",0.740
+PEN-GUARD-2T,"weak_canonical_candidate","canonical=PEN-GUARD-2T method=fallback_single_token attrs=mounting desc_fp=upgraded employee steel locker pocket ha",0.740
+PEN-WELD-1T,"weak_canonical_candidate","canonical=PEN-WELD-1T method=fallback_single_token attrs= desc_fp=fully welded steel locker high abuse com",0.740
+PR-FVC,"weak_canonical_candidate","canonical=PR-FVC method=fallback_single_token attrs=compliance desc_fp=architectural fire valve cabinet valve o",0.740
+PURELL-ES8,"weak_canonical_candidate","canonical=PURELL-ES8 method=fallback_single_token attrs=mounting desc_fp=automatic hand sanitizer dispenser mount",0.740
+SCR-TUFF-1T,"weak_canonical_candidate","canonical=SCR-TUFF-1T method=fallback_single_token attrs=material desc_fp=hdpe solid plastic locker wet humid or h",0.740
+SCR-TUFF-2T,"weak_canonical_candidate","canonical=SCR-TUFF-2T method=fallback_single_token attrs=material desc_fp=hdpe solid plastic locker locker rooms g",0.740
+SCR-TUFF-3T,"weak_canonical_candidate","canonical=SCR-TUFF-3T method=fallback_single_token attrs=material desc_fp=hdpe solid plastic locker high traffic i",0.740
+SCR-TUFF-ATH,"weak_canonical_candidate","canonical=SCR-TUFF-ATH method=fallback_single_token attrs=material desc_fp=hdpe athletic locker open front or venti",0.740
+SCR-ECL-FTC,"weak_canonical_candidate","canonical=SCR-ECL-FTC method=fallback_single_token attrs=material desc_fp=hdpe toilet compartment floor ceiling an",0.740
+VF-35211000,"weak_canonical_candidate","canonical=VF-35211000 method=fallback_single_token attrs= desc_fp=3 ft x 5 ft u s flag perma nyl nylon sew",0.740
+ULINE-H-3819Z,"weak_canonical_candidate","canonical=ULINE-H-3819Z method=fallback_single_token attrs= desc_fp=epoxy wire shelving unit 48 w x 24 d x 7",0.740
+ULINE-H-10444G,"weak_canonical_candidate","canonical=ULINE-H-10444G method=fallback_single_token attrs= desc_fp=epoxy mobile wire shelving unit 48 w x 2",0.740
+ULINE-H-7119,"weak_canonical_candidate","canonical=ULINE-H-7119 method=fallback_single_token attrs= desc_fp=boltless shelving 48 w x 24 d x 72 h lig",0.740
+ULINE-H-11855,"weak_canonical_candidate","canonical=ULINE-H-11855 method=fallback_single_token attrs= desc_fp=pallet rack starter unit 72 w x 36 d x 9",0.740
+ULINE-H-5716,"weak_canonical_candidate","canonical=ULINE-H-5716 method=fallback_single_token attrs= desc_fp=pallet rack starter unit 96 w x 48 d x 9",0.740
+GHENT-M1-44-4,"weak_canonical_candidate","canonical=GHENT-M1-44-4 method=fallback_single_token attrs= desc_fp=magnetic porcelain whiteboard 4 h x 4 w ",0.740
+GHENT-M1-48-4,"weak_canonical_candidate","canonical=GHENT-M1-48-4 method=fallback_single_token attrs= desc_fp=magnetic porcelain whiteboard 4 h x 8 w ",0.740
+GHENT-M1-412-4,"weak_canonical_candidate","canonical=GHENT-M1-412-4 method=fallback_single_token attrs= desc_fp=magnetic porcelain whiteboard 4 h x 12 w",0.740
+GHENT-A2M48-M,"weak_canonical_candidate","canonical=GHENT-A2M48-M method=fallback_single_token attrs= desc_fp=magnetic porcelain whiteboard 4 h x 8 w ",0.740
+GHENT-AK44,"weak_canonical_candidate","canonical=GHENT-AK44 method=fallback_single_token attrs= desc_fp=natural cork bulletin board 4 h x 4 w al",0.740
+GHENT-AK48,"weak_canonical_candidate","canonical=GHENT-AK48 method=fallback_single_token attrs= desc_fp=natural cork bulletin board 4 h x 8 w al",0.740
+GHENT-WK48,"weak_canonical_candidate","canonical=GHENT-WK48 method=fallback_single_token attrs= desc_fp=natural cork bulletin board 4 h x 8 w wo",0.740
+GHENT-12UT44-W,"weak_canonical_candidate","canonical=GHENT-12UT44-W method=fallback_single_token attrs= desc_fp=wrapped fabric bulletin board 4 h x 4 w ",0.740
+GHENT-12UT48-W,"weak_canonical_candidate","canonical=GHENT-12UT48-W method=fallback_single_token attrs= desc_fp=wrapped fabric bulletin board 4 h x 8 w ",0.740
+GHENT-12UV48-W,"weak_canonical_candidate","canonical=GHENT-12UV48-W method=fallback_single_token attrs= desc_fp=wrapped vinyl bulletin board 4 h x 8 w s",0.740
+GHENT-SLIDING-WB,"weak_canonical_candidate","canonical=GHENT-SLIDING-WB method=fallback_single_token attrs= desc_fp=sliding whiteboard visual display wall s",0.740
+GHENT-CHAMPION-WALL,"weak_canonical_candidate","canonical=GHENT-CHAMPION-WALL method=fallback_single_token attrs= desc_fp=wall mounted enclosed display case alumi",0.740
+GHENT-VARSITY-FLOOR,"weak_canonical_candidate","canonical=GHENT-VARSITY-FLOOR method=fallback_single_token attrs= desc_fp=freestanding wood display case trophy ca",0.740
+OSC-ADA-ROOM-ID,"weak_canonical_candidate","canonical=OSC-ADA-ROOM-ID method=fallback_single_token attrs=compliance desc_fp=room identification sign acrylic tactile",0.740
+OSC-ADA-RESTROOM-MEN,"weak_canonical_candidate","canonical=OSC-ADA-RESTROOM-MEN method=fallback_single_token attrs=compliance desc_fp=men restroom sign acrylic tactile raised",0.740
+OSC-ADA-RESTROOM-WOMEN,"weak_canonical_candidate","canonical=OSC-ADA-RESTROOM-WOMEN method=fallback_single_token attrs=compliance desc_fp=women restroom sign acrylic tactile rais",0.740
+OSC-ADA-RESTROOM-UNISEX,"weak_canonical_candidate","canonical=OSC-ADA-RESTROOM-UNISEX method=fallback_single_token attrs=compliance desc_fp=unisex restroom sign acrylic tactile rai",0.740
+OSC-ADA-EXIT,"weak_canonical_candidate","canonical=OSC-ADA-EXIT method=fallback_single_token attrs=compliance desc_fp=exit sign tactile raised text grade 2 br",0.740
+OSC-ADA-STAIR,"weak_canonical_candidate","canonical=OSC-ADA-STAIR method=fallback_single_token attrs=compliance desc_fp=stair sign tactile raised text grade 2 b",0.740
+OSC-DIR-WALL,"weak_canonical_candidate","canonical=OSC-DIR-WALL method=fallback_single_token attrs= desc_fp=directional wall sign allowance wall mou",0.740
+OSC-NO-SMOKING,"weak_canonical_candidate","canonical=OSC-NO-SMOKING method=fallback_single_token attrs= desc_fp=no smoking sign or decal wall mounted or",0.740
+ELC-LED-EXIT-BB,"weak_canonical_candidate","canonical=ELC-LED-EXIT-BB method=fallback_single_token attrs= desc_fp=led exit sign battery backup allowance",0.740
+OSC-ADA-ROOM-ID,"weak_canonical_candidate","canonical=OSC-ADA-ROOM-ID method=fallback_single_token attrs=compliance desc_fp=room identification sign compliant tacti",0.740
+OSC-ADA-EXIT,"weak_canonical_candidate","canonical=OSC-ADA-EXIT method=fallback_single_token attrs=compliance desc_fp=exit sign tactile braille non illuminate",0.740
+OSC-AED-3D,"weak_canonical_candidate","canonical=OSC-AED-3D method=fallback_single_token attrs= desc_fp=aed wall sign 3d projecting style",0.740
+OSC-FE-3D,"weak_canonical_candidate","canonical=OSC-FE-3D method=fallback_single_token attrs=compliance desc_fp=fire extinguisher wall sign 3d projectin",0.740
+OSC-FE-DECAL,"weak_canonical_candidate","canonical=OSC-FE-DECAL method=fallback_single_token attrs=compliance desc_fp=fire extinguisher decal or cabinet lette",0.740
+OSC-NO-SMOKING,"weak_canonical_candidate","canonical=OSC-NO-SMOKING method=fallback_single_token attrs= desc_fp=no smoking wall sign or decal",0.740
+ASI-0795,"weak_canonical_candidate","canonical=ASI-0795 method=fallback_single_token attrs=mounting desc_fp=single mop holder mounted cam style hold",0.740
+ASI-0796-3,"weak_canonical_candidate","canonical=ASI-0796-3 method=fallback_single_token attrs=mounting desc_fp=mop rack 3 holders mounted",0.740
+ASI-0796-4,"weak_canonical_candidate","canonical=ASI-0796-4 method=fallback_single_token attrs=mounting desc_fp=mop rack 4 holders mounted",0.740
+ASI-1315-4,"weak_canonical_candidate","canonical=ASI-1315-4 method=fallback_single_token attrs= desc_fp=utility shelf drying rod mop holders rag",0.740
+INPRO-4118-4,"weak_canonical_candidate","canonical=INPRO-4118-4 method=fallback_single_token attrs= desc_fp=clear polycarbonate corner guard 4 ft 90",0.740
+INPRO-834-8,"weak_canonical_candidate","canonical=INPRO-834-8 method=fallback_single_token attrs= desc_fp=clear polycarbonate corner guard 8 ft 90",0.740
+CS-ACRO-CG,"weak_canonical_candidate","canonical=CS-ACRO-CG method=fallback_single_token attrs=mounting desc_fp=acrovyn corner guard mounted rigid vinyl",0.740
+CS-ACRO-CR,"weak_canonical_candidate","canonical=CS-ACRO-CR method=fallback_single_token attrs= desc_fp=acrovyn crash rail wall guard retainer c",0.740
+INPRO-HR,"weak_canonical_candidate","canonical=INPRO-HR method=fallback_single_token attrs= desc_fp=commercial vinyl acrovyn style handrail ",0.740
+CS-ACRO-HR,"weak_canonical_candidate","canonical=CS-ACRO-HR method=fallback_single_token attrs= desc_fp=acrovyn wall protection handrail system ",0.740
+CS-ACRO-CHAIRRAIL,"weak_canonical_candidate","canonical=CS-ACRO-CHAIRRAIL method=fallback_single_token attrs=mounting desc_fp=acrovyn chair rail rub rail wall protect",0.740
+INPRO-CHAIRRAIL,"weak_canonical_candidate","canonical=INPRO-CHAIRRAIL method=fallback_single_token attrs= desc_fp=commercial vinyl chair rail rub rail wal",0.740
+INPRO-PALLADIUM-SHEET,"weak_canonical_candidate","canonical=INPRO-PALLADIUM-SHEET method=fallback_single_token attrs= desc_fp=high impact rigid vinyl wall protection ",0.740
+AIVIA-100,"weak_canonical_candidate","canonical=AIVIA-100 method=fallback_single_token attrs=mounting desc_fp=mounted aed cabinet alarm strobe style m",0.740
+JL-1413F12,"weak_canonical_candidate","canonical=JL-1413F12 method=fallback_single_token attrs=mounting desc_fp=aed cabinet alarm strobe",0.740
+PETER-2165,"weak_canonical_candidate","canonical=PETER-2165 method=fallback_single_token attrs= desc_fp=wall mounted coat rack 6 non removable h",0.740
+PETER-2141AL,"weak_canonical_candidate","canonical=PETER-2141AL method=fallback_single_token attrs= desc_fp=wall mounted aluminum coat hook coat rac",0.740
+BABCOCK-BMD38,"weak_canonical_candidate","canonical=BABCOCK-BMD38 method=fallback_single_token attrs=mounting desc_fp=roll up aluminum entrance mat or framed ",0.740
+KIRSCH-94004,"weak_canonical_candidate","canonical=KIRSCH-94004 method=fallback_single_token attrs= desc_fp=hospital cubicle curtain track 6 ft sect",0.740
+CS-TRACK-CUBICLE,"weak_canonical_candidate","canonical=CS-TRACK-CUBICLE method=fallback_single_token attrs= desc_fp=hospital cubicle curtain track carrier e",0.740
+KEY-TRAK-ELEC,"weak_canonical_candidate","canonical=KEY-TRAK-ELEC method=fallback_single_token attrs= desc_fp=electronic key control cabinet allowance",0.740
+MMF-201902003,"weak_canonical_candidate","canonical=MMF-201902003 method=fallback_single_token attrs= desc_fp=100 key wall mounted key cabinet",0.740
+ULINE-H-3819Z,"weak_canonical_candidate","canonical=ULINE-H-3819Z method=fallback_single_token attrs= desc_fp=epoxy wire shelving unit commercial util",0.740
+GHENT-M1-48-4,"weak_canonical_candidate","canonical=GHENT-M1-48-4 method=fallback_single_token attrs= desc_fp=4 ft x 8 ft porcelain markerboard alumin",0.740
+GHENT-AK48,"weak_canonical_candidate","canonical=GHENT-AK48 method=fallback_single_token attrs= desc_fp=4 ft x 8 ft cork tackboard aluminum fram",0.740
+GHENT-CHAMPION-WALL,"weak_canonical_candidate","canonical=GHENT-CHAMPION-WALL method=fallback_single_token attrs= desc_fp=wall mounted enclosed display case alumi",0.740
+MASTERLOCK-1630,"weak_canonical_candidate","canonical=MASTERLOCK-1630 method=fallback_single_token attrs= desc_fp=built in combination locker lock",0.740
+SCR-BENCH-HDPE-06,"weak_canonical_candidate","canonical=SCR-BENCH-HDPE-06 method=fallback_single_token attrs=material desc_fp=hdpe solid plastic locker bench 6 ft",0.740
+SCR-US-HDPE,"weak_canonical_candidate","canonical=SCR-US-HDPE method=fallback_single_token attrs=material desc_fp=hdpe urinal screen wall brackets or pila",0.740
+TRIMCO-4017-ED,"weak_canonical_candidate","canonical=TRIMCO-4017-ED method=fallback_single_token attrs= desc_fp=edge protector door guard installation a",0.740
+TRIMCO-4016-ED,"weak_canonical_candidate","canonical=TRIMCO-4016-ED method=fallback_single_token attrs= desc_fp=edge protector swing arm door guard inst",0.740
+TRIMCO-FINGER-GUARD-KE,"weak_canonical_candidate","canonical=TRIMCO-FINGER-GUARD-KE method=fallback_single_token attrs= desc_fp=finger guard edge guard pinch point prot",0.740
+ASI-HR-ALUM-LF,"weak_canonical_candidate","canonical=ASI-HR-ALUM-LF method=fallback_single_token attrs= desc_fp=aluminum headrail overhead braced toilet",0.740
+ASI-HR-MB-LF,"weak_canonical_candidate","canonical=ASI-HR-MB-LF method=fallback_single_token attrs=finish desc_fp=matte aluminum headrail privacy toilet p",0.740
+ASI-BRKT-AL-CONT-LF,"weak_canonical_candidate","canonical=ASI-BRKT-AL-CONT-LF method=fallback_single_token attrs= desc_fp=aluminum continuous wall panel bracket t",0.740
+ASI-SHOE-MB,"weak_canonical_candidate","canonical=ASI-SHOE-MB method=fallback_single_token attrs=finish desc_fp=matte pilaster shoe upgraded privacy par",0.740
+ASI-HINGE-WRAP-ZAMAC,"weak_canonical_candidate","canonical=ASI-HINGE-WRAP-ZAMAC method=fallback_single_token attrs=finish desc_fp=chrome plated zamac wrap around hinge se",0.740
+ASI-STRIKE-WRAP-AL,"weak_canonical_candidate","canonical=ASI-STRIKE-WRAP-AL method=fallback_single_token attrs= desc_fp=aluminum wrap around strike keeper toile",0.740
+ASI-PULL-AL,"weak_canonical_candidate","canonical=ASI-PULL-AL method=fallback_single_token attrs= desc_fp=aluminum door pull outswing toilet parti",0.740
+ASI-PULL-MB,"weak_canonical_candidate","canonical=ASI-PULL-MB method=fallback_single_token attrs=finish desc_fp=matte aluminum door pull upgraded privac",0.740
+ASI-HOOK-COAT,"weak_canonical_candidate","canonical=ASI-HOOK-COAT method=fallback_single_token attrs= desc_fp=partition mounted coat hook toilet compa",0.740
+ASI-40-8445210,"weak_canonical_candidate","canonical=ASI-40-8445210 method=fallback_single_token attrs= desc_fp=aluminum headrail return kit polymer sol",0.740
+ASI-40-8988221G,"weak_canonical_candidate","canonical=ASI-40-8988221G method=fallback_single_token attrs= desc_fp=ceiling bolt kit ceiling hung or floor c",0.740
+SCR-HLSLA,"weak_canonical_candidate","canonical=SCR-HLSLA method=fallback_single_token attrs=material desc_fp=slide bolt latch scranton hiny hiders hd",0.740
+SCR-BRKT-HDPE,"weak_canonical_candidate","canonical=SCR-BRKT-HDPE method=fallback_single_token attrs=material desc_fp=l bracket or mounting bracket allowance ",0.740
+SCR-HEADRAIL-LF,"weak_canonical_candidate","canonical=SCR-HEADRAIL-LF method=fallback_single_token attrs=material desc_fp=headrail scranton hdpe toilet partitions",0.740
+PARTS-HR-ALUM-LF,"weak_canonical_candidate","canonical=PARTS-HR-ALUM-LF method=fallback_single_token attrs= desc_fp=aluminum partition headrail field cut ov",0.740
+PARTS-HR-ENDCAP,"weak_canonical_candidate","canonical=PARTS-HR-ENDCAP method=fallback_single_token attrs= desc_fp=aluminum headrail end cap return accesso",0.740
+PARTS-PRIV-STRIP-LF,"weak_canonical_candidate","canonical=PARTS-PRIV-STRIP-LF method=fallback_single_token attrs= desc_fp=continuous privacy strip sightline block",0.740
+OSC-ADA-ROOM-ID,"weak_canonical_candidate","canonical=OSC-ADA-ROOM-ID method=fallback_single_token attrs=compliance desc_fp=compliant room identification sign tacti",0.740
+OSC-ADA-ROOM-NUM,"weak_canonical_candidate","canonical=OSC-ADA-ROOM-NUM method=fallback_single_token attrs=compliance desc_fp=compliant room number sign tactile raise",0.740
+OSC-ADA-OFFICE,"weak_canonical_candidate","canonical=OSC-ADA-OFFICE method=fallback_single_token attrs=compliance desc_fp=compliant office sign tactile text grade",0.740
+OSC-ADA-CUSTODIAL,"weak_canonical_candidate","canonical=OSC-ADA-CUSTODIAL method=fallback_single_token attrs=compliance desc_fp=compliant custodial closet sign tactile ",0.740
+OSC-ADA-ELEC,"weak_canonical_candidate","canonical=OSC-ADA-ELEC method=fallback_single_token attrs=compliance desc_fp=compliant electrical room sign tactile t",0.740
+OSC-ADA-MECH,"weak_canonical_candidate","canonical=OSC-ADA-MECH method=fallback_single_token attrs=compliance desc_fp=compliant mechanical room sign tactile t",0.740
+OSC-ADA-FIRE-RISER,"weak_canonical_candidate","canonical=OSC-ADA-FIRE-RISER method=fallback_single_token attrs=compliance desc_fp=compliant fire riser room sign tactile t",0.740
+OSC-ADA-RESTROOM-MEN,"weak_canonical_candidate","canonical=OSC-ADA-RESTROOM-MEN method=fallback_single_token attrs=compliance desc_fp=compliant men restroom sign pictogram ta",0.740
+OSC-ADA-RESTROOM-WOMEN,"weak_canonical_candidate","canonical=OSC-ADA-RESTROOM-WOMEN method=fallback_single_token attrs=compliance desc_fp=compliant women restroom sign pictogram ",0.740
+OSC-ADA-RESTROOM-UNISEX,"weak_canonical_candidate","canonical=OSC-ADA-RESTROOM-UNISEX method=fallback_single_token attrs=compliance desc_fp=compliant unisex restroom sign pictogram",0.740
+OSC-ADA-RESTROOM-GN,"weak_canonical_candidate","canonical=OSC-ADA-RESTROOM-GN method=fallback_single_token attrs=compliance desc_fp=compliant gender neutral restroom sign p",0.740
+OSC-ADA-ACCESSIBLE-ISA,"weak_canonical_candidate","canonical=OSC-ADA-ACCESSIBLE-ISA method=fallback_single_token attrs=compliance desc_fp=accessibility isa sign tactile text grad",0.740
+ADADEPOT-EP5011,"weak_canonical_candidate","canonical=ADADEPOT-EP5011 method=fallback_single_token attrs=compliance desc_fp=exit sign acrylic tactile braille sign f",0.740
+ADADEPOT-EP5062,"weak_canonical_candidate","canonical=ADADEPOT-EP5062 method=fallback_single_token attrs=compliance desc_fp=exit route sign acrylic tactile braille ",0.740
+OSC-ADA-STAIR,"weak_canonical_candidate","canonical=OSC-ADA-STAIR method=fallback_single_token attrs=compliance desc_fp=stair sign tactile text grade 2 braille",0.740
+OSC-ADA-STAIR-UP,"weak_canonical_candidate","canonical=OSC-ADA-STAIR-UP method=fallback_single_token attrs=compliance desc_fp=stairs up sign tactile text grade 2 brai",0.740
+OSC-ADA-STAIR-DOWN,"weak_canonical_candidate","canonical=OSC-ADA-STAIR-DOWN method=fallback_single_token attrs=compliance desc_fp=stairs down sign tactile text grade 2 br",0.740
+ADADEPOT-STAIR-LEVEL,"weak_canonical_candidate","canonical=ADADEPOT-STAIR-LEVEL method=fallback_single_token attrs=compliance desc_fp=stair floor level identification sign st",0.740
+OSC-DIR-WALL,"weak_canonical_candidate","canonical=OSC-DIR-WALL method=fallback_single_token attrs= desc_fp=wall mounted directional wayfinding sign",0.740
+ASI-PUZZLE-INSERT,"weak_canonical_candidate","canonical=ASI-PUZZLE-INSERT method=fallback_single_token attrs= desc_fp=modular insert room wayfinding sign lock",0.740
+ASI-PUZZLE-PROJ,"weak_canonical_candidate","canonical=ASI-PUZZLE-PROJ method=fallback_single_token attrs= desc_fp=projecting modular wayfinding sign corri",0.740
+SETON-FE-DECAL,"weak_canonical_candidate","canonical=SETON-FE-DECAL method=fallback_single_token attrs=compliance desc_fp=fire extinguisher decal label cabinet wa",0.740
+OSC-AED-SIGN,"weak_canonical_candidate","canonical=OSC-AED-SIGN method=fallback_single_token attrs= desc_fp=aed wall sign flat or projecting style a",0.740
+OSC-NO-SMOKING,"weak_canonical_candidate","canonical=OSC-NO-SMOKING method=fallback_single_token attrs= desc_fp=no smoking sign or decal wall mounted or",0.740
+OSC-MAX-OCC,"weak_canonical_candidate","canonical=OSC-MAX-OCC method=fallback_single_token attrs= desc_fp=maximum occupancy sign allowance wall mo",0.740
+GEMINI-CAST-METAL-LETTERS,"weak_canonical_candidate","canonical=GEMINI-CAST-METAL-LETTERS method=fallback_single_token attrs= desc_fp=cast metal building letters exterior dim",0.740
+GEMINI-IMPL-LETTERS,"weak_canonical_candidate","canonical=GEMINI-IMPL-LETTERS method=fallback_single_token attrs= desc_fp=injection molded plastic letters interio",0.740
+GEMINI-ADDRESS-NUM,"weak_canonical_candidate","canonical=GEMINI-ADDRESS-NUM method=fallback_single_token attrs= desc_fp=cast metal or plastic address number all",0.740
+PEN-6023XX-1,"weak_canonical_candidate","canonical=PEN-6023XX-1 method=fallback_single_token attrs= desc_fp=slope top kit 1 standard flat top penco ",0.740
+PEN-6023XX-3,"weak_canonical_candidate","canonical=PEN-6023XX-3 method=fallback_single_token attrs= desc_fp=slope top kit 3 standard flat top penco ",0.740
+PEN-CONT-SLOPE-HOOD-KIT,"weak_canonical_candidate","canonical=PEN-CONT-SLOPE-HOOD-KIT method=fallback_single_token attrs= desc_fp=continuous slope hood kit locker bank co",0.740
+PEN-SLOPE-HOOD-SPLICE,"weak_canonical_candidate","canonical=PEN-SLOPE-HOOD-SPLICE method=fallback_single_token attrs= desc_fp=splice accessory penco continuous slope ",0.740
+PEN-SLOPE-HOOD-END,"weak_canonical_candidate","canonical=PEN-SLOPE-HOOD-END method=fallback_single_token attrs= desc_fp=end closure accessory exposed end penco ",0.740
+PEN-SLOPE-CORNER-FILLER,"weak_canonical_candidate","canonical=PEN-SLOPE-CORNER-FILLER method=fallback_single_token attrs= desc_fp=corner filler kit penco slope top locker",0.740
+PEN-SLOPE-TOP-FILLER,"weak_canonical_candidate","canonical=PEN-SLOPE-TOP-FILLER method=fallback_single_token attrs= desc_fp=slope top filler locker bank wall closur",0.740
+PEN-FLAT-TOP-FILLER,"weak_canonical_candidate","canonical=PEN-FLAT-TOP-FILLER method=fallback_single_token attrs= desc_fp=flat top locker filler wall closure or e",0.740
+PEN-FLAT-TOP-CORNER-FILLER,"weak_canonical_candidate","canonical=PEN-FLAT-TOP-CORNER-FILLER method=fallback_single_token attrs= desc_fp=corner filler kit penco flat top locker ",0.740
+PEN-EXPOSED-END-16GA,"weak_canonical_candidate","canonical=PEN-EXPOSED-END-16GA method=fallback_single_token attrs= desc_fp=16 gauge exposed finished end panel penc",0.740
+PEN-END-BASE,"weak_canonical_candidate","canonical=PEN-END-BASE method=fallback_single_token attrs= desc_fp=end base penco locker bank finish match ",0.740
+PEN-REAR-LEGS,"weak_canonical_candidate","canonical=PEN-REAR-LEGS method=fallback_single_token attrs= desc_fp=rear leg accessory penco lockers where r",0.740
+PEN-TAB-SHELF,"weak_canonical_candidate","canonical=PEN-TAB-SHELF method=fallback_single_token attrs= desc_fp=replacement top or bottom tab shelf penc",0.740
+PEN-LOCKER-SHELF,"weak_canonical_candidate","canonical=PEN-LOCKER-SHELF method=fallback_single_token attrs= desc_fp=replacement locker shelf penco steel loc",0.740
+PEN-SINGLE-PRONG-HOOK,"weak_canonical_candidate","canonical=PEN-SINGLE-PRONG-HOOK method=fallback_single_token attrs= desc_fp=replacement single prong coat hook penco",0.740
+PEN-NUMBER-PLATE,"weak_canonical_candidate","canonical=PEN-NUMBER-PLATE method=fallback_single_token attrs= desc_fp=replacement locker number plate fit penc",0.740
+PEN-NUMPLATE-RIVETS,"weak_canonical_candidate","canonical=PEN-NUMPLATE-RIVETS method=fallback_single_token attrs= desc_fp=pop rivets attaching locker number plate",0.740
+PEN-SLOTLESS-BOLT-NUT,"weak_canonical_candidate","canonical=PEN-SLOTLESS-BOLT-NUT method=fallback_single_token attrs= desc_fp=slotless locker bolt hex nut locker asse",0.740
+PEN-TOUCHUP-PAINT,"weak_canonical_candidate","canonical=PEN-TOUCHUP-PAINT method=fallback_single_token attrs= desc_fp=locker touch up paint available as pen b",0.740
+MASTERLOCK-1630,"weak_canonical_candidate","canonical=MASTERLOCK-1630 method=fallback_single_token attrs= desc_fp=built in combination locker lock metal l",0.740
+MASTERLOCK-1652,"weak_canonical_candidate","canonical=MASTERLOCK-1652 method=fallback_single_token attrs= desc_fp=built in combination locker lock key con",0.740
+MASTERLOCK-1710ADA,"weak_canonical_candidate","canonical=MASTERLOCK-1710ADA method=fallback_single_token attrs=compliance desc_fp=compliant built in combination locker lo",0.740
+MASTERLOCK-1714ADA,"weak_canonical_candidate","canonical=MASTERLOCK-1714ADA method=fallback_single_token attrs=compliance desc_fp=compliant built in key operated locker l",0.740
+SCR-TUFF-BENCH,"weak_canonical_candidate","canonical=SCR-TUFF-BENCH method=fallback_single_token attrs=material desc_fp=hdpe solid plastic locker room bench col",0.740
+ASI-PHEN-SLOPE-TOP,"weak_canonical_candidate","canonical=ASI-PHEN-SLOPE-TOP method=fallback_single_token attrs=material desc_fp=phenolic slope top system asi phenolic l",0.740
+ASI-HOODS-BASES-TRIMS,"weak_canonical_candidate","canonical=ASI-HOODS-BASES-TRIMS method=fallback_single_token attrs= desc_fp=asi locker hoods bases trims fillers acc",0.740
+BOB-B-309,"weak_canonical_candidate","canonical=BOB-B-309 method=fallback_single_token attrs=mounting desc_fp=toilet seat cover dispenser toilet tissu",0.740
+BOB-B-47064,"weak_canonical_candidate","canonical=BOB-B-47064 method=fallback_single_token attrs=mounting desc_fp=toilet tissue dispenser sanitary napkin ",0.740
+BR-236,"weak_canonical_candidate","canonical=BR-236 method=fallback_single_token attrs=mounting desc_fp=center pull towel dispenser 12 gallon wa",0.740
+BR-2A05,"weak_canonical_candidate","canonical=BR-2A05 method=fallback_single_token attrs=mounting desc_fp=folded towel dispenser 12 gallon waste r",0.740
+BR-2A25-36,"weak_canonical_candidate","canonical=BR-2A25-36 method=fallback_single_token attrs=mounting desc_fp=sensored roll towel dispenser 21 gallon ",0.740
+AMEREX-B260,"weak_canonical_candidate","canonical=AMEREX-B260 method=fallback_single_token attrs=compliance desc_fp=6 liter class k wet chemical fire exting",0.740
+AMEREX-B262,"weak_canonical_candidate","canonical=AMEREX-B262 method=fallback_single_token attrs=compliance desc_fp=2 5 gallon class k wet chemical fire ext",0.740
+AMEREX-B272NM,"weak_canonical_candidate","canonical=AMEREX-B272NM method=fallback_single_token attrs=compliance desc_fp=2 5 gallon water mist fire extinguisher ",0.740
+AMEREX-B386T,"weak_canonical_candidate","canonical=AMEREX-B386T method=fallback_single_token attrs=compliance desc_fp=5 lb carbon dioxide fire extinguisher wa",0.740
+AMEREX-B570,"weak_canonical_candidate","canonical=AMEREX-B570 method=fallback_single_token attrs=compliance desc_fp=class d dry powder fire extinguisher all",0.740
+SF-UB5,"weak_canonical_candidate","canonical=SF-UB5 method=fallback_single_token attrs=compliance desc_fp=standard duty bracket 5 lb dry chemical ",0.740
+SF-UP10-MD,"weak_canonical_candidate","canonical=SF-UP10-MD method=fallback_single_token attrs=compliance desc_fp=medium duty vehicle marine bracket 10 lb",0.740
+SF-HDVB-1,"weak_canonical_candidate","canonical=SF-HDVB-1 method=fallback_single_token attrs=compliance desc_fp=heavy duty vehicle marine bracket 5 lb a",0.740
+SF-HDVB-2,"weak_canonical_candidate","canonical=SF-HDVB-2 method=fallback_single_token attrs=compliance desc_fp=heavy duty vehicle marine bracket 10 lb ",0.740
+SF-HDVB-3,"weak_canonical_candidate","canonical=SF-HDVB-3 method=fallback_single_token attrs=compliance desc_fp=heavy duty vehicle marine bracket 20 lb ",0.740
+FEC-GLAZING-ACRYLIC,"weak_canonical_candidate","canonical=FEC-GLAZING-ACRYLIC method=fallback_single_token attrs=compliance desc_fp=replacement clear acrylic glazing panel ",0.740
+FEC-BREAK-GLASS,"weak_canonical_candidate","canonical=FEC-BREAK-GLASS method=fallback_single_token attrs=compliance desc_fp=replacement break glass or break panel i",0.740
+FE-HOOK-WALL,"weak_canonical_candidate","canonical=FE-HOOK-WALL method=fallback_single_token attrs=compliance desc_fp=wall hook hanger portable fire extinguis",0.740
+FE-TAG-ANNUAL,"weak_canonical_candidate","canonical=FE-TAG-ANNUAL method=fallback_single_token attrs=compliance desc_fp=fire extinguisher inspection tag allowan",0.740
+FE-DECAL-CABINET,"weak_canonical_candidate","canonical=FE-DECAL-CABINET method=fallback_single_token attrs=compliance desc_fp=fire extinguisher cabinet decal equipmen",0.740
+FDC-SIGN,"weak_canonical_candidate","canonical=FDC-SIGN method=fallback_single_token attrs=compliance desc_fp=fire department connection sign allowanc",0.740
+FIRE-RISER-SIGN,"weak_canonical_candidate","canonical=FIRE-RISER-SIGN method=fallback_single_token attrs=compliance desc_fp=fire riser room sign wall mounted code l",0.740
+SPRINKLER-ROOM-SIGN,"weak_canonical_candidate","canonical=SPRINKLER-ROOM-SIGN method=fallback_single_token attrs= desc_fp=sprinkler room sign wall mounted code li",0.740
+KNOX-3200-REC-DB,"weak_canonical_candidate","canonical=KNOX-3200-REC-DB method=fallback_single_token attrs=mounting desc_fp=knoxbox 3200 high security key box mount",0.740
+FIRE-BLANKET-CAB,"weak_canonical_candidate","canonical=FIRE-BLANKET-CAB method=fallback_single_token attrs=compliance desc_fp=wall mounted fire blanket cabinet allowa",0.740
+MADRAX-U24-QS,"weak_canonical_candidate","canonical=MADRAX-U24-QS method=fallback_single_token attrs=mounting desc_fp=u24 inverted u bike rack mounted or embe",0.740
+MADRAX-U-QS,"weak_canonical_candidate","canonical=MADRAX-U-QS method=fallback_single_token attrs= desc_fp=inverted u bike rack quick ship model co",0.740
+MADRAX-UX-QS,"weak_canonical_candidate","canonical=MADRAX-UX-QS method=fallback_single_token attrs= desc_fp=ux inverted bike rack quick ship model c",0.740
+MADRAX-SQUARE-U-QS,"weak_canonical_candidate","canonical=MADRAX-SQUARE-U-QS method=fallback_single_token attrs= desc_fp=square u bike rack quick ship model comm",0.740
+MADRAX-POST-RING,"weak_canonical_candidate","canonical=MADRAX-POST-RING method=fallback_single_token attrs= desc_fp=post ring bike rack commercial site furn",0.740
+MADRAX-WALL-RACK,"weak_canonical_candidate","canonical=MADRAX-WALL-RACK method=fallback_single_token attrs= desc_fp=wall mounted bike rack vertical horizont",0.740
+MADRAX-U24-RAIL-4,"weak_canonical_candidate","canonical=MADRAX-U24-RAIL-4 method=fallback_single_token attrs= desc_fp=u24 bike rack on rail system 4 bike conf",0.740
+RELIANCE-R7902,"weak_canonical_candidate","canonical=RELIANCE-R7902 method=fallback_single_token attrs= desc_fp=steel removable bollard allowance contro",0.740
+DALITE-TENSIONED-CONT,"weak_canonical_candidate","canonical=DALITE-TENSIONED-CONT method=fallback_single_token attrs= desc_fp=electric projection screen allowance cei",0.740
+GEMINI-CAST-BRONZE-PLAQUE,"weak_canonical_candidate","canonical=GEMINI-CAST-BRONZE-PLAQUE method=fallback_single_token attrs= desc_fp=cast bronze commemorative or building pl",0.740
+GEMINI-CAST-ALUM-PLAQUE,"weak_canonical_candidate","canonical=GEMINI-CAST-ALUM-PLAQUE method=fallback_single_token attrs= desc_fp=cast aluminum building or dedication pla",0.740
+GEMINI-PRECISION-BRONZE-PLAQUE,"weak_canonical_candidate","canonical=GEMINI-PRECISION-BRONZE-PLAQUE method=fallback_single_token attrs= desc_fp=precision tooled bronze plaque allowance",0.740
+GEMINI-CAST-METAL-LETTER,"weak_canonical_candidate","canonical=GEMINI-CAST-METAL-LETTER method=fallback_single_token attrs= desc_fp=cast metal sign letter interior or exter",0.740
+GEMINI-ADDRESS-NUMBER,"weak_canonical_candidate","canonical=GEMINI-ADDRESS-NUMBER method=fallback_single_token attrs= desc_fp=cast metal or plastic building address n",0.740
+ASI-1204-V,"weak_canonical_candidate","canonical=ASI-1204-V method=fallback_single_token attrs=finish desc_fp=vinyl shower curtain commercial shower a",0.740
+RCP-354060GY,"weak_canonical_candidate","canonical=RCP-354060GY method=fallback_single_token attrs= desc_fp=44 gallon brute gray round trash contain",0.740
+RCP-264360GY,"weak_canonical_candidate","canonical=RCP-264360GY method=fallback_single_token attrs= desc_fp=44 gallon brute gray dome top lid round ",0.740
+RCP-354100GY,"weak_canonical_candidate","canonical=RCP-354100GY method=fallback_single_token attrs= desc_fp=32 gallon brute gray round trash contain",0.740
+RCP-263200GY,"weak_canonical_candidate","canonical=RCP-263200GY method=fallback_single_token attrs= desc_fp=32 gallon brute gray lid round trash con",0.740
+RCP-354007BK,"weak_canonical_candidate","canonical=RCP-354007BK method=fallback_single_token attrs=finish desc_fp=23 gallon slim jim vented container narr",0.740
+RCP-354007BLUE,"weak_canonical_candidate","canonical=RCP-354007BLUE method=fallback_single_token attrs= desc_fp=23 gallon slim jim blue recycling contai",0.740
+RCP-270388BLUE,"weak_canonical_candidate","canonical=RCP-270388BLUE method=fallback_single_token attrs= desc_fp=23 gallon slim jim recycling lid blue bo",0.740
+RCP-270388BK,"weak_canonical_candidate","canonical=RCP-270388BK method=fallback_single_token attrs=finish desc_fp=23 gallon slim jim trash lid waste strea",0.740
+WITT-28DT,"weak_canonical_candidate","canonical=WITT-28DT method=fallback_single_token attrs= desc_fp=steel dome top waste receptacle allowanc",0.740
+WITT-36R,"weak_canonical_candidate","canonical=WITT-36R method=fallback_single_token attrs= desc_fp=outdoor steel waste receptacle allowance",0.740
+WITT-32GC,"weak_canonical_candidate","canonical=WITT-32GC method=fallback_single_token attrs= desc_fp=outdoor decorative waste receptacle allo",0.740
+WITT-RECYCLE-2STREAM,"weak_canonical_candidate","canonical=WITT-RECYCLE-2STREAM method=fallback_single_token attrs= desc_fp=two stream recycling station allowance l",0.740
+WITT-RECYCLE-3STREAM,"weak_canonical_candidate","canonical=WITT-RECYCLE-3STREAM method=fallback_single_token attrs= desc_fp=three stream recycling station allowance",0.740
+GLOBAL-STONE-URN-24GAL,"weak_canonical_candidate","canonical=GLOBAL-STONE-URN-24GAL method=fallback_single_token attrs=compliance desc_fp=stone panel all weather trash receptacle",0.740
+GLOBAL-STONE-URN-SMALL,"weak_canonical_candidate","canonical=GLOBAL-STONE-URN-SMALL method=fallback_single_token attrs= desc_fp=small stone panel all weather ash urn fr",0.740
+ULTRASITE-AUGUSTA-36ASH,"weak_canonical_candidate","canonical=ULTRASITE-AUGUSTA-36ASH method=fallback_single_token attrs=finish desc_fp=36 gallon steel outdoor trash receptacle",0.740
+GLOBAL-SLATTED-36ASH,"weak_canonical_candidate","canonical=GLOBAL-SLATTED-36ASH method=fallback_single_token attrs= desc_fp=36 gallon outdoor slatted steel trash ca",0.740
+JUSTRITE-SCF-WALL,"weak_canonical_candidate","canonical=JUSTRITE-SCF-WALL method=fallback_single_token attrs= desc_fp=wall mounted cigarette butt receptacle a",0.740
+MAGLIN-MLWR200,"weak_canonical_candidate","canonical=MAGLIN-MLWR200 method=fallback_single_token attrs= desc_fp=outdoor waste receptacle allowance site ",0.740
+MAGLIN-MLWR300,"weak_canonical_candidate","canonical=MAGLIN-MLWR300 method=fallback_single_token attrs= desc_fp=outdoor recycling receptacle allowance s",0.740
+FORMSURFACES-CHIPMAN,"weak_canonical_candidate","canonical=FORMSURFACES-CHIPMAN method=fallback_single_token attrs= desc_fp=architectural outdoor litter receptacle ",0.740
+GHENT-M1-44-4,"weak_canonical_candidate","canonical=GHENT-M1-44-4 method=fallback_single_token attrs= desc_fp=4 ft x 4 ft magnetic porcelain whiteboar",0.740
+GHENT-M1-46-4,"weak_canonical_candidate","canonical=GHENT-M1-46-4 method=fallback_single_token attrs= desc_fp=4 ft x 6 ft magnetic porcelain whiteboar",0.740
+GHENT-M1-48-4,"weak_canonical_candidate","canonical=GHENT-M1-48-4 method=fallback_single_token attrs= desc_fp=4 ft x 8 ft magnetic porcelain whiteboar",0.740
+GHENT-M1-410-4-2P,"weak_canonical_candidate","canonical=GHENT-M1-410-4-2P method=fallback_single_token attrs= desc_fp=4 ft x 10 ft magnetic porcelain whiteboa",0.740
+GHENT-M1-412-4-2P,"weak_canonical_candidate","canonical=GHENT-M1-412-4-2P method=fallback_single_token attrs= desc_fp=4 ft x 12 ft magnetic porcelain whiteboa",0.740
+CLARIDGE-MGMI-46,"weak_canonical_candidate","canonical=CLARIDGE-MGMI-46 method=fallback_single_token attrs=finish desc_fp=4 ft x 6 ft magnetic glass markerboard i",0.740
+GHENT-AK44,"weak_canonical_candidate","canonical=GHENT-AK44 method=fallback_single_token attrs= desc_fp=4 ft x 4 ft natural cork bulletin board ",0.740
+GHENT-AK48,"weak_canonical_candidate","canonical=GHENT-AK48 method=fallback_single_token attrs= desc_fp=4 ft x 8 ft natural cork bulletin board ",0.740
+GHENT-WK48,"weak_canonical_candidate","canonical=GHENT-WK48 method=fallback_single_token attrs= desc_fp=4 ft x 8 ft natural cork bulletin board ",0.740
+GHENT-12UT44-W,"weak_canonical_candidate","canonical=GHENT-12UT44-W method=fallback_single_token attrs= desc_fp=4 ft x 4 ft wrapped fabric bulletin boar",0.740
+GHENT-12UT48-W,"weak_canonical_candidate","canonical=GHENT-12UT48-W method=fallback_single_token attrs= desc_fp=4 ft x 8 ft wrapped fabric bulletin boar",0.740
+GHENT-12UV48-W,"weak_canonical_candidate","canonical=GHENT-12UV48-W method=fallback_single_token attrs= desc_fp=4 ft x 8 ft wrapped vinyl bulletin board",0.740
+GHENT-SLIDING-WB,"weak_canonical_candidate","canonical=GHENT-SLIDING-WB method=fallback_single_token attrs= desc_fp=sliding whiteboard wall system allowance",0.740
+GHENT-CHAMPION-WALL,"weak_canonical_candidate","canonical=GHENT-CHAMPION-WALL method=fallback_single_token attrs= desc_fp=wall mounted enclosed display case alumi",0.740
+GHENT-CHAMPION-2040,"weak_canonical_candidate","canonical=GHENT-CHAMPION-2040 method=fallback_single_token attrs= desc_fp=high security wall display case steel st",0.740
+GHENT-VARSITY-FLOOR,"weak_canonical_candidate","canonical=GHENT-VARSITY-FLOOR method=fallback_single_token attrs= desc_fp=freestanding wood display case trophy ca",0.740
+GHENT-DISPLAY-LOCK,"weak_canonical_candidate","canonical=GHENT-DISPLAY-LOCK method=fallback_single_token attrs= desc_fp=replacement display case lock cam lock a",0.740
+GHENT-DISPLAY-LIGHT,"weak_canonical_candidate","canonical=GHENT-DISPLAY-LIGHT method=fallback_single_token attrs= desc_fp=display case led light kit allowance wal",0.740
+BD-RAMP-EDGE-LF,"weak_canonical_candidate","canonical=BD-RAMP-EDGE-LF method=fallback_single_token attrs=mounting desc_fp=mount ramp edge bevel frame entrance mat",0.740
+CS-PEDIGRID-SF,"weak_canonical_candidate","canonical=CS-PEDIGRID-SF method=fallback_single_token attrs=mounting desc_fp=pedigrid entrance grille system high tra",0.740
+CS-PEDIMAT-SF,"weak_canonical_candidate","canonical=CS-PEDIMAT-SF method=fallback_single_token attrs= desc_fp=pedimat roll up entrance mat system alum",0.740
+CS-GRIDLINE-SF,"weak_canonical_candidate","canonical=CS-GRIDLINE-SF method=fallback_single_token attrs= desc_fp=gridline entrance flooring system archit",0.740
+CS-FLOORMATIONS-SF,"weak_canonical_candidate","canonical=CS-FLOORMATIONS-SF method=fallback_single_token attrs= desc_fp=floormations modular entrance flooring s",0.740
+CS-TREADLINE-T1-SF,"weak_canonical_candidate","canonical=CS-TREADLINE-T1-SF method=fallback_single_token attrs= desc_fp=treadline t1 economical architectural en",0.740
+MATS-PERFEC-CLEAN-RUBBER-SF,"weak_canonical_candidate","canonical=MATS-PERFEC-CLEAN-RUBBER-SF method=fallback_single_token attrs=mounting desc_fp=roll up entrance mat rubber hinge constr",0.740
+MATS-RECESSED-GRATE-SF,"weak_canonical_candidate","canonical=MATS-RECESSED-GRATE-SF method=fallback_single_token attrs=mounting desc_fp=commercial entry floor grate grille allo",0.740
+MATS-LOGO-MAT-SF,"weak_canonical_candidate","canonical=MATS-LOGO-MAT-SF method=fallback_single_token attrs= desc_fp=custom logo walk off entrance mat allowa",0.740
+MATS-WALKOFF-RUNNER-SF,"weak_canonical_candidate","canonical=MATS-WALKOFF-RUNNER-SF method=fallback_single_token attrs= desc_fp=commercial walk off runner mat entrance ",0.740
+BASE-MB300-SF,"weak_canonical_candidate","canonical=BASE-MB300-SF method=fallback_single_token attrs=finish desc_fp=mb 300 roll up entrance mat aluminum hin",0.740
+BASE-MB400-SF,"weak_canonical_candidate","canonical=BASE-MB400-SF method=fallback_single_token attrs=finish desc_fp=mb 400 roll up entrance mat vinyl hinged",0.740
+RONICK-BM300-SF,"weak_canonical_candidate","canonical=RONICK-BM300-SF method=fallback_single_token attrs=mounting desc_fp=basemat 300 aluminum entrance floor mat ",0.740
+ULINE-H-1667-SF,"weak_canonical_candidate","canonical=ULINE-H-1667-SF method=fallback_single_token attrs=mounting desc_fp=waterhog style commercial entrance mat w",0.740
+ULINE-H-2357-SF,"weak_canonical_candidate","canonical=ULINE-H-2357-SF method=fallback_single_token attrs=mounting desc_fp=rubber commercial entrance mat scraper m",0.740
+CROWN-WALK-N-CLEAN-SF,"weak_canonical_candidate","canonical=CROWN-WALK-N-CLEAN-SF method=fallback_single_token attrs= desc_fp=walk n clean commercial entrance mat all",0.740
+NOTRAX-109-SF,"weak_canonical_candidate","canonical=NOTRAX-109-SF method=fallback_single_token attrs= desc_fp=brush step scraper mat allowance soil re",0.740
+MAT-WELL-PREP,"weak_canonical_candidate","canonical=MAT-WELL-PREP method=fallback_single_token attrs= desc_fp=existing matwell cleanout field measurem",0.740
+MAT-TEMPLATE-FIELD,"weak_canonical_candidate","canonical=MAT-TEMPLATE-FIELD method=fallback_single_token attrs=mounting desc_fp=field template allowance custom entrance",0.740
+EDER-TH20-GSLEEVE,"weak_canonical_candidate","canonical=EDER-TH20-GSLEEVE method=fallback_single_token attrs= desc_fp=ground sleeve foundation sleeve 20 ft ho",0.740
+EDER-TH25-GSLEEVE,"weak_canonical_candidate","canonical=EDER-TH25-GSLEEVE method=fallback_single_token attrs= desc_fp=ground sleeve foundation sleeve 25 ft re",0.740
+EDER-FLASH-COLLAR-20,"weak_canonical_candidate","canonical=EDER-FLASH-COLLAR-20 method=fallback_single_token attrs= desc_fp=spun aluminum flash collar 20 ft ground ",0.740
+EDER-FLASH-COLLAR-25,"weak_canonical_candidate","canonical=EDER-FLASH-COLLAR-25 method=fallback_single_token attrs= desc_fp=spun aluminum flash collar 25 ft ground ",0.740
+EDER-REV-TRUCK-1ST,"weak_canonical_candidate","canonical=EDER-REV-TRUCK-1ST method=fallback_single_token attrs= desc_fp=single revolving truck pulley assembly e",0.740
+EDER-REV-TRUCK-DBL,"weak_canonical_candidate","canonical=EDER-REV-TRUCK-DBL method=fallback_single_token attrs= desc_fp=double revolving truck pulley assembly t",0.740
+EDER-EAGLE-FINIAL,"weak_canonical_candidate","canonical=EDER-EAGLE-FINIAL method=fallback_single_token attrs= desc_fp=eagle finial ornament interior or exteri",0.740
+EDER-POLY-HALYARD-50,"weak_canonical_candidate","canonical=EDER-POLY-HALYARD-50 method=fallback_single_token attrs= desc_fp=50 ft polyester flagpole halyard rope ex",0.740
+EDER-POLY-HALYARD-100,"weak_canonical_candidate","canonical=EDER-POLY-HALYARD-100 method=fallback_single_token attrs= desc_fp=100 ft polyester flagpole halyard rope t",0.740
+EDER-SNAP-HOOK-BRZ-PAIR,"weak_canonical_candidate","canonical=EDER-SNAP-HOOK-BRZ-PAIR method=fallback_single_token attrs= desc_fp=bronze flag snap hooks pair",0.740
+EDER-SNAP-HOOK-NYLON-PAIR,"weak_canonical_candidate","canonical=EDER-SNAP-HOOK-NYLON-PAIR method=fallback_single_token attrs= desc_fp=quiet nylon flag snap hooks pair",0.740
+EDER-COUNTERWEIGHT,"weak_canonical_candidate","canonical=EDER-COUNTERWEIGHT method=fallback_single_token attrs= desc_fp=counterweight internal halyard flagpole ",0.740
+EDER-RETAINER-RING,"weak_canonical_candidate","canonical=EDER-RETAINER-RING method=fallback_single_token attrs= desc_fp=retainer ring assembly internal halyard ",0.740
+EDER-DOOR-COVER-PLATE,"weak_canonical_candidate","canonical=EDER-DOOR-COVER-PLATE method=fallback_single_token attrs= desc_fp=access door cover plate internal halyard",0.740
+EDER-WB-ALUM,"weak_canonical_candidate","canonical=EDER-WB-ALUM method=fallback_single_token attrs= desc_fp=aluminum wall bracket small residential ",0.740
+EDER-MULTI-BRKT,"weak_canonical_candidate","canonical=EDER-MULTI-BRKT method=fallback_single_token attrs= desc_fp=aluminum multi purpose flagpole bracket",0.740
+EDER-OUTRIGGER-BRKT,"weak_canonical_candidate","canonical=EDER-OUTRIGGER-BRKT method=fallback_single_token attrs= desc_fp=outrigger wall mount flagpole bracket pr",0.740
+EDER-WS100,"weak_canonical_candidate","canonical=EDER-WS100 method=fallback_single_token attrs= desc_fp=ws 100 aluminum wall shield bracket flag",0.740
+FLAG-LIGHT-SOLAR,"weak_canonical_candidate","canonical=FLAG-LIGHT-SOLAR method=fallback_single_token attrs= desc_fp=solar flagpole light allowance residenti",0.740
+FLAG-LIGHT-GROUND,"weak_canonical_candidate","canonical=FLAG-LIGHT-GROUND method=fallback_single_token attrs= desc_fp=ground mounted flagpole uplight allowanc",0.740
+FLAG-FOUNDATION-COORD,"weak_canonical_candidate","canonical=FLAG-FOUNDATION-COORD method=fallback_single_token attrs= desc_fp=flagpole foundation layout sleeve settin",0.740
+FL-K91910B,"weak_canonical_candidate","canonical=FL-K91910B method=fallback_single_token attrs= desc_fp=std 4c compartment or parcel lock withou",0.740
+SAL-3755P-BLK,"weak_canonical_candidate","canonical=SAL-3755P-BLK method=fallback_single_token attrs=finish desc_fp=replacement parcel locker door tenant lo",0.740
+FL-H91516,"weak_canonical_candidate","canonical=FL-H91516 method=fallback_single_token attrs=finish desc_fp=self adhesive parcel locker number plate",0.740
+FL-NP-100,"weak_canonical_candidate","canonical=FL-NP-100 method=fallback_single_token attrs= desc_fp=number plate door id package 4c tenant d",0.740
+FL-OML-100,"weak_canonical_candidate","canonical=FL-OML-100 method=fallback_single_token attrs= desc_fp=outgoing mail hood label package 4c mail",0.740
+FL-L-100,"weak_canonical_candidate","canonical=FL-L-100 method=fallback_single_token attrs= desc_fp=replacement tenant lock mailbox lock all",0.740
+FL-PL-LOCK-TENANT,"weak_canonical_candidate","canonical=FL-PL-LOCK-TENANT method=fallback_single_token attrs= desc_fp=tenant side parcel locker lock replaceme",0.740
+FL-91175,"weak_canonical_candidate","canonical=FL-91175 method=fallback_single_token attrs= desc_fp=anchor bolt kit florence cluster box uni",0.740
+FL-91121,"weak_canonical_candidate","canonical=FL-91121 method=fallback_single_token attrs= desc_fp=cbu pedestal replacement part florence c",0.740
+FL-91129,"weak_canonical_candidate","canonical=FL-91129 method=fallback_single_token attrs= desc_fp=cbu pedestal replacement part florence c",0.740
+FL-91512,"weak_canonical_candidate","canonical=FL-91512 method=fallback_single_token attrs= desc_fp=cbu replacement key florence cluster box",0.740
+FL-91513,"weak_canonical_candidate","canonical=FL-91513 method=fallback_single_token attrs= desc_fp=cbu replacement key florence cluster box",0.740
+FL-84993,"weak_canonical_candidate","canonical=FL-84993 method=fallback_single_token attrs= desc_fp=mcgard screw replacement part florence c",0.740
+FL-91038,"weak_canonical_candidate","canonical=FL-91038 method=fallback_single_token attrs= desc_fp=cbu bushing washer replacement part flor",0.740
+FL-K64944,"weak_canonical_candidate","canonical=FL-K64944 method=fallback_single_token attrs= desc_fp=mail slot plug kit florence cbu or mailb",0.740
+FL-4C16D-19,"weak_canonical_candidate","canonical=FL-4C16D-19 method=fallback_single_token attrs= desc_fp=4c horizontal mailbox 19 tenant doors 2 ",0.740
+FL-4C16D-6P,"weak_canonical_candidate","canonical=FL-4C16D-6P method=fallback_single_token attrs= desc_fp=4c front loading horizontal mailbox parc",0.740
+FL-4C-OUTGOING-COMP,"weak_canonical_candidate","canonical=FL-4C-OUTGOING-COMP method=fallback_single_token attrs= desc_fp=outgoing mail collection compartment slo",0.740
+FL-4C-CARRIER-ACCESS,"weak_canonical_candidate","canonical=FL-4C-CARRIER-ACCESS method=fallback_single_token attrs= desc_fp=carrier access door prepared usps arrow ",0.740
+SAL-3301,"weak_canonical_candidate","canonical=SAL-3301 method=fallback_single_token attrs= desc_fp=aluminum mailbox directory tenant direct",0.740
+SAL-3506,"weak_canonical_candidate","canonical=SAL-3506 method=fallback_single_token attrs=mounting desc_fp=mounted usps key keeper postal access de",0.740
+SAL-4550BRZ,"weak_canonical_candidate","canonical=SAL-4550BRZ method=fallback_single_token attrs= desc_fp=standard brass mail slot front rear plat",0.740
+SAL-4375,"weak_canonical_candidate","canonical=SAL-4375 method=fallback_single_token attrs= desc_fp=wall mounted mail collection box drop bo",0.740
+SAL-4370,"weak_canonical_candidate","canonical=SAL-4370 method=fallback_single_token attrs= desc_fp=freestanding mail collection box drop bo",0.740
+MAIL-4C-FILLER-LF,"weak_canonical_candidate","canonical=MAIL-4C-FILLER-LF method=fallback_single_token attrs= desc_fp=4c mailbox filler trim side filler allow",0.740
+MAIL-4C-ROUGHOPENING-TEMPLATE,"weak_canonical_candidate","canonical=MAIL-4C-ROUGHOPENING-TEMPLATE method=fallback_single_token attrs= desc_fp=field template rough opening verificatio",0.740
+MAIL-USPS-COORD,"weak_canonical_candidate","canonical=MAIL-USPS-COORD method=fallback_single_token attrs= desc_fp=usps coordination allowance arrow lock i",0.740
+ADD-FIELD-MEASURE,"weak_canonical_candidate","canonical=ADD-FIELD-MEASURE method=fallback_single_token attrs= desc_fp=field measure verify dimensions before o",0.740
+ADD-LAYOUT-RESTROOM,"weak_canonical_candidate","canonical=ADD-LAYOUT-RESTROOM method=fallback_single_token attrs= desc_fp=layout restroom accessories grab bars mi",0.740
+ADD-LAYOUT-PARTITIONS,"weak_canonical_candidate","canonical=ADD-LAYOUT-PARTITIONS method=fallback_single_token attrs= desc_fp=layout toilet partition compartments pil",0.740
+ADD-LAYOUT-LOCKERS,"weak_canonical_candidate","canonical=ADD-LAYOUT-LOCKERS method=fallback_single_token attrs= desc_fp=layout locker banks fillers slope tops b",0.740
+ADD-LAYOUT-WALLPROT,"weak_canonical_candidate","canonical=ADD-LAYOUT-WALLPROT method=fallback_single_token attrs= desc_fp=layout wall protection heights crash rai",0.740
+ADD-BLOCKING-CHECK,"weak_canonical_candidate","canonical=ADD-BLOCKING-CHECK method=fallback_single_token attrs= desc_fp=verify backing blocking before installin",0.740
+ADD-MISSING-BLOCKING,"weak_canonical_candidate","canonical=ADD-MISSING-BLOCKING method=fallback_single_token attrs= desc_fp=coordination allowance when required blo",0.740
+ADD-ROUGH-OPENING-CHECK,"weak_canonical_candidate","canonical=ADD-ROUGH-OPENING-CHECK method=fallback_single_token attrs=mounting desc_fp=verify rough openings cabinets mailboxes",0.740
+ADD-FIELD-CUTTING,"weak_canonical_candidate","canonical=ADD-FIELD-CUTTING method=fallback_single_token attrs= desc_fp=field cutting allowance wall protection ",0.740
+ADD-SUBSTRATE-PREP,"weak_canonical_candidate","canonical=ADD-SUBSTRATE-PREP method=fallback_single_token attrs= desc_fp=substrate preparation allowance before a",0.740
+ADD-ADHESIVE-ALLOW,"weak_canonical_candidate","canonical=ADD-ADHESIVE-ALLOW method=fallback_single_token attrs=mounting desc_fp=adhesive allowance wall protection sheet",0.740
+ADD-SEALANT-ALLOW,"weak_canonical_candidate","canonical=ADD-SEALANT-ALLOW method=fallback_single_token attrs= desc_fp=sealant allowance wet area accessories m",0.740
+ADD-FASTENER-ALLOW,"weak_canonical_candidate","canonical=ADD-FASTENER-ALLOW method=fallback_single_token attrs= desc_fp=miscellaneous anchors screws fasteners w",0.740
+ADD-SECURITY-SCREWS,"weak_canonical_candidate","canonical=ADD-SECURITY-SCREWS method=fallback_single_token attrs= desc_fp=security screw allowance detention insti",0.740
+ADD-UNLOAD-SMALL,"weak_canonical_candidate","canonical=ADD-UNLOAD-SMALL method=fallback_single_token attrs= desc_fp=unload stage small div 10 accessory deli",0.740
+ADD-UNLOAD-LARGE,"weak_canonical_candidate","canonical=ADD-UNLOAD-LARGE method=fallback_single_token attrs= desc_fp=unload stage large div 10 delivery such ",0.740
+ADD-FREIGHT-ALLOW,"weak_canonical_candidate","canonical=ADD-FREIGHT-ALLOW method=fallback_single_token attrs= desc_fp=freight allowance bulky or shipped speci",0.740
+ADD-INSIDE-DELIVERY,"weak_canonical_candidate","canonical=ADD-INSIDE-DELIVERY method=fallback_single_token attrs= desc_fp=inside delivery carry in allowance large",0.740
+ADD-MULTI-FLOOR-CARRY,"weak_canonical_candidate","canonical=ADD-MULTI-FLOOR-CARRY method=fallback_single_token attrs= desc_fp=additional handling allowance carrying s",0.740
+ADD-LIFT-REQUIRED,"weak_canonical_candidate","canonical=ADD-LIFT-REQUIRED method=fallback_single_token attrs= desc_fp=lift scissor lift coordination allowance",0.740
+ADD-HEIGHT-WORK,"weak_canonical_candidate","canonical=ADD-HEIGHT-WORK method=fallback_single_token attrs= desc_fp=additional labor allowance high wall mou",0.740
+ADD-EXISTING-CONDITIONS,"weak_canonical_candidate","canonical=ADD-EXISTING-CONDITIONS method=fallback_single_token attrs= desc_fp=existing condition allowance removals fi",0.740
+ADD-DEMO-REMOVE,"weak_canonical_candidate","canonical=ADD-DEMO-REMOVE method=fallback_single_token attrs= desc_fp=remove existing restroom accessories loc",0.740
+ADD-DISPOSAL,"weak_canonical_candidate","canonical=ADD-DISPOSAL method=fallback_single_token attrs= desc_fp=disposal allowance removed specialty ite",0.740
+ADD-RETURN-TRIP,"weak_canonical_candidate","canonical=ADD-RETURN-TRIP method=fallback_single_token attrs= desc_fp=return trip allowance incomplete areas m",0.740
+ADD-PUNCH-WORK,"weak_canonical_candidate","canonical=ADD-PUNCH-WORK method=fallback_single_token attrs= desc_fp=punch work allowance final adjustments t",0.740
+ADD-ATTIC-STOCK,"weak_canonical_candidate","canonical=ADD-ATTIC-STOCK method=fallback_single_token attrs= desc_fp=attic stock handling labeling turnover a",0.740
+ADD-SUBMITTAL-COORD,"weak_canonical_candidate","canonical=ADD-SUBMITTAL-COORD method=fallback_single_token attrs= desc_fp=submittal product data coordination allo",0.740
+ADD-LEADTIME-EXPEDITE,"weak_canonical_candidate","canonical=ADD-LEADTIME-EXPEDITE method=fallback_single_token attrs= desc_fp=expedite lead time tracking substitution",0.740
+ADD-ASBUILT-PHOTOS,"weak_canonical_candidate","canonical=ADD-ASBUILT-PHOTOS method=fallback_single_token attrs= desc_fp=closeout photo documentation allowance i",0.740
+ADD-OFFHOURS,"weak_canonical_candidate","canonical=ADD-OFFHOURS method=fallback_single_token attrs= desc_fp=off hours work coordination allowance oc",0.740
+BR-781-6024,"weak_canonical_candidate","canonical=BR-781-6024 method=fallback_single_token attrs=size desc_fp=channel frame mirror x",0.770
+BR-781-6036,"weak_canonical_candidate","canonical=BR-781-6036 method=fallback_single_token attrs=size desc_fp=channel frame mirror x",0.770
+BR-7B1-1024360,"weak_canonical_candidate","canonical=BR-7B1-1024360 method=fallback_single_token attrs=size desc_fp=elvari frameless mirror x",0.770
+BR-7B1-3024360,"weak_canonical_candidate","canonical=BR-7B1-3024360 method=fallback_single_token attrs=size desc_fp=elvari frameless mirror shelf x",0.770
+BR-7B1-5024360,"weak_canonical_candidate","canonical=BR-7B1-5024360 method=fallback_single_token attrs=size desc_fp=elvari led mirror x",0.770
+BR-7B1-7024360,"weak_canonical_candidate","canonical=BR-7B1-7024360 method=fallback_single_token attrs=size desc_fp=elvari led mirror shelf x",0.770
+ACRO-SHEET-040,"weak_canonical_candidate","canonical=ACRO-SHEET-040 method=fallback_single_token attrs=size desc_fp=rigid wall protection sheet field cut ad",0.770
+ACRO-SHEET-060,"weak_canonical_candidate","canonical=ACRO-SHEET-060 method=fallback_single_token attrs=size desc_fp=heavy duty rigid wall protection sheet f",0.770
+EDER-TH20,"weak_canonical_candidate","canonical=EDER-TH20 method=fallback_single_token attrs=size desc_fp=20 ft aluminum tapered residential flagp",0.770
+CLARIDGE-CALYX-GLASS-46,"weak_canonical_candidate","canonical=CLARIDGE-CALYX-GLASS-46 method=fallback_single_token attrs=size desc_fp=glass whiteboard 4 h x 6 w wall mounted",0.770
+GHENT-MOBILE-M4-46,"weak_canonical_candidate","canonical=GHENT-MOBILE-M4-46 method=fallback_single_token attrs=size desc_fp=mobile reversible porcelain whiteboard 4",0.770
+ULINE-S-12415,"weak_canonical_candidate","canonical=ULINE-S-12415 method=fallback_single_token attrs=size desc_fp=natural cork roll 4 x 50 field cut adher",0.770
+ASI-1308-3,"weak_canonical_candidate","canonical=ASI-1308-3 method=fallback_single_token attrs=size desc_fp=shelf utility hooks mop strip 4 hooks 3 ",0.770
+ASI-1308-4,"weak_canonical_candidate","canonical=ASI-1308-4 method=fallback_single_token attrs=size desc_fp=shelf utility hooks mop strip 5 hooks 4 ",0.770
+INPRO-CR-4,"weak_canonical_candidate","canonical=INPRO-CR-4 method=fallback_single_token attrs=size desc_fp=vinyl wall guard crash rail commercial w",0.770
+CS-ACRO-SHEET-040,"weak_canonical_candidate","canonical=CS-ACRO-SHEET-040 method=fallback_single_token attrs=size desc_fp=acrovyn rigid wall protection sheet fiel",0.770
+CS-ACRO-SHEET-060,"weak_canonical_candidate","canonical=CS-ACRO-SHEET-060 method=fallback_single_token attrs=size desc_fp=acrovyn heavy duty rigid wall protection",0.770
+BABCOCK-BMT38,"weak_canonical_candidate","canonical=BABCOCK-BMT38 method=fallback_single_token attrs=size desc_fp=entrance mat system 3 deep vinyl tread o",0.770
+PEN-VAN-1T-121272,"weak_canonical_candidate","canonical=PEN-VAN-1T-121272 method=fallback_single_token attrs=size desc_fp=standard steel locker w x d x h louvered",0.770
+PEN-VAN-2T-121272,"weak_canonical_candidate","canonical=PEN-VAN-2T-121272 method=fallback_single_token attrs=size desc_fp=standard steel locker w x d x h louvered",0.770
+PEN-VAN-Z-121572,"weak_canonical_candidate","canonical=PEN-VAN-Z-121572 method=fallback_single_token attrs=size desc_fp=two person z locker steel w x d x h nomi",0.770
+PEN-ZEE-BASE-4,"weak_canonical_candidate","canonical=PEN-ZEE-BASE-4 method=fallback_single_token attrs=size desc_fp=continuous zee base penco metal locker b",0.770
+PEN-ZEE-BASE-SPLICE-END,"weak_canonical_candidate","canonical=PEN-ZEE-BASE-SPLICE-END method=fallback_single_token attrs=size desc_fp=splice or end accessory penco zee base",0.770
+BD-ADAP-1212,"weak_canonical_candidate","canonical=BD-ADAP-1212 method=fallback_single_token attrs=size desc_fp=x architectural access door exposed flan",0.770
+BD-ADAP-2424,"weak_canonical_candidate","canonical=BD-ADAP-2424 method=fallback_single_token attrs=size desc_fp=x architectural access door exposed flan",0.770
+BD-BNT-2448,"weak_canonical_candidate","canonical=BD-BNT-2448 method=fallback_single_token attrs=size desc_fp=x exposed flange architectural access do",0.770
+BD-EXT-2424,"weak_canonical_candidate","canonical=BD-EXT-2424 method=fallback_single_token attrs=size desc_fp=x exterior access door insulated weather",0.770
+KARP-DSC214M-1212,"weak_canonical_candidate","canonical=KARP-DSC214M-1212 method=fallback_single_token attrs=size desc_fp=x flush access door all surfaces exposed",0.770
+KARP-DSC214M-2424,"weak_canonical_candidate","canonical=KARP-DSC214M-2424 method=fallback_single_token attrs=size desc_fp=x flush access door all surfaces exposed",0.770
+BA-AHD-2424,"weak_canonical_candidate","canonical=BA-AHD-2424 method=fallback_single_token attrs=size desc_fp=x heavy duty access door allowance secur",0.770
+RELIANCE-R7901,"weak_canonical_candidate","canonical=RELIANCE-R7901 method=fallback_single_token attrs=size desc_fp=steel bollard powder coated carbon steel",0.770
+IDEAL-6IN-REM-GALV,"weak_canonical_candidate","canonical=IDEAL-6IN-REM-GALV method=fallback_single_token attrs=size desc_fp=removable locking bollard galvanized acc",0.770
+IDEAL-6IN-COVER,"weak_canonical_candidate","canonical=IDEAL-6IN-COVER method=fallback_single_token attrs=size desc_fp=bollard cover sleeve thermoplastic polye",0.770
+IDEAL-METRO-6IN-COVER,"weak_canonical_candidate","canonical=IDEAL-METRO-6IN-COVER method=fallback_single_token attrs=size desc_fp=metro decorative bollard cover designed ",0.770
+DALITE-73241,"weak_canonical_candidate","canonical=DALITE-73241 method=fallback_single_token attrs=size desc_fp=manual front projection screen diagonal ",0.770
+GHENT-A2M48-M,"weak_canonical_candidate","canonical=GHENT-A2M48-M method=fallback_single_token attrs=size desc_fp=4 ft x 8 ft magnetic porcelain whiteboar",0.770
+GHENT-A2M412-M,"weak_canonical_candidate","canonical=GHENT-A2M412-M method=fallback_single_token attrs=size desc_fp=4 ft x 12 ft magnetic porcelain whiteboa",0.770
+CLARIDGE-GLASS-48,"weak_canonical_candidate","canonical=CLARIDGE-GLASS-48 method=fallback_single_token attrs=size desc_fp=4 ft x 8 ft glass whiteboard low iron gl",0.770
+GHENT-MAPRAIL-1IN-LF,"weak_canonical_candidate","canonical=GHENT-MAPRAIL-1IN-LF method=fallback_single_token attrs=size desc_fp=aluminum maprail natural cork posting st",0.770
+GHENT-MAPRAIL-2IN-LF,"weak_canonical_candidate","canonical=GHENT-MAPRAIL-2IN-LF method=fallback_single_token attrs=size desc_fp=aluminum maprail natural cork posting st",0.770
+GHENT-MAPRAIL-ENDSTOP,"weak_canonical_candidate","canonical=GHENT-MAPRAIL-ENDSTOP method=fallback_single_token attrs=size desc_fp=maprail end stop pair ghent maprail",0.770
+GHENT-HOLDUP-48,"weak_canonical_candidate","canonical=GHENT-HOLDUP-48 method=fallback_single_token attrs=size desc_fp=hold up display rail hanging papers pict",0.770
+GHENT-HOLDUP-96,"weak_canonical_candidate","canonical=GHENT-HOLDUP-96 method=fallback_single_token attrs=size desc_fp=hold up display rail hanging documents c",0.770
+BD-BMD38-SF,"weak_canonical_candidate","canonical=BD-BMD38-SF method=fallback_single_token attrs=size desc_fp=matdesign roll up entrance mat 3 deep al",0.770
+BD-BMT38-SF,"weak_canonical_candidate","canonical=BD-BMT38-SF method=fallback_single_token attrs=size desc_fp=matrac roll up entrance mat 3 deep vinyl",0.770
+BD-BMQ38-SF,"weak_canonical_candidate","canonical=BD-BMQ38-SF method=fallback_single_token attrs=size desc_fp=quietflex roll up entrance mat 3 deep al",0.770
+BD-BGR34-SF,"weak_canonical_candidate","canonical=BD-BGR34-SF method=fallback_single_token attrs=size desc_fp=gratedesign roll up entrance grille 3 de",0.770
+BD-BMX12-SF,"weak_canonical_candidate","canonical=BD-BMX12-SF method=fallback_single_token attrs=size desc_fp=maxtread 1 deep vinyl poly carpet entran",0.770
+BD-BMG12-SF,"weak_canonical_candidate","canonical=BD-BMG12-SF method=fallback_single_token attrs=size desc_fp=maxgrid 1 deep vinyl entrance mat vinyl ",0.770
+EDER-GOLD-BALL-4,"weak_canonical_candidate","canonical=EDER-GOLD-BALL-4 method=fallback_single_token attrs=size desc_fp=gold ball ornament flagpole top",0.770
+EDER-GOLD-BALL-6,"weak_canonical_candidate","canonical=EDER-GOLD-BALL-6 method=fallback_single_token attrs=size desc_fp=gold ball ornament flagpole top",0.770
+EDER-CLEAT-6-ALUM,"weak_canonical_candidate","canonical=EDER-CLEAT-6-ALUM method=fallback_single_token attrs=size desc_fp=aluminum cleat external halyard flagpole",0.770
+EDER-CLEAT-9-ALUM,"weak_canonical_candidate","canonical=EDER-CLEAT-9-ALUM method=fallback_single_token attrs=size desc_fp=aluminum cleat external halyard flagpole",0.770
+ASI-1308,"weak_canonical_candidate","canonical=ASI-1308 method=fallback_single_token attrs=finish|material|mounting desc_fp=utility shelf hook strip mop broom holde",0.790
+ASI-1315-4,"weak_canonical_candidate","canonical=ASI-1315-4 method=fallback_single_token attrs=finish|material desc_fp=utility shelf drying rod 4 mop holders r",0.790
+ASI-9013-9,"weak_canonical_candidate","canonical=ASI-9013-9 method=fallback_single_token attrs=finish|material|mounting desc_fp=horizontal steel baby changing station a",0.790
+ASI-FSS,"weak_canonical_candidate","canonical=ASI-FSS method=fallback_single_token attrs=finish|material desc_fp=folding shower seat steel allowance",0.790
+ASI-PC-OH,"weak_canonical_candidate","canonical=ASI-PC-OH method=fallback_single_token attrs=material|mounting desc_fp=powder coated steel toilet compartment f",0.790
+ASI-SS-OH,"weak_canonical_candidate","canonical=ASI-SS-OH method=fallback_single_token attrs=finish|material|mounting desc_fp=steel toilet compartment floor anchored ",0.790
+ASI-HDPE-OH,"weak_canonical_candidate","canonical=ASI-HDPE-OH method=fallback_single_token attrs=material|mounting desc_fp=hdpe solid plastic toilet compartment fl",0.790
+ASI-PHEN-OH,"weak_canonical_candidate","canonical=ASI-PHEN-OH method=fallback_single_token attrs=finish|material|mounting desc_fp=core phenolic toilet compartment floor a",0.790
+ASI-US-SS,"weak_canonical_candidate","canonical=ASI-US-SS method=fallback_single_token attrs=finish|material desc_fp=steel urinal screen wall brackets or pil",0.790
+BOB-B239,"weak_canonical_candidate","canonical=BOB-B239 method=fallback_single_token attrs=finish|material desc_fp=utility shelf mop broom holders rag hook",0.790
+BOB-B-4288,"weak_canonical_candidate","canonical=BOB-B-4288 method=fallback_single_token attrs=finish|material|mounting desc_fp=mounted multi roll toilet tissue dispens",0.790
+BOB-B-270,"weak_canonical_candidate","canonical=BOB-B-270 method=fallback_single_token attrs=finish|material|mounting desc_fp=mounted sanitary napkin disposal steel 1",0.790
+BOB-B-212,"weak_canonical_candidate","canonical=BOB-B-212 method=fallback_single_token attrs=finish|material|mounting desc_fp=mounted coat hook steel",0.790
+BR-9933,"weak_canonical_candidate","canonical=BR-9933 method=fallback_single_token attrs=finish|material desc_fp=utility shelf 4 hooks 3 rubber cam mop b",0.790
+BR-9934,"weak_canonical_candidate","canonical=BR-9934 method=fallback_single_token attrs=finish|material desc_fp=utility shelf 5 hooks 4 mop broom holder",0.790
+BR-9953,"weak_canonical_candidate","canonical=BR-9953 method=fallback_single_token attrs=finish|material|mounting desc_fp=mop broom holder 3 holders mounted steel",0.790
+BR-9954,"weak_canonical_candidate","canonical=BR-9954 method=fallback_single_token attrs=finish|material|mounting desc_fp=mop broom holder 4 holders mounted steel",0.790
+BR-9955,"weak_canonical_candidate","canonical=BR-9955 method=fallback_single_token attrs=finish|material|mounting desc_fp=mop broom holder 5 holders mounted steel",0.790
+BR-9983,"weak_canonical_candidate","canonical=BR-9983 method=fallback_single_token attrs=finish|material desc_fp=steel utility shelf hooks mop holders dr",0.790
+SA70-001180,"weak_canonical_candidate","canonical=SA70-001180 method=fallback_single_token attrs=finish|material desc_fp=security series steel grab bar straight ",0.790
+SA70-001240,"weak_canonical_candidate","canonical=SA70-001240 method=fallback_single_token attrs=finish|material desc_fp=security series steel grab bar straight ",0.790
+SA70-001300,"weak_canonical_candidate","canonical=SA70-001300 method=fallback_single_token attrs=finish|material desc_fp=security series steel grab bar straight ",0.790
+SA70-001360,"weak_canonical_candidate","canonical=SA70-001360 method=fallback_single_token attrs=finish|material desc_fp=security series steel grab bar straight ",0.790
+SA70-001420,"weak_canonical_candidate","canonical=SA70-001420 method=fallback_single_token attrs=finish|material desc_fp=security series steel grab bar straight ",0.790
+SA70-001480,"weak_canonical_candidate","canonical=SA70-001480 method=fallback_single_token attrs=finish|material desc_fp=security series steel grab bar straight ",0.790
+8B1-0011800,"weak_canonical_candidate","canonical=8B1-0011800 method=fallback_single_token attrs=finish|material desc_fp=oval grab bar 18 l steel finish",0.790
+8B1-0012400,"weak_canonical_candidate","canonical=8B1-0012400 method=fallback_single_token attrs=finish|material desc_fp=oval grab bar 24 l steel finish",0.790
+8B1-0013600,"weak_canonical_candidate","canonical=8B1-0013600 method=fallback_single_token attrs=finish|material desc_fp=oval grab bar 36 l steel finish",0.790
+8B1-0014200,"weak_canonical_candidate","canonical=8B1-0014200 method=fallback_single_token attrs=finish|material desc_fp=oval grab bar 42 l steel finish",0.790
+8B1-0014800,"weak_canonical_candidate","canonical=8B1-0014800 method=fallback_single_token attrs=finish|material desc_fp=oval grab bar 48 l steel finish",0.790
+8B1-0013096,"weak_canonical_candidate","canonical=8B1-0013096 method=fallback_single_token attrs=finish|material desc_fp=oval grab bar 30 l 2 hooks steel finish",0.790
+8B1-2011896,"weak_canonical_candidate","canonical=8B1-2011896 method=fallback_single_token attrs=finish|material desc_fp=oval grab bar hook 18 l steel peened fin",0.790
+8B1-2012496,"weak_canonical_candidate","canonical=8B1-2012496 method=fallback_single_token attrs=finish|material desc_fp=oval grab bar hook 24 l steel peened fin",0.790
+8B1-2013696,"weak_canonical_candidate","canonical=8B1-2013696 method=fallback_single_token attrs=finish|material desc_fp=oval grab bar hook 36 l steel peened fin",0.790
+8B1-2014296,"weak_canonical_candidate","canonical=8B1-2014296 method=fallback_single_token attrs=finish|material desc_fp=oval grab bar hook 42 l steel peened fin",0.790
+8B1-2014896,"weak_canonical_candidate","canonical=8B1-2014896 method=fallback_single_token attrs=finish|material desc_fp=oval grab bar hook 48 l steel peened fin",0.790
+BR-963,"weak_canonical_candidate","canonical=BR-963 method=fallback_single_token attrs=finish|material|mounting desc_fp=horizontal mounted baby changing station",0.790
+BR-6B1-110000,"weak_canonical_candidate","canonical=BR-6B1-110000 method=fallback_single_token attrs=finish|material|mounting desc_fp=manual liquid soap gel sanitizer dispens",0.790
+BR-6B1-110073,"weak_canonical_candidate","canonical=BR-6B1-110073 method=fallback_single_token attrs=finish|material|mounting desc_fp=manual foam soap foam sanitizer dispense",0.790
+BR-6B1-000000,"weak_canonical_candidate","canonical=BR-6B1-000000 method=fallback_single_token attrs=finish|material|mounting desc_fp=manual liquid soap gel sanitizer dispens",0.790
+BR-2B1-113400,"weak_canonical_candidate","canonical=BR-2B1-113400 method=fallback_single_token attrs=finish|material|mounting desc_fp=mounted towel dispenser small capacity",0.790
+BR-2B1-110000,"weak_canonical_candidate","canonical=BR-2B1-110000 method=fallback_single_token attrs=finish|material|mounting desc_fp=mounted towel dispenser medium capacity",0.790
+BR-2B1-113600,"weak_canonical_candidate","canonical=BR-2B1-113600 method=fallback_single_token attrs=finish|material|mounting desc_fp=mounted towel dispenser large capacity",0.790
+BR-3B1-003400,"weak_canonical_candidate","canonical=BR-3B1-003400 method=fallback_single_token attrs=finish|material|mounting desc_fp=waste receptacle 8 gallon",0.790
+BR-3B1-000000,"weak_canonical_candidate","canonical=BR-3B1-000000 method=fallback_single_token attrs=finish|material|mounting desc_fp=waste receptacle 12 gallon",0.790
+BR-3B1-003600,"weak_canonical_candidate","canonical=BR-3B1-003600 method=fallback_single_token attrs=finish|material|mounting desc_fp=waste receptacle 18 gallon",0.790
+BR-3B1-113400,"weak_canonical_candidate","canonical=BR-3B1-113400 method=fallback_single_token attrs=finish|material|mounting desc_fp=mounted waste receptacle 10 gallon",0.790
+BR-3B1-110000,"weak_canonical_candidate","canonical=BR-3B1-110000 method=fallback_single_token attrs=finish|material|mounting desc_fp=mounted waste receptacle 14 gallon",0.790
+BR-3B1-113600,"weak_canonical_candidate","canonical=BR-3B1-113600 method=fallback_single_token attrs=finish|material|mounting desc_fp=mounted waste receptacle 18 gallon",0.790
+BR-4781-11,"weak_canonical_candidate","canonical=BR-4781-11 method=fallback_single_token attrs=finish|material|mounting desc_fp=commercial sanitary napkin disposal moun",0.790
+BR-4B2-110000,"weak_canonical_candidate","canonical=BR-4B2-110000 method=fallback_single_token attrs=finish|material|mounting desc_fp=mounted napkin disposal steel",0.790
+BR-9B1-110000,"weak_canonical_candidate","canonical=BR-9B1-110000 method=fallback_single_token attrs=finish|material desc_fp=single robe hook steel",0.790
+BR-9B1-110200,"weak_canonical_candidate","canonical=BR-9B1-110200 method=fallback_single_token attrs=finish|material desc_fp=double robe hook steel",0.790
+ACRO-CG-SS14,"weak_canonical_candidate","canonical=ACRO-CG-SS14 method=fallback_single_token attrs=finish|material desc_fp=steel heavy duty corner guard brushed fi",0.790
+XL-SB,"weak_canonical_candidate","canonical=XL-SB method=fallback_single_token attrs=finish|material|mounting desc_fp=high speed hand dryer mounted brushed st",0.790
+MAIL-SLOT-SS,"weak_canonical_candidate","canonical=MAIL-SLOT-SS method=fallback_single_token attrs=finish|material desc_fp=wall or door mail slot steel finish trim",0.790
+FT-REC,"weak_canonical_candidate","canonical=FT-REC method=fallback_single_token attrs=finish|material|mounting desc_fp=facial tissue dispenser steel allowance",0.790
+JL-1013G10,"weak_canonical_candidate","canonical=JL-1013G10 method=fallback_single_token attrs=finish|mounting|compliance desc_fp=mounted steel fire extinguisher cabinet ",0.790
+JL-1017F10FX,"weak_canonical_candidate","canonical=JL-1017F10FX method=fallback_single_token attrs=mounting|compliance desc_fp=fire rated semi steel fire extinguisher ",0.790
+KOALA-KB300-MB,"weak_canonical_candidate","canonical=KOALA-KB300-MB method=fallback_single_token attrs=finish|mounting desc_fp=horizontal mounted baby changing station",0.790
+PR-FVEC,"weak_canonical_candidate","canonical=PR-FVEC method=fallback_single_token attrs=mounting|compliance desc_fp=combination fire valve extinguisher cabi",0.790
+SCR-ECL-OH-HIGH,"weak_canonical_candidate","canonical=SCR-ECL-OH-HIGH method=fallback_single_token attrs=material|mounting desc_fp=hdpe toilet compartment floor mounted ov",0.790
+SCR-HH-OH,"weak_canonical_candidate","canonical=SCR-HH-OH method=fallback_single_token attrs=material|mounting desc_fp=hdpe toilet compartment standard floor m",0.790
+ULINE-H-6814,"weak_canonical_candidate","canonical=ULINE-H-6814 method=fallback_single_token attrs=finish|material desc_fp=solid steel shelving unit 48 w x 18 d x ",0.790
+ULINE-H-5467,"weak_canonical_candidate","canonical=ULINE-H-5467 method=fallback_single_token attrs=finish|material desc_fp=solid steel shelving unit 48 w x 18 d x ",0.790
+BOB-B4998,"weak_canonical_candidate","canonical=BOB-B4998 method=fallback_single_token attrs=finish|material|compliance desc_fp=swing up grab bar steel wall mounted spe",0.790
+CS-CO8-4,"weak_canonical_candidate","canonical=CS-CO8-4 method=fallback_single_token attrs=finish|material|mounting desc_fp=steel mounted corner guard 4 ft type 304",0.790
+CS-CO8-8,"weak_canonical_candidate","canonical=CS-CO8-8 method=fallback_single_token attrs=finish|material|mounting desc_fp=steel mounted corner guard 8 ft type 304",0.790
+LAR-2409-R4,"weak_canonical_candidate","canonical=LAR-2409-R4 method=fallback_single_token attrs=finish|mounting|compliance desc_fp=fire extinguisher cabinet fully steel cl",0.790
+LAR-2409-SM,"weak_canonical_candidate","canonical=LAR-2409-SM method=fallback_single_token attrs=finish|mounting|compliance desc_fp=fire extinguisher cabinet mounted steel ",0.790
+ULINE-H-6840,"weak_canonical_candidate","canonical=ULINE-H-6840 method=fallback_single_token attrs=finish|material desc_fp=wall mounted steel utility shelf allowan",0.790
+TRIMCO-KE31-1-630,"weak_canonical_candidate","canonical=TRIMCO-KE31-1-630 method=fallback_single_token attrs=finish|material desc_fp=90 degree edge guard non beveled stile o",0.790
+TRIMCO-KE33-1-630,"weak_canonical_candidate","canonical=TRIMCO-KE33-1-630 method=fallback_single_token attrs=finish|material desc_fp=90 degree edge guard steel 42 length com",0.790
+ROCK-310B-42-630,"weak_canonical_candidate","canonical=ROCK-310B-42-630 method=fallback_single_token attrs=finish|material desc_fp=3 sided door edge guard 42 length steel",0.790
+ROCK-PULL-107X70C-630,"weak_canonical_candidate","canonical=ROCK-PULL-107X70C-630 method=fallback_single_token attrs=finish|material desc_fp=pull handle push pull plate steel commer",0.790
+ROCK-FRAME-GUARD-630,"weak_canonical_candidate","canonical=ROCK-FRAME-GUARD-630 method=fallback_single_token attrs=finish|material desc_fp=steel frame guard frame protection plate",0.790
+ASI-BRKT-SS-CONT-LF,"weak_canonical_candidate","canonical=ASI-BRKT-SS-CONT-LF method=fallback_single_token attrs=finish|material desc_fp=steel continuous u bracket toilet partit",0.790
+ASI-BRKT-STIRRUP-SS,"weak_canonical_candidate","canonical=ASI-BRKT-STIRRUP-SS method=fallback_single_token attrs=finish|material desc_fp=steel stirrup bracket partition panel or",0.790
+ASI-BRKT-STIRRUP-ZAMAC,"weak_canonical_candidate","canonical=ASI-BRKT-STIRRUP-ZAMAC method=fallback_single_token attrs=finish|material desc_fp=chrome plated zamac stirrup bracket powd",0.790
+ASI-SHOE-SS,"weak_canonical_candidate","canonical=ASI-SHOE-SS method=fallback_single_token attrs=finish|material desc_fp=steel pilaster shoe floor mounted toilet",0.790
+ASI-HINGE-WRAP-SS,"weak_canonical_candidate","canonical=ASI-HINGE-WRAP-SS method=fallback_single_token attrs=finish|material desc_fp=steel wrap around hinge set toilet parti",0.790
+ASI-HINGE-CONT-SS-LF,"weak_canonical_candidate","canonical=ASI-HINGE-CONT-SS-LF method=fallback_single_token attrs=finish|material desc_fp=continuous steel hinge toilet partition ",0.790
+ASI-LATCH-ZAMAC,"weak_canonical_candidate","canonical=ASI-LATCH-ZAMAC method=fallback_single_token attrs=finish|mounting desc_fp=chrome plated zamac mounted slide latch ",0.790
+ASI-LATCH-SS,"weak_canonical_candidate","canonical=ASI-LATCH-SS method=fallback_single_token attrs=finish|material|mounting desc_fp=steel mounted slide latch toilet partiti",0.790
+ASI-LATCH-PRIV-SS,"weak_canonical_candidate","canonical=ASI-LATCH-PRIV-SS method=fallback_single_token attrs=finish|material desc_fp=integrated privacy steel latch zero sigh",0.790
+ASI-40-8275210,"weak_canonical_candidate","canonical=ASI-40-8275210 method=fallback_single_token attrs=finish|material desc_fp=steel end pilaster wall bracket kit phen",0.790
+ASI-40-8515220,"weak_canonical_candidate","canonical=ASI-40-8515220 method=fallback_single_token attrs=finish|material desc_fp=zamac end pilaster wall bracket kit powd",0.790
+BOB-HDW-STD-SS,"weak_canonical_candidate","canonical=BOB-HDW-STD-SS method=fallback_single_token attrs=finish|material desc_fp=standard concealed steel partition hardw",0.790
+BOB-HINGE-BARREL-SS,"weak_canonical_candidate","canonical=BOB-HINGE-BARREL-SS method=fallback_single_token attrs=finish|material desc_fp=steel barrel hinge set bobrick toilet pa",0.790
+BOB-LATCH-KEEPER-SS,"weak_canonical_candidate","canonical=BOB-LATCH-KEEPER-SS method=fallback_single_token attrs=finish|material desc_fp=steel latch keeper set toilet partition ",0.790
+SCR-TUFF-HANDLE-ADA,"weak_canonical_candidate","canonical=SCR-TUFF-HANDLE-ADA method=fallback_single_token attrs=material|compliance desc_fp=ergonomic compliant handle tufftec hdpe ",0.790
+BOB-B-369,"weak_canonical_candidate","canonical=BOB-B-369 method=fallback_single_token attrs=finish|material|mounting desc_fp=paper towel dispenser waste receptacle s",0.790
+BOB-B-4369,"weak_canonical_candidate","canonical=BOB-B-4369 method=fallback_single_token attrs=finish|material|mounting desc_fp=paper towel dispenser waste receptacle t",0.790
+BOB-B-38032,"weak_canonical_candidate","canonical=BOB-B-38032 method=fallback_single_token attrs=finish|material|mounting desc_fp=semi paper towel dispenser waste recepta",0.790
+BOB-B-3944,"weak_canonical_candidate","canonical=BOB-B-3944 method=fallback_single_token attrs=finish|material|mounting desc_fp=paper towel dispenser waste receptacle l",0.790
+BOB-B-3942,"weak_canonical_candidate","canonical=BOB-B-3942 method=fallback_single_token attrs=finish|material|mounting desc_fp=convertible paper towel dispenser waste ",0.790
+BOB-B-3961,"weak_canonical_candidate","canonical=BOB-B-3961 method=fallback_single_token attrs=finish|material|mounting desc_fp=automatic roll paper towel dispenser was",0.790
+BOB-B-262,"weak_canonical_candidate","canonical=BOB-B-262 method=fallback_single_token attrs=finish|material|mounting desc_fp=paper towel dispenser steel c fold or mu",0.790
+BOB-B-359,"weak_canonical_candidate","canonical=BOB-B-359 method=fallback_single_token attrs=finish|material|mounting desc_fp=waste receptacle steel removable waste c",0.790
+BOB-B-35633,"weak_canonical_candidate","canonical=BOB-B-35633 method=fallback_single_token attrs=finish|material|mounting desc_fp=semi waste receptacle steel shallow prof",0.790
+BOB-B-4388,"weak_canonical_candidate","canonical=BOB-B-4388 method=fallback_single_token attrs=finish|material|mounting desc_fp=multi roll toilet tissue dispenser steel",0.790
+BOB-B-347,"weak_canonical_candidate","canonical=BOB-B-347 method=fallback_single_token attrs=finish|material|mounting desc_fp=toilet tissue dispenser steel dual roll ",0.790
+BOB-B-301,"weak_canonical_candidate","canonical=BOB-B-301 method=fallback_single_token attrs=finish|material|mounting desc_fp=toilet seat cover dispenser steel",0.790
+BOB-B-353,"weak_canonical_candidate","canonical=BOB-B-353 method=fallback_single_token attrs=finish|material|mounting desc_fp=sanitary napkin disposal steel",0.790
+BOB-B-354,"weak_canonical_candidate","canonical=BOB-B-354 method=fallback_single_token attrs=finish|material|mounting desc_fp=sanitary napkin disposal steel removable",0.790
+BOB-B-4353,"weak_canonical_candidate","canonical=BOB-B-4353 method=fallback_single_token attrs=finish|material|mounting desc_fp=sanitary napkin disposal steel contura s",0.790
+ASI-0215,"weak_canonical_candidate","canonical=ASI-0215 method=fallback_single_token attrs=finish|material|mounting desc_fp=paper towel dispenser waste receptacle s",0.790
+ASI-0469,"weak_canonical_candidate","canonical=ASI-0469 method=fallback_single_token attrs=finish|material|mounting desc_fp=waste receptacle steel removable waste c",0.790
+ASI-0030,"weak_canonical_candidate","canonical=ASI-0030 method=fallback_single_token attrs=finish|material|mounting desc_fp=toilet tissue dispenser steel",0.790
+ASI-0473,"weak_canonical_candidate","canonical=ASI-0473 method=fallback_single_token attrs=finish|material|mounting desc_fp=sanitary napkin disposal steel",0.790
+ASI-0477,"weak_canonical_candidate","canonical=ASI-0477 method=fallback_single_token attrs=finish|material|mounting desc_fp=sanitary napkin tampon vendor steel",0.790
+ASI-0031,"weak_canonical_candidate","canonical=ASI-0031 method=fallback_single_token attrs=finish|material|mounting desc_fp=toilet seat cover dispenser steel",0.790
+BR-234,"weak_canonical_candidate","canonical=BR-234 method=fallback_single_token attrs=finish|material|mounting desc_fp=waste receptacle 12 gallon capacity stee",0.790
+BR-2A02,"weak_canonical_candidate","canonical=BR-2A02 method=fallback_single_token attrs=finish|material|mounting desc_fp=sensored roll towel dispenser steel",0.790
+BR-5A00,"weak_canonical_candidate","canonical=BR-5A00 method=fallback_single_token attrs=finish|material|mounting desc_fp=dual roll toilet tissue dispenser steel",0.790
+BR-5B1-003600,"weak_canonical_candidate","canonical=BR-5B1-003600 method=fallback_single_token attrs=finish|material|mounting desc_fp=toilet seat cover dispenser large capaci",0.790
+BR-5B2-000000,"weak_canonical_candidate","canonical=BR-5B2-000000 method=fallback_single_token attrs=finish|material|mounting desc_fp=dual roll toilet tissue dispenser steel",0.790
+LAR-2409-R2,"weak_canonical_candidate","canonical=LAR-2409-R2 method=fallback_single_token attrs=finish|mounting|compliance desc_fp=fire extinguisher cabinet 10 lb extingui",0.790
+JL-1017F10FX,"weak_canonical_candidate","canonical=JL-1017F10FX method=fallback_single_token attrs=mounting|compliance desc_fp=fire rated semi fire extinguisher cabine",0.790
+FEC-TRIM-RETURN,"weak_canonical_candidate","canonical=FEC-TRIM-RETURN method=fallback_single_token attrs=mounting|compliance desc_fp=cabinet trim return replacement trim all",0.790
+KNOX-3200-SM-BLK,"weak_canonical_candidate","canonical=KNOX-3200-SM-BLK method=fallback_single_token attrs=finish|mounting desc_fp=knoxbox 3200 high security key box mount",0.790
+BOB-B-8397,"weak_canonical_candidate","canonical=BOB-B-8397 method=fallback_single_token attrs=finish|material|mounting desc_fp=mounted facial tissue dispenser type 304",0.790
+ASI-0264,"weak_canonical_candidate","canonical=ASI-0264 method=fallback_single_token attrs=finish|material|mounting desc_fp=mounted facial tissue dispenser steel al",0.790
+BOB-B-544,"weak_canonical_candidate","canonical=BOB-B-544 method=fallback_single_token attrs=finish|material|mounting desc_fp=mounted toilet brush holder type 304 ste",0.790
+BOB-B-5446,"weak_canonical_candidate","canonical=BOB-B-5446 method=fallback_single_token attrs=finish|material|mounting desc_fp=mounted toilet brush holder bright steel",0.790
+ASI-0730,"weak_canonical_candidate","canonical=ASI-0730 method=fallback_single_token attrs=finish|material|mounting desc_fp=toilet brush holder mounted steel allowa",0.790
+BOB-B-212,"weak_canonical_candidate","canonical=BOB-B-212 method=fallback_single_token attrs=finish|material|mounting desc_fp=mounted single robe hook steel",0.790
+BOB-B-211,"weak_canonical_candidate","canonical=BOB-B-211 method=fallback_single_token attrs=finish|material|mounting desc_fp=mounted double robe hook steel allowance",0.790
+ASI-7340,"weak_canonical_candidate","canonical=ASI-7340 method=fallback_single_token attrs=finish|material desc_fp=single robe hook steel allowance",0.790
+ASI-7345,"weak_canonical_candidate","canonical=ASI-7345 method=fallback_single_token attrs=finish|material desc_fp=double robe hook steel allowance",0.790
+ASI-74022,"weak_canonical_candidate","canonical=ASI-74022 method=fallback_single_token attrs=finish|material desc_fp=folding shower seat phenolic seat top st",0.790
+BOB-B-2250,"weak_canonical_candidate","canonical=BOB-B-2250 method=fallback_single_token attrs=finish|material desc_fp=floor standing 13 gallon steel waste rec",0.790
+BOB-B-2300,"weak_canonical_candidate","canonical=BOB-B-2300 method=fallback_single_token attrs=finish|material desc_fp=floor standing steel waste receptacle al",0.790
+BOB-B-2400,"weak_canonical_candidate","canonical=BOB-B-2400 method=fallback_single_token attrs=finish|material desc_fp=floor standing steel waste receptacle la",0.790
+ASI-0828,"weak_canonical_candidate","canonical=ASI-0828 method=fallback_single_token attrs=finish|material desc_fp=floor standing steel waste receptacle al",0.790
+ASI-0834,"weak_canonical_candidate","canonical=ASI-0834 method=fallback_single_token attrs=finish|material desc_fp=floor standing round steel waste recepta",0.790
+ASI-0839,"weak_canonical_candidate","canonical=ASI-0839 method=fallback_single_token attrs=finish|material desc_fp=floor standing waste receptacle swing to",0.790
+BR-377-36,"weak_canonical_candidate","canonical=BR-377-36 method=fallback_single_token attrs=finish|material desc_fp=36 gallon freestanding steel waste recep",0.790
+BR-377-44,"weak_canonical_candidate","canonical=BR-377-44 method=fallback_single_token attrs=finish|material desc_fp=44 gallon freestanding steel waste recep",0.790
+SAL-4550S,"weak_canonical_candidate","canonical=SAL-4550S method=fallback_single_token attrs=finish|material desc_fp=steel mail slot front rear plates",0.790
+BOB-1080-OH,"weak_canonical_candidate","canonical=BOB-1080-OH method=fallback_single_token attrs=material desc_fp=solid phenolic cgl toilet compartment ov",0.820
+BOB-DURALINE-CGL-OH,"weak_canonical_candidate","canonical=BOB-1080-OH method=fallback_single_token attrs=material desc_fp=solid phenolic cgl toilet compartment ov",0.820
+BR-155,"weak_canonical_candidate","canonical=BR-155 method=fallback_single_token attrs=mounting desc_fp=towel dispenser exterior shelf mirror do",0.820
+BR-155,"weak_canonical_candidate","canonical=BR-155 method=fallback_single_token attrs=mounting desc_fp=towel dispenser exterior shelf mirror do",0.820
+EDER-45-AL-BRKT,"weak_canonical_candidate","canonical=EDER-45-AL-BRKT method=fallback_single_token attrs= desc_fp=45 degree aluminum wall mounted flagpole",0.820
+EDER-FINGER-BRKT,"weak_canonical_candidate","canonical=EDER-FINGER-BRKT method=fallback_single_token attrs= desc_fp=aluminum finger flagpole bracket",0.820
+EDER-FINGER-BRKT,"weak_canonical_candidate","canonical=EDER-FINGER-BRKT method=fallback_single_token attrs= desc_fp=aluminum finger flagpole bracket",0.820
+EDER-VERT-WM-BRKT,"weak_canonical_candidate","canonical=EDER-VERT-WM-BRKT method=fallback_single_token attrs= desc_fp=vertical wall mount flagpole bracket all",0.820
+EDER-VERT-WM-BRKT,"weak_canonical_candidate","canonical=EDER-VERT-WM-BRKT method=fallback_single_token attrs= desc_fp=vertical wall mount flagpole bracket all",0.820
+EDER-SCHOOL-BRKT,"weak_canonical_candidate","canonical=EDER-SCHOOL-BRKT method=fallback_single_token attrs= desc_fp=aluminum school flagpole bracket",0.820
+EDER-SCHOOL-BRKT,"weak_canonical_candidate","canonical=EDER-SCHOOL-BRKT method=fallback_single_token attrs= desc_fp=aluminum school flagpole bracket",0.820
+EDER-6SPIN-SET,"weak_canonical_candidate","canonical=EDER-6SPIN-SET method=fallback_single_token attrs= desc_fp=6 ft aluminum spinning wall mounted flag",0.820
+EDER-6SPIN-SET,"weak_canonical_candidate","canonical=EDER-6SPIN-SET method=fallback_single_token attrs= desc_fp=6 ft aluminum spinning wall mounted flag",0.820
+AMEREX-B500,"weak_canonical_candidate","canonical=AMEREX-B500 method=fallback_single_token attrs=compliance desc_fp=5 lb abc dry chemical fire extinguisher ",0.820
+AMEREX-B500,"weak_canonical_candidate","canonical=AMEREX-B500 method=fallback_single_token attrs=compliance desc_fp=5 lb abc dry chemical fire extinguisher ",0.820
+AMEREX-B456,"weak_canonical_candidate","canonical=AMEREX-B456 method=fallback_single_token attrs=compliance desc_fp=10 lb abc dry chemical fire extinguisher",0.820
+AMEREX-B456,"weak_canonical_candidate","canonical=AMEREX-B456 method=fallback_single_token attrs=compliance desc_fp=10 lb abc dry chemical fire extinguisher",0.820
+JUSTRITE-SCF,"weak_canonical_candidate","canonical=JUSTRITE-SCF method=fallback_single_token attrs=compliance desc_fp=freestanding outdoor cigarette butt rece",0.820
+JUSTRITE-SCF-26800,"weak_canonical_candidate","canonical=JUSTRITE-SCF method=fallback_single_token attrs=compliance desc_fp=freestanding outdoor cigarette butt rece",0.820
+DALITE-74653,"weak_canonical_candidate","canonical=DALITE-74653 method=fallback_single_token attrs= desc_fp=manual wall or ceiling mounted projectio",0.820
+DALITE-74653,"weak_canonical_candidate","canonical=DALITE-74653 method=fallback_single_token attrs= desc_fp=manual wall or ceiling mounted projectio",0.820
+DALITE-85324,"weak_canonical_candidate","canonical=DALITE-85324 method=fallback_single_token attrs= desc_fp=manual projection screen controlled scre",0.820
+ASI-SCR-36,"weak_canonical_candidate","canonical=ASI-SCR-36 method=fallback_single_token attrs=finish|material|size desc_fp=steel shower curtain rod",0.820
+BOB-B-290-1836,"weak_canonical_candidate","canonical=BOB-B-290-1836 method=fallback_single_token attrs=finish|material|size desc_fp=welded frame glass mirror steel angle fr",0.820
+BOB-B-290-2436,"weak_canonical_candidate","canonical=BOB-B-290-2436 method=fallback_single_token attrs=finish|material|size desc_fp=welded frame glass mirror steel angle fr",0.820
+BR-7B1-0018300,"weak_canonical_candidate","canonical=BR-7B1-0018300 method=fallback_single_token attrs=finish|material|size desc_fp=elvari framed mirror x",0.820
+BR-7B1-0024360,"weak_canonical_candidate","canonical=BR-7B1-0024360 method=fallback_single_token attrs=finish|material|size desc_fp=elvari framed mirror x",0.820
+BR-7B2-0051200,"weak_canonical_candidate","canonical=BR-7B2-0051200 method=fallback_single_token attrs=finish|material|size desc_fp=x steel shelf",0.820
+BR-7B2-0051296,"weak_canonical_candidate","canonical=BR-7B2-0051296 method=fallback_single_token attrs=finish|material|size desc_fp=x steel shelf hooks",0.820
+BR-7B2-0052400,"weak_canonical_candidate","canonical=BR-7B2-0052400 method=fallback_single_token attrs=finish|material|size desc_fp=x steel shelf",0.820
+BR-7B2-0082496,"weak_canonical_candidate","canonical=BR-7B2-0082496 method=fallback_single_token attrs=finish|material|size desc_fp=x steel shelf hooks",0.820
+INPRO-SHEET-040,"weak_canonical_candidate","canonical=INPRO-SHEET-040 method=fallback_single_token attrs=mounting|size desc_fp=rigid vinyl wall protection sheet adhere",0.820
+BOB-B6806X36,"weak_canonical_candidate","canonical=BOB-B6806X36 method=fallback_single_token attrs=finish|material|size desc_fp=straight grab bar 1 1 diameter steel fin",0.820
+BOB-B6806X42,"weak_canonical_candidate","canonical=BOB-B6806X42 method=fallback_single_token attrs=finish|material|size desc_fp=straight grab bar 1 1 diameter steel fin",0.820
+ASI-SNAP-36-MB,"weak_canonical_candidate","canonical=ASI-SNAP-36-MB method=fallback_single_token attrs=finish|size desc_fp=grab bar matte finish",0.820
+ROCKWOOD-K1050,"weak_canonical_candidate","canonical=ROCKWOOD-K1050 method=fallback_single_token attrs=finish|material|size desc_fp=steel door kick plate x commercial door ",0.820
+LAR-2409-R7,"weak_canonical_candidate","canonical=LAR-2409-R7 method=fallback_single_token attrs=finish|mounting|size|compliance desc_fp=fire extinguisher cabinet semi steel cle",0.820
+ROCK-K1050-6X34-630,"weak_canonical_candidate","canonical=ROCK-K1050-6X34-630 method=fallback_single_token attrs=finish|material|size desc_fp=6 x 34 mop plate low kick plate 050 stee",0.820
+ROCK-K1050-8X34-630,"weak_canonical_candidate","canonical=ROCK-K1050-8X34-630 method=fallback_single_token attrs=finish|material|size desc_fp=8 x 34 kick plate 050 steel beveled edge",0.820
+ROCK-K1050-16X34-630,"weak_canonical_candidate","canonical=ROCK-K1050-16X34-630 method=fallback_single_token attrs=finish|material|size desc_fp=armor stretcher height protection plate ",0.820
+ROCK-K1050-34X34-630,"weak_canonical_candidate","canonical=ROCK-K1050-34X34-630 method=fallback_single_token attrs=finish|material|size desc_fp=armor plate 36 door 050 steel",0.820
+IVES-8400-6X34-630,"weak_canonical_candidate","canonical=IVES-8400-6X34-630 method=fallback_single_token attrs=finish|material|size desc_fp=6 x 34 mop plate steel beveled edges cou",0.820
+IVES-8400-8X34-630,"weak_canonical_candidate","canonical=IVES-8400-8X34-630 method=fallback_single_token attrs=finish|material|size desc_fp=8 x 34 kick plate steel beveled edges co",0.820
+IVES-8400-10X34-630,"weak_canonical_candidate","canonical=IVES-8400-10X34-630 method=fallback_single_token attrs=finish|material|size desc_fp=kick plate steel beveled edges countersu",0.820
+IVES-8400-34X34-630,"weak_canonical_candidate","canonical=IVES-8400-34X34-630 method=fallback_single_token attrs=finish|material|size desc_fp=armor plate steel beveled edges commerci",0.820
+IVES-8402-10X34-630,"weak_canonical_candidate","canonical=IVES-8402-10X34-630 method=fallback_single_token attrs=finish|material|size|compliance desc_fp=ul kick plate steel labeled fire rated d",0.820
+IVES-8400-PBLK-10X34,"weak_canonical_candidate","canonical=IVES-8400-PBLK-10X34 method=fallback_single_token attrs=finish|size desc_fp=heavy duty plastic kick plate high impac",0.820
+TRIMCO-KM050-6X34-630,"weak_canonical_candidate","canonical=TRIMCO-KM050-6X34-630 method=fallback_single_token attrs=finish|material|size desc_fp=6 x 34 mop plate 050 steel pencil bevele",0.820
+TRIMCO-K0050-8X34-630,"weak_canonical_candidate","canonical=TRIMCO-K0050-8X34-630 method=fallback_single_token attrs=finish|material|size desc_fp=8 x 34 kick plate 050 steel pencil bevel",0.820
+TRIMCO-K0050-10X34-630,"weak_canonical_candidate","canonical=TRIMCO-K0050-10X34-630 method=fallback_single_token attrs=finish|material|size desc_fp=kick plate 050 steel pencil beveled on f",0.820
+TRIMCO-KA050-34X34-630,"weak_canonical_candidate","canonical=TRIMCO-KA050-34X34-630 method=fallback_single_token attrs=finish|material|size desc_fp=armor plate 050 steel protects lower hal",0.820
+TRIMCO-KS050-16X34-630,"weak_canonical_candidate","canonical=TRIMCO-KS050-16X34-630 method=fallback_single_token attrs=finish|material|size desc_fp=stretcher plate 050 steel stretcher whee",0.820
+ROCK-PUSH-70A-4X16-630,"weak_canonical_candidate","canonical=ROCK-PUSH-70A-4X16-630 method=fallback_single_token attrs=finish|material|size desc_fp=4 x 16 push plate steel commercial door ",0.820
+IVES-8302-4X16-630,"weak_canonical_candidate","canonical=IVES-8302-4X16-630 method=fallback_single_token attrs=finish|material|size desc_fp=4 x 16 push plate steel",0.820
+IVES-8303-4X16-630,"weak_canonical_candidate","canonical=IVES-8303-4X16-630 method=fallback_single_token attrs=finish|material|size desc_fp=4 x 16 pull plate steel commercial door ",0.820
+SCR-TUFF-BASE-4,"weak_canonical_candidate","canonical=SCR-TUFF-BASE-4 method=fallback_single_token attrs=finish|material|size desc_fp=high hdpe locker base thick field assemb",0.820
+SCR-TUFF-FILLER-72,"weak_canonical_candidate","canonical=SCR-TUFF-FILLER-72 method=fallback_single_token attrs=material|size desc_fp=hdpe locker filler height available in 4",0.820
+LAR-2409-6R,"weak_canonical_candidate","canonical=LAR-2409-6R method=fallback_single_token attrs=mounting|size|compliance desc_fp=24 x 9 semi fire extinguisher cabinet up",0.820
+LAR-FSDEC-SS-2409-R4,"weak_canonical_candidate","canonical=LAR-FSDEC-SS-2409-R4 method=fallback_single_token attrs=finish|material|mounting|size|compliance desc_fp=fire rated detention fire extinguisher c",0.820
+KARP-FR-2424,"weak_canonical_candidate","canonical=KARP-FR-2424 method=fallback_single_token attrs=size|compliance desc_fp=x fire rated access door allowance rated",0.820
+RELIANCE-R8464,"weak_canonical_candidate","canonical=RELIANCE-R8464 method=fallback_single_token attrs=finish|material|size desc_fp=steel removable bollard 35 1 height lock",0.820
+BOB-B-293-1830,"weak_canonical_candidate","canonical=BOB-B-293-1830 method=fallback_single_token attrs=finish|material|size|compliance desc_fp=fixed position tilt mirror x steel frame",0.820
+BOB-B-293-1836,"weak_canonical_candidate","canonical=BOB-B-293-1836 method=fallback_single_token attrs=finish|material|size|compliance desc_fp=fixed position tilt mirror x steel frame",0.820
+BOB-B-293-2436,"weak_canonical_candidate","canonical=BOB-B-293-2436 method=fallback_single_token attrs=finish|material|size|compliance desc_fp=fixed position tilt mirror x steel frame",0.820
+BOB-B-290-2448,"weak_canonical_candidate","canonical=BOB-B-290-2448 method=fallback_single_token attrs=finish|material|size desc_fp=welded frame mirror x type 304 steel ang",0.820
+BOB-B-290-2460,"weak_canonical_candidate","canonical=BOB-B-290-2460 method=fallback_single_token attrs=finish|material|size desc_fp=welded frame mirror x type 304 steel ang",0.820
+BOB-B-290-2472,"weak_canonical_candidate","canonical=BOB-B-290-2472 method=fallback_single_token attrs=finish|material|size desc_fp=welded frame mirror x type 304 steel ang",0.820
+BOB-B-290-2436-MBLK,"weak_canonical_candidate","canonical=BOB-B-290-2436-MBLK method=fallback_single_token attrs=finish|material|size desc_fp=welded frame mirror x type 304 steel ang",0.820
+ASI-10-0391-1830,"weak_canonical_candidate","canonical=ASI-10-0391-1830 method=fallback_single_token attrs=finish|material|size desc_fp=fixed tilt mirror x steel frame allowanc",0.820
+BR-760-1830,"weak_canonical_candidate","canonical=BR-760-1830 method=fallback_single_token attrs=finish|material|size desc_fp=fixed position tilt mirror x steel frame",0.820
+BOB-B-6827X18,"weak_canonical_candidate","canonical=BOB-B-6827X18 method=fallback_single_token attrs=finish|material|mounting|size desc_fp=steel towel bar mounted",0.820
+BOB-B-6827X24,"weak_canonical_candidate","canonical=BOB-B-6827X24 method=fallback_single_token attrs=finish|material|mounting|size desc_fp=steel towel bar mounted",0.820
+ASI-0690-24,"weak_canonical_candidate","canonical=ASI-0690-24 method=fallback_single_token attrs=finish|material|size desc_fp=towel bar steel allowance",0.820
+BOB-B-295X24,"weak_canonical_candidate","canonical=BOB-B-295X24 method=fallback_single_token attrs=finish|material|mounting|size desc_fp=steel shelf mounted bathroom accessory a",0.820
+BOB-B-295X36,"weak_canonical_candidate","canonical=BOB-B-295X36 method=fallback_single_token attrs=finish|material|mounting|size desc_fp=steel shelf mounted bathroom accessory a",0.820
+ASI-8206,"weak_canonical_candidate","canonical=ASI-8206 method=fallback_single_token attrs=finish|material|size desc_fp=steel shower curtain rod allowance",0.820
+ASI-8207,"weak_canonical_candidate","canonical=ASI-8207 method=fallback_single_token attrs=finish|material|size desc_fp=steel shower curtain rod allowance",0.820
+ASI-8208,"weak_canonical_candidate","canonical=ASI-8208 method=fallback_single_token attrs=finish|material|size desc_fp=steel shower curtain rod allowance",0.820
+BOB-B-6806X18-SHOWER,"weak_canonical_candidate","canonical=BOB-B-6806X18-SHOWER method=fallback_single_token attrs=finish|material|size desc_fp=steel shower grab bar 1 1 diameter finis",0.820
+BOB-B-6806X24-SHOWER,"weak_canonical_candidate","canonical=BOB-B-6806X24-SHOWER method=fallback_single_token attrs=finish|material|size desc_fp=steel shower grab bar 1 1 diameter finis",0.820
+BOB-B-6806X36-SHOWER,"weak_canonical_candidate","canonical=BOB-B-6806X36-SHOWER method=fallback_single_token attrs=finish|material|size desc_fp=steel shower grab bar 1 1 diameter finis",0.820
+BOB-B-58616,"weak_canonical_candidate","canonical=BOB-B-58616 method=fallback_single_token attrs=finish|material|size desc_fp=two wall tub shower toilet grab bar x 1 ",0.820
+CLARIDGE-LCS-ELITE-46,"weak_canonical_candidate","canonical=CLARIDGE-LCS-ELITE-46 method=fallback_single_token attrs=mounting|size desc_fp=4 ft x 6 ft frameless magnetic whiteboar",0.820
+CLARIDGE-LCS-ELITE-48,"weak_canonical_candidate","canonical=CLARIDGE-LCS-ELITE-48 method=fallback_single_token attrs=mounting|size desc_fp=4 ft x 8 ft frameless magnetic whiteboar",0.820
+BD-FRAME-38-LF,"weak_canonical_candidate","canonical=BD-FRAME-38-LF method=fallback_single_token attrs=mounting|size desc_fp=aluminum mat frame 3 entrance mat system",0.820
+BD-FRAME-34-LF,"weak_canonical_candidate","canonical=BD-FRAME-34-LF method=fallback_single_token attrs=mounting|size desc_fp=aluminum frame 3 entrance grille systems",0.820
+MATS-PERFEC-CLEAN-38-AL-SF,"weak_canonical_candidate","canonical=MATS-PERFEC-CLEAN-38-AL-SF method=fallback_single_token attrs=mounting|size desc_fp=perfec clean 3 roll up entrance mat alum",0.820
