@@ -9,10 +9,12 @@
 export interface ExpandableLineLike {
   description: string;
   itemName?: string;
-  quantity: number;
-  unit?: string;
-  category?: string;
-  notes?: string;
+  /** PDF / spreadsheet lines may leave qty unset until parsed; treat as non-set multiplier when null. */
+  quantity: number | null;
+  unit?: string | null;
+  category?: string | null;
+  /** Spreadsheet/PDF normalizers use string notes vs string[]; expander only spreads the parent onto children. */
+  notes?: string | string[];
   warnings?: string[];
   sourceManufacturer?: string;
   sourceBidBucket?: string;
