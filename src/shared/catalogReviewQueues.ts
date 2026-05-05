@@ -141,3 +141,34 @@ export function catalogReviewCatalogSearchPath(token: string | null | undefined)
   if (!t) return '/catalog';
   return `/catalog?q=${encodeURIComponent(t)}`;
 }
+
+export function catalogCuratorPathDeep(opts: {
+  q?: string | null;
+  catalogItem?: string | null;
+  dup?: boolean;
+  drev?: boolean;
+  qual?: boolean;
+  img?: boolean;
+}): string {
+  const p = new URLSearchParams();
+  const q = String(opts.q ?? '').trim();
+  if (q) p.set('q', q);
+  const catalogItem = String(opts.catalogItem ?? '').trim();
+  if (catalogItem) p.set('catalogItem', catalogItem);
+  if (opts.dup) p.set('dup', '1');
+  if (opts.drev) p.set('drev', '1');
+  if (opts.qual) p.set('qual', '1');
+  if (opts.img) p.set('img', '1');
+  const s = p.toString();
+  return s ? `/catalog?${s}` : '/catalog';
+}
+
+/** Curator /catalog query with queue-oriented presets (e.g. duplicate review + duplicates-only). */
+export function catalogCuratorPath(token: string | null | undefined, queue: CatalogReviewQueueKey | null): string {
+  const dupQueue = queue === 'duplicate_sku_groups';
+  return catalogCuratorPathDeep({
+    q: token,
+    dup: dupQueue,
+    drev: dupQueue,
+  });
+}

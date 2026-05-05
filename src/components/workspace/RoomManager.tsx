@@ -85,34 +85,49 @@ export function RoomManager({
           <div
             key={room.id}
             className={`group rounded-lg border transition-colors ${
-              activeRoomId === room.id
-                ? 'border-blue-300 bg-blue-50/60'
-                : 'border-slate-200/80 bg-white hover:border-slate-300'
+              activeRoomId === room.id ? 'border-blue-300 bg-blue-50/60' : 'border-slate-200/80 bg-white hover:border-slate-300'
             }`}
           >
             <div className="flex min-h-8 items-center justify-between gap-1 px-2 py-0.5">
               <button
                 type="button"
                 onClick={() => onSelectRoom(room.id)}
-                className={`min-w-0 flex-1 truncate text-left text-[12px] ${activeRoomId === room.id ? 'font-semibold text-blue-800' : 'font-medium text-slate-700'}`}
+                className={`min-w-0 flex-1 truncate text-left text-[12px] ${
+                  activeRoomId === room.id ? 'font-semibold text-blue-800' : 'font-medium text-slate-700'
+                }`}
                 title={room.roomName}
               >
                 {room.roomName}
               </button>
               <div className="flex shrink-0 items-center gap-0.5">
-                <button type="button" onClick={() => onRenameRoom(room)} className="rounded p-1 text-slate-500 hover:bg-slate-100" title="Rename">
+                <button
+                  type="button"
+                  onClick={() => onRenameRoom(room)}
+                  className="rounded p-1 text-slate-500 hover:bg-slate-100"
+                  title="Rename"
+                >
                   <Pencil className="h-3 w-3" />
                 </button>
-                <button type="button" onClick={() => onDuplicateRoom(room)} className="rounded p-1 text-slate-500 hover:bg-slate-100" title="Duplicate">
+                <button
+                  type="button"
+                  onClick={() => onDuplicateRoom(room)}
+                  className="rounded p-1 text-slate-500 hover:bg-slate-100"
+                  title="Duplicate"
+                >
                   <Copy className="h-3 w-3" />
                 </button>
-                <button type="button" onClick={() => onDeleteRoom(room)} className="rounded p-1 text-slate-500 hover:bg-red-50 hover:text-red-600" title="Delete room">
+                <button
+                  type="button"
+                  onClick={() => onDeleteRoom(room)}
+                  className="rounded p-1 text-slate-500 hover:bg-red-50 hover:text-red-600"
+                  title="Delete room"
+                >
                   <Trash2 className="h-3 w-3" />
                 </button>
               </div>
-            );
-          })
-        )}
+            </div>
+          </div>
+        ))}
       </div>
 
       <div className="rounded-md border border-slate-200 bg-white p-2">

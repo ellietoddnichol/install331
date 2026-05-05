@@ -21,6 +21,7 @@ export function calculateEstimateSummary(project: ProjectRecord, lines: TakeoffL
   const totalLaborHours = pricingMode === 'material_only'
     ? 0
     : Number((rawLaborHours * effects.laborHoursMultiplier).toFixed(2));
+  const totalLaborMinutes = Number((totalLaborHours * 60).toFixed(2));
   const { durationDays, durationWeeks } = calculateWorkDuration(totalLaborHours, jobConditions);
 
   const lineSubtotal = materialSubtotal + adjustedLaborSubtotal + effects.estimateAdderAmount;
@@ -34,10 +35,19 @@ export function calculateEstimateSummary(project: ProjectRecord, lines: TakeoffL
 
   const crewRecommendation = computeCrewRecommendation(totalLaborHours, lines, jobConditions);
 
+  const paid = jobConditions.installerPaidDayHours;
+  const breakH = jobConditions.dailyBreakHoursPerInstaller;
+  const setupCleanup = jobConditions.fieldSetupCleanupHoursPerInstallerDay;
+  const productiveHrsPerInstaller = Math.max(0.25, paid - breakH - setupCleanup);
+  const productiveCrewHoursPerDay = Number(
+    (productiveHrsPerInstaller * Math.max(1, jobConditions.installerCount)).toFixed(2)
+  );
+
   return {
     materialSubtotal,
     laborSubtotal,
     adjustedLaborSubtotal,
+    totalLaborMinutes,
     totalLaborHours,
     durationDays,
     durationWeeks,
@@ -49,9 +59,19 @@ export function calculateEstimateSummary(project: ProjectRecord, lines: TakeoffL
     overheadAmount,
     profitAmount,
     taxAmount,
+    laborOverheadAmount: 0,
+    laborProfitAmount: 0,
+    subLaborManagementFeeAmount: 0,
+    materialLoadedSubtotal: Number((materialSubtotal + taxAmount).toFixed(2)),
+    laborLoadedSubtotal: Number(adjustedLaborSubtotal.toFixed(2)),
+    laborCompanionProposalTotal: Number(adjustedLaborSubtotal.toFixed(2)),
     baseBidTotal,
     conditionAssumptions: effects.assumptions,
     projectConditions: effects.projectConditions,
+    productiveCrewHoursPerDay,
+    materialWasteAllowanceAmount: 0,
+    installerFieldSuppliesAmount: 0,
+    laborLearningCurveAllowanceAmount: 0,
     crewRecommendation,
   };
 }

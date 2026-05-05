@@ -35,6 +35,21 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return {} as T;
 }
 
+/** Unwrap `{ data }` from v1 API JSON; throw if a single object was expected but missing. */
+function readDataObject<T>(payload: { data?: T | null }, missingMessage: string): T {
+  const data = payload?.data;
+  if (data === undefined || data === null) {
+    throw new Error(missingMessage);
+  }
+  return data;
+}
+
+/** Unwrap `{ data }` as an array; coerce missing or invalid shapes to []. */
+function readDataArray<T>(payload: { data?: T[] | null }): T[] {
+  const data = payload?.data;
+  return Array.isArray(data) ? data : [];
+}
+
 export const api = {
   async getV1Projects(): Promise<ProjectRecord[]> {
     const res = await apiFetch(`${API_BASE}/v1/projects`);
@@ -493,25 +508,6 @@ export const api = {
     syncedAt: string;
   }> {
     const res = await apiFetch(`${API_BASE}/v1/settings/backfill-takeoff-registry`, { method: 'POST' });
-    const payload = await handleResponse<{ data: {
-      message: string;
-      spreadsheetId: string;
-      tabName: string;
-      itemsBackfilled: number;
-      warnings: string[];
-      syncedAt: string;
-    } }>(res);
-    return payload.data;
-  },
-  async backfillV1TakeoffRegistry(): Promise<{
-    message: string;
-    spreadsheetId: string;
-    tabName: string;
-    itemsBackfilled: number;
-    warnings: string[];
-    syncedAt: string;
-  }> {
-    const res = await fetch(`${API_BASE}/v1/settings/backfill-takeoff-registry`, { method: 'POST' });
     const payload = await handleResponse<{ data: {
       message: string;
       spreadsheetId: string;

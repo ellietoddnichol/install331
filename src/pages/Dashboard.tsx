@@ -171,7 +171,6 @@ export function Dashboard() {
   }
 
   function goNewProject() {
-    fireCatalogSyncForNewWork();
     navigate('/project/new');
   }
 

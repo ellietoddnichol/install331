@@ -79,6 +79,7 @@ export function calculateEstimateSummary(project: ProjectRecord, lines: TakeoffL
   );
   const durationDays =
     totalLaborHours > 0 ? Math.max(1, Math.ceil(totalLaborHours / productiveCrewHoursPerDay)) : 0;
+  const durationWeeks = durationDays > 0 ? Math.max(1, Math.ceil(durationDays / 5)) : 0;
 
   return {
     materialSubtotal: materialForBid,
@@ -87,6 +88,7 @@ export function calculateEstimateSummary(project: ProjectRecord, lines: TakeoffL
     totalLaborMinutes,
     totalLaborHours,
     durationDays,
+    durationWeeks,
     lineSubtotal,
     conditionAdjustmentAmount: effects.totalConditionAdjustment,
     conditionLaborMultiplier: effects.laborCostMultiplier,

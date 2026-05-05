@@ -292,47 +292,6 @@ export function recommendDeliveryPlan(distanceMiles: number | null | undefined, 
   };
 }
 
-export function recommendedPhasedWorkMultiplier(phaseCount: number): number {
-  const normalizedPhaseCount = Number.isFinite(phaseCount) && phaseCount > 1 ? Math.round(phaseCount) : 1;
-  return Number((Math.max(0, normalizedPhaseCount - 1) * 0.07).toFixed(2));
-}
-
-export function recommendDeliveryPlan(distanceMiles: number | null | undefined, difficulty: ProjectJobConditions['deliveryDifficulty'] = 'standard') {
-  if (distanceMiles === null || distanceMiles === undefined || !Number.isFinite(distanceMiles) || distanceMiles < 0) {
-    return {
-      deliveryRequired: false,
-      deliveryPricingMode: 'included' as const,
-      deliveryValue: 0,
-      deliveryLeadDays: 0,
-    };
-  }
-
-  const baseFee = 185;
-  const mileageFee = Math.max(0, distanceMiles) * 2.35;
-  let difficultyMultiplier = 1;
-  let leadDayOffset = 0;
-
-  if (difficulty === 'constrained') {
-    difficultyMultiplier = 1.15;
-    leadDayOffset = 1;
-  }
-
-  if (difficulty === 'difficult') {
-    difficultyMultiplier = 1.3;
-    leadDayOffset = 2;
-  }
-
-  const deliveryValue = Number(((baseFee + mileageFee) * difficultyMultiplier).toFixed(2));
-  const distanceLeadDays = distanceMiles <= 25 ? 1 : distanceMiles <= 60 ? 2 : distanceMiles <= 120 ? 3 : distanceMiles <= 250 ? 5 : 7;
-
-  return {
-    deliveryRequired: true,
-    deliveryPricingMode: 'flat' as const,
-    deliveryValue,
-    deliveryLeadDays: distanceLeadDays + leadDayOffset,
-  };
-}
-
 export interface ProjectConditionEffects {
   laborCostMultiplier: number;
   laborHoursMultiplier: number;

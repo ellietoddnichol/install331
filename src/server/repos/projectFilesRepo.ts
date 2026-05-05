@@ -185,9 +185,10 @@ export async function deleteProjectFile(projectId: string, fileId: string): Prom
 
 /** Remove GCS objects for all files attached to a project (call before deleting the project row). */
 export async function purgeProjectFilesFromGcs(projectId: string): Promise<void> {
-  const rows = estimatorDb
-    .prepare('SELECT gcs_bucket, gcs_object_name FROM project_files_v1 WHERE project_id = ?')
-    .all(projectId) as Array<{ gcs_bucket: string | null; gcs_object_name: string | null }>;
+  const rows = (await dbAll('SELECT gcs_bucket, gcs_object_name FROM project_files_v1 WHERE project_id = ?', [projectId])) as Array<{
+    gcs_bucket: string | null;
+    gcs_object_name: string | null;
+  }>;
 
   await Promise.all(
     rows

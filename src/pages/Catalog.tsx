@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowUpDown, Database, Package, Plus, RefreshCw, Search, ShieldCheck, Trash2 } from 'lucide-react';
+import { ArrowUpDown, Clipboard, Database, ExternalLink, Package, Plus, RefreshCw, Search, ShieldCheck, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 import { useCatalogWorkspaceQuery } from '../hooks/api/useCatalogWorkspaceQuery.ts';
 import { queryKeys } from '../lib/queryKeys.ts';
@@ -13,7 +13,8 @@ import { getErrorMessage } from '../shared/utils/errorMessage';
 import { INSTALL_LABOR_FAMILY_OPTIONS } from '../shared/utils/installLaborFamilyOptions';
 import {
   CATALOG_REVIEW_QUEUE_KEYS,
-  catalogReviewCatalogSearchPath,
+  catalogCuratorPath,
+  catalogCuratorPathDeep,
   guessCatalogReviewSkuToken,
   mergeCatalogReviewSources,
   resolveCatalogReviewExportLines,
@@ -45,6 +46,160 @@ function CatalogItemThumb({ url }: { url: string | undefined }) {
 
 type SortKey = 'sku-asc' | 'sku-desc' | 'name-asc' | 'name-desc' | 'category-asc' | 'material-desc' | 'labor-desc';
 type CatalogTab = 'items' | 'modifiers' | 'bundles';
+
+function parseCatalogTabParam(raw: string | null): CatalogTab {
+  return raw === 'modifiers' || raw === 'bundles' ? raw : 'items';
+}
+
+function parseCanonFilterParam(raw: string | null): 'all' | 'canonical' | 'non-canonical' {
+  if (raw === 'canonical' || raw === 'non-canonical') return raw;
+  return 'all';
+}
+
+function parseActiveFilterParam(raw: string | null): 'all' | 'active' | 'inactive' {
+  if (raw === 'active' || raw === 'inactive') return raw;
+  return 'all';
+}
+
+function isSortKeyParam(raw: string | null): raw is SortKey {
+  return (
+    raw === 'sku-asc' ||
+    raw === 'sku-desc' ||
+    raw === 'name-asc' ||
+    raw === 'name-desc' ||
+    raw === 'category-asc' ||
+    raw === 'material-desc' ||
+    raw === 'labor-desc'
+  );
+}
+
+function catalogFiltersFromSearchParams(sp: URLSearchParams) {
+  const sortRaw = sp.get('sort');
+  return {
+    activeTab: parseCatalogTabParam(sp.get('tab')),
+    search: sp.get('q') ?? '',
+    categoryFilter: sp.get('cat')?.trim() || 'all',
+    typeFilter: sp.get('itype')?.trim() || 'all',
+    activeFilter: parseActiveFilterParam(sp.get('act')),
+    sourceTabFilter: sp.get('sheet')?.trim() || 'all',
+    sortBy: isSortKeyParam(sortRaw) ? sortRaw : 'sku-asc',
+    canonFilter: parseCanonFilterParam(sp.get('canon')),
+    duplicatesOnly: sp.get('dup') === '1',
+    deprecatedOnly: sp.get('dep') === '1',
+    showDuplicateReview: sp.get('drev') === '1',
+    showQualityReport: sp.get('qual') === '1',
+    imageSprintOnly: sp.get('img') === '1',
+    catalogItemId: sp.get('catalogItem')?.trim() || null,
+  };
+}
+
+function buildCatalogWorkspaceSearchParams(input: {
+  activeTab: CatalogTab;
+  search: string;
+  categoryFilter: string;
+  typeFilter: string;
+  activeFilter: 'all' | 'active' | 'inactive';
+  sourceTabFilter: string;
+  sortBy: SortKey;
+  canonFilter: 'all' | 'canonical' | 'non-canonical';
+  duplicatesOnly: boolean;
+  deprecatedOnly: boolean;
+  showDuplicateReview: boolean;
+  showQualityReport: boolean;
+  imageSprintOnly: boolean;
+  catalogItemId: string | null;
+}): URLSearchParams {
+  const p = new URLSearchParams();
+  if (input.activeTab !== 'items') p.set('tab', input.activeTab);
+  if (input.search.trim()) p.set('q', input.search.trim());
+  if (input.categoryFilter !== 'all') p.set('cat', input.categoryFilter);
+  if (input.typeFilter !== 'all') p.set('itype', input.typeFilter);
+  if (input.activeFilter !== 'all') p.set('act', input.activeFilter);
+  if (input.sourceTabFilter !== 'all') p.set('sheet', input.sourceTabFilter);
+  if (input.sortBy !== 'sku-asc') p.set('sort', input.sortBy);
+  if (input.canonFilter !== 'all') p.set('canon', input.canonFilter);
+  if (input.duplicatesOnly) p.set('dup', '1');
+  if (input.deprecatedOnly) p.set('dep', '1');
+  if (input.showDuplicateReview) p.set('drev', '1');
+  if (input.showQualityReport) p.set('qual', '1');
+  if (input.imageSprintOnly) p.set('img', '1');
+  if (input.catalogItemId) p.set('catalogItem', input.catalogItemId);
+  return p;
+}
+
+async function copyTextToClipboard(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+}
+
+function catalogRowTypeLabel(item: CatalogItem): string {
+  const t = String(item.itemType || '').trim();
+  if (t) return t;
+  return String(item.family || item.subcategory || 'Standard').trim() || 'Standard';
+}
+
+function catalogItemSourceTab(item: CatalogItem): string | null {
+  const tab = String(item.catalogSourceTab || '').trim();
+  if (tab) return tab;
+  const src = String(item.catalogSource || '').trim();
+  return src || null;
+}
+
+/** Labels + values already on `CatalogItem` that we surface read-only in the editor (no API change). */
+function catalogItemReadOnlyRows(item: CatalogItem): Array<{ label: string; value: string }> {
+  const rows: Array<{ label: string; value: string }> = [];
+  const add = (label: string, raw: unknown) => {
+    if (raw === null || raw === undefined) return;
+    if (typeof raw === 'boolean') {
+      rows.push({ label, value: raw ? 'Yes' : 'No' });
+      return;
+    }
+    if (Array.isArray(raw)) {
+      const joined = raw.map((x) => String(x).trim()).filter(Boolean).join(', ');
+      if (!joined) return;
+      rows.push({ label, value: joined });
+      return;
+    }
+    const s = String(raw).trim();
+    if (!s) return;
+    rows.push({ label, value: s });
+  };
+
+  add('catalogSource', item.catalogSource);
+  add('catalogSourceTab', item.catalogSourceTab);
+  if (item.catalogSourceRow != null) add('catalogSourceRow', String(item.catalogSourceRow));
+  add('catalogSyncBatchId', item.catalogSyncBatchId);
+  add('skuNormalized', item.skuNormalized);
+  add('manufacturerNormalized', item.manufacturerNormalized);
+  add('categoryMain', item.categoryMain);
+  add('materialFamily', item.materialFamily);
+  add('systemSeries', item.systemSeries);
+  add('privacyLevel', item.privacyLevel);
+  add('defaultUnit', item.defaultUnit);
+  add('laborUnitType', item.laborUnitType);
+  add('laborBasis', item.laborBasis);
+  add('defaultMountingType', item.defaultMountingType);
+  add('attributeGroup', item.attributeGroup);
+  add('manufacturerConfiguredItem', item.manufacturerConfiguredItem);
+  add('canonicalMatchAnchor', item.canonicalMatchAnchor);
+  add('exactComponentSku', item.exactComponentSku);
+  add('requiresProjectConfiguration', item.requiresProjectConfiguration);
+  add('notes', item.notes);
+  add('estimatorNotes', item.estimatorNotes);
+  add('tags', item.tags);
+
+  return rows;
+}
 
 function catalogImageHref(url: string | undefined | null): string | null {
   const raw = String(url || '').trim();
@@ -237,8 +392,8 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
             <p className="max-w-[28rem] text-[10px] text-[var(--text-muted)]">
               Preview matches the latest sync snapshot below. CSV exports read the selected sync run (
               <span className="font-mono">{syncStatus.latestCatalogSyncRunId ?? 'latest row'}</span>
-              ); open items in Catalog via search (
-              <span className="font-mono">/catalog?q=...</span>).
+              ); open items via curator links (
+              <span className="font-mono">/catalog?q=…&amp;catalogItem=…</span> — tab, filters, and editor sync in the URL).
             </p>
           </div>
           <div className="mt-2 space-y-3">
@@ -270,13 +425,14 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
                         <thead>
                           <tr className="border-b border-[var(--line)] text-[var(--text-muted)]">
                             <th className="py-1 pr-2 font-medium">Detail</th>
-                            <th className="py-1 font-medium">Open in Catalog</th>
+                            <th className="py-1 pr-2 font-medium">Open in Catalog</th>
+                            <th className="py-1 font-medium">Copy link</th>
                           </tr>
                         </thead>
                         <tbody>
                           {preview.map((line, idx) => {
                             const token = guessCatalogReviewSkuToken(line);
-                            const to = catalogReviewCatalogSearchPath(token);
+                            const to = catalogCuratorPath(token, queue);
                             return (
                               <tr key={`${queue}-${idx}`} className="border-b border-[var(--line)] last:border-b-0">
                                 <td className="max-w-[min(420px,55vw)] py-1 pr-2 align-top">
@@ -284,11 +440,29 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
                                     {line}
                                   </span>
                                 </td>
-                                <td className="whitespace-nowrap py-1 align-top">
+                                <td className="whitespace-nowrap py-1 pr-2 align-top">
                                   {token ? (
                                     <Link to={to} className="text-[var(--brand-strong)] underline">
-                                      Search "{token}"
+                                      Search &quot;{token}&quot;
                                     </Link>
+                                  ) : (
+                                    <span className="text-[var(--text-muted)]">—</span>
+                                  )}
+                                </td>
+                                <td className="py-1 align-top">
+                                  {token ? (
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center gap-1 text-[10px] font-medium text-[var(--brand-strong)] underline"
+                                      onClick={() =>
+                                        void copyTextToClipboard(
+                                          typeof window !== 'undefined' ? `${window.location.origin}${to}` : to,
+                                        )
+                                      }
+                                    >
+                                      <Clipboard className="h-3 w-3 shrink-0" aria-hidden />
+                                      Copy
+                                    </button>
                                   ) : (
                                     <span className="text-[var(--text-muted)]">—</span>
                                   )}
@@ -381,8 +555,12 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
 }
 export function Catalog() {
   const queryClient = useQueryClient();
-  const [searchParams] = useSearchParams();
-  const seededSearchFromUrl = useRef(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialUrlFilters = useMemo(
+    () => catalogFiltersFromSearchParams(new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '')),
+    [],
+  );
+  const catalogSearchInputRef = useRef<HTMLInputElement>(null);
   const { data, isLoading, isError, error, refetch } = useCatalogWorkspaceQuery();
   const items = data?.items ?? [];
   const modifiers = data?.modifiers ?? [];
@@ -394,27 +572,39 @@ export function Catalog() {
     await queryClient.invalidateQueries({ queryKey: queryKeys.catalog.workspace });
   }, [queryClient]);
 
-  const [activeTab, setActiveTab] = useState<CatalogTab>('items');
+  const [activeTab, setActiveTab] = useState<CatalogTab>(initialUrlFilters.activeTab);
   const [activatingAll, setActivatingAll] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncActionError, setSyncActionError] = useState<string | null>(null);
 
-  const [search, setSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('all');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('all');
-  const [typeFilter, setTypeFilter] = useState('all');
-  const [sortBy, setSortBy] = useState<SortKey>('sku-asc');
-  const [canonFilter, setCanonFilter] = useState<'all' | 'canonical' | 'non-canonical'>('all');
-  const [duplicatesOnly, setDuplicatesOnly] = useState(false);
-  const [deprecatedOnly, setDeprecatedOnly] = useState(false);
-  const [showDuplicateReview, setShowDuplicateReview] = useState(false);
-  const [showQualityReport, setShowQualityReport] = useState(false);
+  const [search, setSearch] = useState(initialUrlFilters.search);
+  const [categoryFilter, setCategoryFilter] = useState(initialUrlFilters.categoryFilter);
+  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>(initialUrlFilters.activeFilter);
+  const [typeFilter, setTypeFilter] = useState(initialUrlFilters.typeFilter);
+  /** Resolved sheet tab name (`catalogSourceTab` or legacy `catalogSource`). */
+  const [sourceTabFilter, setSourceTabFilter] = useState(initialUrlFilters.sourceTabFilter);
+  const [sortBy, setSortBy] = useState<SortKey>(initialUrlFilters.sortBy);
+  const [canonFilter, setCanonFilter] = useState<'all' | 'canonical' | 'non-canonical'>(initialUrlFilters.canonFilter);
+  const [duplicatesOnly, setDuplicatesOnly] = useState(initialUrlFilters.duplicatesOnly);
+  const [deprecatedOnly, setDeprecatedOnly] = useState(initialUrlFilters.deprecatedOnly);
+  const [showDuplicateReview, setShowDuplicateReview] = useState(initialUrlFilters.showDuplicateReview);
+  const [showQualityReport, setShowQualityReport] = useState(initialUrlFilters.showQualityReport);
   /** Forward-facing rows that are manufacturer-backed but still missing ImageURL (image sprint). */
-  const [imageSprintOnly, setImageSprintOnly] = useState(false);
+  const [imageSprintOnly, setImageSprintOnly] = useState(initialUrlFilters.imageSprintOnly);
   const [duplicateCanonicalSelection, setDuplicateCanonicalSelection] = useState<Record<string, string>>({});
   const [duplicateResolvingKey, setDuplicateResolvingKey] = useState<string | null>(null);
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
   const [editingModifier, setEditingModifier] = useState<ModifierRecord | null>(null);
+
+  const closeItemEditor = useCallback(() => {
+    setEditingItem(null);
+    const next = new URLSearchParams(searchParams);
+    next.delete('catalogItem');
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
   const [editingBundle, setEditingBundle] = useState<BundleRecord | null>(null);
   const [savingModifier, setSavingModifier] = useState(false);
   const [savingBundle, setSavingBundle] = useState(false);
@@ -473,14 +663,106 @@ export function Catalog() {
     return () => window.removeEventListener('catalog-synced', onSynced);
   }, [invalidateWorkspace]);
 
-  useEffect(() => {
-    if (seededSearchFromUrl.current) return;
-    const q = searchParams.get('q');
-    if (q && q.trim()) {
-      setSearch(q.trim());
-      seededSearchFromUrl.current = true;
-    }
+  useLayoutEffect(() => {
+    const f = catalogFiltersFromSearchParams(searchParams);
+    setActiveTab(f.activeTab);
+    setSearch(f.search);
+    setCategoryFilter(f.categoryFilter);
+    setTypeFilter(f.typeFilter);
+    setActiveFilter(f.activeFilter);
+    setSourceTabFilter(f.sourceTabFilter);
+    setSortBy(f.sortBy);
+    setCanonFilter(f.canonFilter);
+    setDuplicatesOnly(f.duplicatesOnly);
+    setDeprecatedOnly(f.deprecatedOnly);
+    setShowDuplicateReview(f.showDuplicateReview);
+    setShowQualityReport(f.showQualityReport);
+    setImageSprintOnly(f.imageSprintOnly);
   }, [searchParams]);
+
+  useEffect(() => {
+    const idInUrl = searchParams.get('catalogItem')?.trim() || null;
+
+    if (items.length > 0 && idInUrl) {
+      const found = items.find((i) => i.id === idInUrl);
+      if (!found) {
+        const next = new URLSearchParams(searchParams);
+        next.delete('catalogItem');
+        if (next.toString() !== searchParams.toString()) {
+          setSearchParams(next, { replace: true });
+        }
+        return;
+      }
+      if (editingItem?.id !== found.id) {
+        setEditingItem(found);
+        return;
+      }
+    }
+
+    const catalogItemIdForUrl = editingItem?.id || (items.length === 0 ? idInUrl : null);
+
+    const next = buildCatalogWorkspaceSearchParams({
+      activeTab,
+      search,
+      categoryFilter,
+      typeFilter,
+      activeFilter,
+      sourceTabFilter,
+      sortBy,
+      canonFilter,
+      duplicatesOnly,
+      deprecatedOnly,
+      showDuplicateReview,
+      showQualityReport,
+      imageSprintOnly,
+      catalogItemId: catalogItemIdForUrl,
+    });
+    if (next.toString() === searchParams.toString()) return;
+    setSearchParams(next, { replace: true });
+  }, [
+    items,
+    editingItem?.id,
+    searchParams,
+    setSearchParams,
+    activeTab,
+    search,
+    categoryFilter,
+    typeFilter,
+    activeFilter,
+    sourceTabFilter,
+    sortBy,
+    canonFilter,
+    duplicatesOnly,
+    deprecatedOnly,
+    showDuplicateReview,
+    showQualityReport,
+    imageSprintOnly,
+  ]);
+
+  useEffect(() => {
+    if (!editingItem && !editingModifier && !editingBundle) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (editingItem) closeItemEditor();
+      else if (editingModifier) setEditingModifier(null);
+      else if (editingBundle) setEditingBundle(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [editingItem, editingModifier, editingBundle, closeItemEditor]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (!t) return;
+      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable) return;
+      e.preventDefault();
+      catalogSearchInputRef.current?.focus();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   async function handleActivateAllCatalogItems() {
     if (!inventory || inventory.inactive === 0) return;
@@ -503,7 +785,6 @@ export function Catalog() {
   async function handleSyncCatalog() {
     setSyncActionError(null);
     setSyncing(true);
-    setActionFeedback({ tone: 'info', message: 'Sync started. Pulling latest items, modifiers, and bundles.' });
     try {
       await api.syncV1Catalog();
       await invalidateWorkspace();
@@ -518,9 +799,21 @@ export function Catalog() {
 
   const categories = useMemo(() => ['all', ...Array.from(new Set(items.map((i) => i.category))).sort()], [items]);
   const itemTypes = useMemo(
-    () => ['all', ...Array.from(new Set(items.map((i) => i.family || i.subcategory || 'Standard'))).sort()],
+    () => ['all', ...Array.from(new Set(items.map((i) => catalogRowTypeLabel(i)))).sort((a, b) => a.localeCompare(b))],
     [items]
   );
+
+  const sheetSourceTabOptions = useMemo(() => {
+    const set = new Set<string>();
+    let anyMissing = false;
+    for (const item of items) {
+      const t = catalogItemSourceTab(item);
+      if (t) set.add(t);
+      else anyMissing = true;
+    }
+    const tabs = Array.from(set).sort((a, b) => a.localeCompare(b));
+    return (anyMissing ? (['all', '__none__', ...tabs] as const) : (['all', ...tabs] as const)) as readonly string[];
+  }, [items]);
 
   const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -535,7 +828,12 @@ export function Catalog() {
           (item.subcategory || '').toLowerCase().includes(query) ||
           (item.manufacturer || '').toLowerCase().includes(query) ||
           (item.brand || '').toLowerCase().includes(query) ||
-          (item.model || '').toLowerCase().includes(query);
+          (item.model || '').toLowerCase().includes(query) ||
+          (item.modelNumber || '').toLowerCase().includes(query) ||
+          (item.series || '').toLowerCase().includes(query) ||
+          (item.itemType || '').toLowerCase().includes(query) ||
+          (item.catalogSourceTab || '').toLowerCase().includes(query) ||
+          (item.catalogSource || '').toLowerCase().includes(query);
 
         const categoryMatch = categoryFilter === 'all' || item.category === categoryFilter;
         const activeMatch =
@@ -543,8 +841,13 @@ export function Catalog() {
           (activeFilter === 'active' && item.active) ||
           (activeFilter === 'inactive' && !item.active);
 
-        const currentType = item.family || item.subcategory || 'Standard';
+        const currentType = catalogRowTypeLabel(item);
         const typeMatch = typeFilter === 'all' || currentType === typeFilter;
+
+        const itemTab = catalogItemSourceTab(item);
+        const sourceTabMatch =
+          sourceTabFilter === 'all' ||
+          (sourceTabFilter === '__none__' ? !itemTab : itemTab === sourceTabFilter);
 
         const isCanonical = item.isCanonical !== false;
         const canonMatch =
@@ -565,7 +868,7 @@ export function Catalog() {
         const missingImage = !String(item.imageUrl || '').trim();
         const imageSprintMatch = !imageSprintOnly || (forwardFacing && mfrBacked && missingImage);
 
-        return textMatch && categoryMatch && activeMatch && typeMatch && canonMatch && duplicatesMatch && deprecatedMatch && imageSprintMatch;
+        return textMatch && categoryMatch && activeMatch && typeMatch && sourceTabMatch && canonMatch && duplicatesMatch && deprecatedMatch && imageSprintMatch;
       })
       .sort((a, b) => {
         if (sortBy === 'sku-asc') return a.sku.localeCompare(b.sku);
@@ -577,7 +880,33 @@ export function Catalog() {
         if (sortBy === 'labor-desc') return b.baseLaborMinutes - a.baseLaborMinutes;
         return 0;
       });
-  }, [items, search, categoryFilter, activeFilter, typeFilter, sortBy, canonFilter, duplicatesOnly, deprecatedOnly, imageSprintOnly]);
+  }, [items, search, categoryFilter, activeFilter, typeFilter, sourceTabFilter, sortBy, canonFilter, duplicatesOnly, deprecatedOnly, imageSprintOnly]);
+
+  const curatorEditorContextBadges = useMemo(() => {
+    const tags: string[] = [];
+    if (duplicatesOnly) tags.push('Duplicates-only');
+    if (deprecatedOnly) tags.push('Deprecated-only');
+    if (showDuplicateReview) tags.push('Duplicate review');
+    if (showQualityReport) tags.push('Quality report');
+    if (imageSprintOnly) tags.push('Image sprint');
+    if (sourceTabFilter !== 'all') {
+      tags.push(`Sheet tab: ${sourceTabFilter === '__none__' ? 'none / unknown' : sourceTabFilter}`);
+    }
+    if (canonFilter !== 'all') {
+      tags.push(canonFilter === 'canonical' ? 'Canonical only' : 'Non-canonical only');
+    }
+    if (search.trim()) tags.push(`Search: '${search.trim()}'`);
+    return tags;
+  }, [
+    duplicatesOnly,
+    deprecatedOnly,
+    showDuplicateReview,
+    showQualityReport,
+    imageSprintOnly,
+    sourceTabFilter,
+    canonFilter,
+    search,
+  ]);
 
   const catalogQualityByCategory = useMemo(() => {
     const byCat = new Map<string, {
@@ -722,6 +1051,7 @@ export function Catalog() {
         const textMatch =
           !query ||
           modifier.name.toLowerCase().includes(query) ||
+          modifier.description?.toLowerCase().includes(query) ||
           modifier.modifierKey.toLowerCase().includes(query) ||
           modifier.appliesToCategories.join(' ').toLowerCase().includes(query);
 
@@ -784,7 +1114,7 @@ export function Catalog() {
       } else {
         await api.updateCatalogItem(editingItem);
       }
-      setEditingItem(null);
+      closeItemEditor();
       await invalidateWorkspace();
     } catch (err) {
       console.error('Failed to save item', err);
@@ -1037,44 +1367,79 @@ export function Catalog() {
     syncStatus?.status === 'failed' ? 'Last successful sheet import' : 'Last sheet sync';
 
   return (
-    <div className="ui-page space-y-4">
-      <div className="ui-panel flex flex-wrap items-end justify-between gap-4 px-4 py-3.5">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <span className="ui-status-live">Live</span>
-            <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-              Brighten Builders <span className="mx-1 text-slate-300">/</span> Catalog Station
-            </span>
+    <div className="ui-page space-y-5">
+      <header className="ui-panel px-4 py-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="ui-status-live">Live</span>
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                Brighten Builders <span className="mx-1 text-slate-300">/</span> Catalog Station
+              </span>
+            </div>
+            <h1 className="mt-2 text-[24px] font-semibold leading-tight tracking-tight text-slate-950 md:text-[28px]">Catalog</h1>
+            <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.06em] text-slate-500">
+              Items, modifiers, and bundles loaded from your workspace (sheet sync keeps them current).
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+              <span className="ui-chip-soft inline-flex items-center gap-1.5 px-2.5 py-1 font-medium text-slate-700">
+                <Package className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                {items.length} items
+              </span>
+              <span className="ui-chip-soft px-2.5 py-1 font-medium text-slate-700">{modifiers.length} modifiers</span>
+              <span className="ui-chip-soft px-2.5 py-1 font-medium text-slate-700">{bundles.length} bundles</span>
+              {inventory ? (
+                <span className="ui-chip-soft px-2.5 py-1 text-slate-600" title="Database activation flags">
+                  {inventory.active} active · {inventory.inactive} inactive in DB
+                </span>
+              ) : null}
+              {lastSynced ? (
+                <span className="rounded-md border border-[var(--line)] bg-[var(--surface-soft)] px-2.5 py-1 text-[var(--text-muted)]">
+                  Last sheet sync {new Date(lastSynced).toLocaleString()}
+                </span>
+              ) : (
+                <span className="rounded-md border border-dashed border-[var(--line)] px-2.5 py-1 text-[var(--text-muted)]">
+                  No sync timestamp yet — run sheet sync below
+                </span>
+              )}
+            </div>
           </div>
-          <h1 className="mt-1.5 text-[24px] font-semibold leading-tight tracking-tight text-slate-950 md:text-[28px]">Catalog</h1>
-          <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.06em] text-slate-500">
-            Items · Modifiers · Bundles · Synced from Google Sheets
-          </p>
         </div>
-      </div>
-      <section className="ui-surface p-3 space-y-3">
-        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+      </header>
+
+      <section className="ui-surface p-4 space-y-4" aria-labelledby="catalog-sync-heading">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="ui-mono-kicker">Module 01 / Sync Status</p>
-            <p className="mt-1 text-xs text-slate-500">
-              Rows missing from the sheet are deactivated; use Activate all after a bulk import if counts look wrong.
+            <h2 id="catalog-sync-heading" className="text-sm font-semibold text-slate-900">
+              Google Sheets sync
+            </h2>
+            <p className="ui-mono-kicker mt-1">Module 01 / Sync Status</p>
+            <p className="mt-1 max-w-[52rem] text-xs leading-snug text-slate-500">
+              Rows missing from the sheet are deactivated after sync; use Activate all after a bulk import if counts look wrong.
             </p>
           </div>
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="ui-chip-soft inline-flex items-center gap-1">
-              <Database className="w-3.5 h-3.5" />
+              <Database className="w-3.5 h-3.5" aria-hidden />
               Source: Google Sheets
             </span>
             <span className={`rounded px-2 py-1 text-xs font-medium ${statusClass(syncStatus?.status || 'never')}`}>
-              {syncStatus?.status === 'running' ? 'Syncing' : syncStatus?.status === 'success' ? 'Synced' : syncStatus?.status === 'failed' ? 'Failed' : 'Never Synced'}
+              {syncStatus?.status === 'running'
+                ? 'Syncing'
+                : syncStatus?.status === 'success'
+                  ? 'Synced'
+                  : syncStatus?.status === 'failed'
+                    ? 'Failed'
+                    : 'Never synced'}
             </span>
             <button
+              type="button"
               onClick={() => void handleSyncCatalog()}
               disabled={syncing}
               className="ui-btn-primary h-8 px-3 text-xs inline-flex items-center gap-1.5 disabled:opacity-60"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
-              {syncing ? 'Syncing...' : 'Sync Catalog'}
+              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} aria-hidden />
+              {syncing ? 'Syncing…' : 'Sync catalog'}
             </button>
           </div>
         </div>
@@ -1137,7 +1502,7 @@ export function Catalog() {
         {syncStatus ? <CatalogSyncReviewPanel syncStatus={syncStatus} /> : null}
       </section>
 
-      <section className="ui-surface p-1.5">
+      <nav className="ui-surface p-3" aria-label="Catalog data tabs">
         <div className="flex flex-wrap items-center gap-1">
           <button
             type="button"
@@ -1173,18 +1538,37 @@ export function Catalog() {
             ) : null}
           </div>
         </div>
-      </section>
+      </nav>
 
-      <section className="ui-surface p-3">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 items-center">
-          <div className="relative lg:col-span-5">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+      <section className="ui-surface p-4 space-y-3">
+        <div>
+          <p className="ui-mono-kicker">Browse & filter</p>
+          <p className="mt-1 text-xs text-slate-500">
+            {activeTab === 'items'
+              ? 'Filter items by category, type, activation, and canonical flags; row click opens the editor.'
+              : activeTab === 'modifiers'
+                ? 'Modifiers extend labor and material from the catalog workbook.'
+                : 'Bundles group catalog SKUs for packaged estimating.'}
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-2 lg:grid-cols-12 lg:items-center">
+          <div className={`relative ${activeTab === 'items' ? 'lg:col-span-4' : 'lg:col-span-10'}`}>
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" aria-hidden />
             <input
-              type="text"
+              ref={catalogSearchInputRef}
+              type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={activeTab === 'items' ? 'Search SKU, description, category' : activeTab === 'modifiers' ? 'Search modifier key, name, categories' : 'Search bundle id, name, category'}
+              placeholder={
+                activeTab === 'items'
+                  ? 'Search SKU, description, manufacturer, model, sheet tab… (/ focuses)'
+                  : activeTab === 'modifiers'
+                    ? 'Search modifier key, name, categories'
+                    : 'Search bundle id, name, category'
+              }
               className="ui-input ui-input--leading-icon-sm h-8 text-xs"
+              aria-label="Search catalog"
+              title="Press / to focus this field when not typing in another control"
             />
           </div>
 
@@ -1193,54 +1577,90 @@ export function Catalog() {
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
-                className="ui-input h-8 lg:col-span-2 px-2 text-xs"
+                className="ui-input h-8 px-2 text-xs lg:col-span-2"
+                aria-label="Filter by category"
               >
                 {categories.map((category) => (
                   <option key={category} value={category}>
-                    {category === 'all' ? 'All Categories' : category}
+                    {category === 'all' ? 'All categories' : category}
                   </option>
                 ))}
               </select>
               <select
                 value={typeFilter}
                 onChange={(e) => setTypeFilter(e.target.value)}
-                className="ui-input h-8 lg:col-span-2 px-2 text-xs"
+                className="ui-input h-8 px-2 text-xs lg:col-span-2"
+                aria-label="Filter by item type"
               >
                 {itemTypes.map((itemType) => (
                   <option key={itemType} value={itemType}>
-                    {itemType === 'all' ? 'All Types' : itemType}
+                    {itemType === 'all' ? 'All types' : itemType}
                   </option>
                 ))}
               </select>
-              <div className="relative lg:col-span-3">
-                <ArrowUpDown className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+              <select
+                value={activeFilter}
+                onChange={(e) => setActiveFilter(e.target.value as 'all' | 'active' | 'inactive')}
+                className="ui-input h-8 px-2 text-xs lg:col-span-2"
+                aria-label="Filter by activation"
+              >
+                <option value="all">All activation</option>
+                <option value="active">Active only</option>
+                <option value="inactive">Inactive only</option>
+              </select>
+              <div className="relative lg:col-span-2">
+                <ArrowUpDown className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" aria-hidden />
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as SortKey)}
                   className="ui-input ui-input--leading-icon-sm h-8 w-full pr-2 text-xs"
+                  aria-label="Sort items"
                 >
-                  <option value="sku-asc">Sort: SKU (A-Z)</option>
-                  <option value="sku-desc">Sort: SKU (Z-A)</option>
-                  <option value="name-asc">Sort: Name (A-Z)</option>
-                  <option value="name-desc">Sort: Name (Z-A)</option>
+                  <option value="sku-asc">Sort: SKU (A–Z)</option>
+                  <option value="sku-desc">Sort: SKU (Z–A)</option>
+                  <option value="name-asc">Sort: Name (A–Z)</option>
+                  <option value="name-desc">Sort: Name (Z–A)</option>
                   <option value="category-asc">Sort: Category</option>
-                  <option value="material-desc">Sort: Material High-Low</option>
-                  <option value="labor-desc">Sort: Labor High-Low</option>
+                  <option value="material-desc">Sort: Material high → low</option>
+                  <option value="labor-desc">Sort: Labor high → low</option>
                 </select>
               </div>
             </>
           ) : (
-            <select
-              value={activeFilter}
-              onChange={(e) => setActiveFilter(e.target.value as 'all' | 'active' | 'inactive')}
-              className="ui-input h-8 lg:col-span-2 px-2 text-xs"
-            >
-              <option value="all">All Status</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
+            <>
+              <select
+                value={activeFilter}
+                onChange={(e) => setActiveFilter(e.target.value as 'all' | 'active' | 'inactive')}
+                className="ui-input h-8 px-2 text-xs lg:col-span-2"
+                aria-label="Filter by activation"
+              >
+                <option value="all">All activation</option>
+                <option value="active">Active only</option>
+                <option value="inactive">Inactive only</option>
+              </select>
+            </>
           )}
         </div>
+
+        {activeTab === 'items' ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+            <label className="inline-flex items-center gap-2 text-[var(--text-muted)]">
+              <span className="shrink-0">Sheet tab</span>
+              <select
+                value={sourceTabFilter}
+                onChange={(e) => setSourceTabFilter(e.target.value)}
+                className="ui-input h-7 max-w-[14rem] px-2 text-[11px]"
+                aria-label="Filter by workbook sheet tab"
+              >
+                {sheetSourceTabOptions.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt === 'all' ? 'All sheet tabs' : opt === '__none__' ? 'No tab / unknown' : opt}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        ) : null}
 
         {activeTab === 'items' ? (
           <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
@@ -1363,9 +1783,46 @@ export function Catalog() {
                             <td className="py-2 pr-2 text-slate-600">{item.finishGroup || '—'}</td>
                             <td className="py-2 pr-2">{item.deprecated ? <span className="ui-mono-chip ui-mono-chip--mute">yes</span> : <span className="ui-mono-chip ui-mono-chip--ok">no</span>}</td>
                             <td className="py-2 text-right">
-                              <button type="button" className="ui-btn-secondary h-8 px-3 text-[11px]" onClick={() => setEditingItem(item)}>
-                                Open
-                              </button>
+                              <div className="flex flex-wrap items-center justify-end gap-1">
+                                <button
+                                  type="button"
+                                  className="ui-btn-secondary h-8 px-2 text-[11px]"
+                                  onClick={() => setEditingItem(item)}
+                                >
+                                  Open
+                                </button>
+                                <Link
+                                  to={catalogCuratorPathDeep({
+                                    q: item.sku,
+                                    catalogItem: item.id,
+                                    dup: true,
+                                    drev: true,
+                                  })}
+                                  className="ui-btn-secondary inline-flex h-8 items-center px-2 text-[11px]"
+                                >
+                                  Link
+                                </Link>
+                                <button
+                                  type="button"
+                                  className="ui-btn-secondary inline-flex h-8 items-center gap-1 px-2 text-[11px]"
+                                  title="Copy deep link to this row"
+                                  onClick={() =>
+                                    void copyTextToClipboard(
+                                      `${typeof window !== 'undefined' ? window.location.origin : ''}${catalogCuratorPathDeep({
+                                        q: item.sku,
+                                        catalogItem: item.id,
+                                        dup: true,
+                                        drev: true,
+                                      })}`,
+                                    ).catch(() => {
+                                      window.alert('Could not copy link.');
+                                    })
+                                  }
+                                >
+                                  <Clipboard className="h-3 w-3 shrink-0" aria-hidden />
+                                  Copy
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -1381,24 +1838,26 @@ export function Catalog() {
 
       {activeTab === 'items' && showQualityReport ? (
         <section className="ui-surface p-3">
-          <div className="flex items-start justify-between gap-3">
-            <div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
               <p className="ui-mono-kicker">Catalog quality</p>
               <p className="mt-1 text-xs text-slate-500">
                 Highlights categories with missing manufacturer / model-series / image / real SKU / cost / labor. Uses current DB rows (no Google Sheet writes).
               </p>
             </div>
-            <button
-              type="button"
-              className="ui-btn-secondary h-8 px-3 text-[11px]"
-              onClick={() => void copyCatalogResearchQueueCsv()}
-              disabled={filteredItems.length === 0}
-            >
-              Copy research queue CSV
-            </button>
-            <button type="button" className="ui-btn-secondary h-8 px-3 text-[11px]" onClick={() => void copyImageSprintCsv()}>
-              Copy image sprint CSV
-            </button>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <button
+                type="button"
+                className="ui-btn-secondary h-8 px-3 text-[11px]"
+                onClick={() => void copyCatalogResearchQueueCsv()}
+                disabled={filteredItems.length === 0}
+              >
+                Copy research queue CSV
+              </button>
+              <button type="button" className="ui-btn-secondary h-8 px-3 text-[11px]" onClick={() => void copyImageSprintCsv()}>
+                Copy image sprint CSV
+              </button>
+            </div>
           </div>
 
           <div className="mt-3 overflow-x-auto">
@@ -1450,7 +1909,7 @@ export function Catalog() {
         </section>
       ) : null}
 
-      <section className="ui-surface overflow-hidden">
+      <section className="ui-surface overflow-hidden" aria-label="Catalog browse results">
         <div className="max-h-[68vh] overflow-auto">
           {isError ? (
             <div className="flex min-h-[30vh] flex-col items-center justify-center gap-2 p-8 text-center text-sm text-red-700">
@@ -1464,23 +1923,43 @@ export function Catalog() {
             <div className="flex min-h-[30vh] items-center justify-center p-8 text-sm text-slate-500">Loading catalog…</div>
           ) : activeTab === 'items' ? (
             filteredItems.length === 0 ? (
-              <div className="p-8 text-center">
-                <Package className="w-6 h-6 text-slate-300 mx-auto mb-2" />
-                <p className="text-sm text-slate-600">No items match the current filters.</p>
+              <div className="flex min-h-[28vh] flex-col items-center justify-center gap-3 p-10 text-center">
+                <Package className="mx-auto h-8 w-8 text-slate-300" aria-hidden />
+                {items.length === 0 ? (
+                  <>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">No catalog items in the database yet</p>
+                      <p className="mt-2 max-w-md text-xs leading-relaxed text-slate-600">
+                        Run <strong>Google Sheets sync</strong> above (configure workbook tabs first). Until rows sync in, Items stays empty — modifiers and bundles populate from the same run.
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">No rows match these filters</p>
+                      <p className="mt-2 max-w-md text-xs leading-relaxed text-slate-600">
+                        Clear search text or reset category / type / activation / canonical toggles. If you expected inactive rows, choose &quot;Inactive only&quot; in the activation filter.
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <table className="w-full text-xs">
                 <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 backdrop-blur-sm">
                   <tr>
                     <th className="ui-table-th w-[3.25rem] text-center">Image</th>
-                    <th className="ui-table-th">SKU / ID</th>
-                    <th className="ui-table-th">Description</th>
+                    <th className="ui-table-th min-w-[7rem]">SKU</th>
+                    <th className="ui-table-th min-w-[12rem]">Description</th>
                     <th className="ui-table-th">Category</th>
-                    <th className="ui-table-th">Brand</th>
-                    <th className="ui-table-th">Unit</th>
+                    <th className="ui-table-th">Type</th>
+                    <th className="ui-table-th min-w-[8rem]">Mfr / brand</th>
+                    <th className="ui-table-th">UoM</th>
                     <th className="ui-table-th-end">Labor</th>
                     <th className="ui-table-th-end">Material</th>
-                    <th className="ui-table-th text-center">Active</th>
+                    <th className="ui-table-th">Record status</th>
+                    <th className="ui-table-th">Sheet source</th>
                     <th className="ui-table-th-end">Actions</th>
                   </tr>
                 </thead>
@@ -1494,6 +1973,9 @@ export function Catalog() {
                         : cat.includes('accessor') || cat.includes('grab') || cat.includes('dispenser') || cat.includes('disposal')
                           ? 'border-l-amber-500'
                           : 'border-l-slate-300';
+                    const imageHref = catalogImageHref(item.imageUrl);
+                    const modelParts = [item.model, item.modelNumber, item.series].map((s) => String(s || '').trim()).filter(Boolean);
+                    const sheetSrc = catalogItemSourceTab(item);
                     return (
                     <tr
                       key={item.id}
@@ -1513,44 +1995,123 @@ export function Catalog() {
                         <CatalogItemThumb url={item.imageUrl} />
                       </td>
                       <td className="py-2 px-3 align-top">
-                        <div className="font-medium text-slate-800">{item.sku || 'No SKU'}</div>
-                        <div className="text-[10px] text-slate-500">{item.id.slice(0, 12)}</div>
-                      </td>
-                      <td className="py-2 px-2 align-top">
-                        <div className="font-medium text-slate-900">{item.description}</div>
-                        <div className="text-[10px] text-slate-500 inline-flex items-center gap-1">
-                          {item.family || item.subcategory || 'Standard'}
-                          {item.adaFlag ? <ShieldCheck className="h-3 w-3 text-[var(--success)]" title="ADA" /> : null}
+                        <div className="font-semibold text-slate-900">{item.sku?.trim() || '—'}</div>
+                        <div className="font-mono text-[10px] text-slate-400" title={item.id}>
+                          {item.id.length > 14 ? `${item.id.slice(0, 14)}…` : item.id}
                         </div>
-                      </td>
-                      <td className="py-2 px-2 text-slate-700">{item.category}</td>
-                      <td className="py-2 px-2 align-top text-slate-700">
-                        <div className="font-medium text-slate-800">{item.brand?.trim() || '—'}</div>
-                        {item.manufacturer?.trim() ? (
-                          <div className="text-[10px] text-slate-500">{item.manufacturer}</div>
+                        {modelParts.length ? (
+                          <div className="mt-1 text-[10px] leading-snug text-slate-500">
+                            {modelParts.slice(0, 3).join(' · ')}
+                          </div>
                         ) : null}
                       </td>
-                      <td className="py-2 px-2 text-slate-700">{item.uom}</td>
+                      <td className="py-2 px-2 align-top">
+                        <p className="line-clamp-2 font-medium leading-snug text-slate-900" title={item.description}>
+                          {item.description?.trim() || '—'}
+                        </p>
+                        <div className="mt-1 inline-flex flex-wrap items-center gap-1 text-[10px] text-slate-500">
+                          {item.laborBasis?.trim() ? (
+                            <span className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[9px] text-slate-600" title="Labor basis">
+                              {item.laborBasis}
+                            </span>
+                          ) : null}
+                          {item.installLaborFamily?.trim() ? (
+                            <span className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[9px] text-slate-600" title="Install labor family">
+                              fam:{item.installLaborFamily}
+                            </span>
+                          ) : null}
+                          {item.adaFlag ? (
+                            <span className="inline-flex items-center gap-0.5 text-[var(--success)]" title="ADA flagged">
+                              <ShieldCheck className="h-3 w-3" aria-hidden />
+                              ADA
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="py-2 px-2 align-top text-slate-700">
+                        <span>{item.category?.trim() || '—'}</span>
+                        {item.categoryMain?.trim() ? (
+                          <div className="mt-1 font-mono text-[10px] text-slate-500" title="categoryMain">
+                            {item.categoryMain}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="py-2 px-2 align-top text-slate-700">
+                        <span className="font-medium">{catalogRowTypeLabel(item)}</span>
+                        {item.recordGranularity ? (
+                          <div className="mt-1 text-[10px] text-slate-500">Grain: {item.recordGranularity}</div>
+                        ) : null}
+                      </td>
+                      <td className="py-2 px-2 align-top text-slate-700">
+                        {(() => {
+                          const mfr = item.manufacturer?.trim();
+                          const br = item.brand?.trim();
+                          const primary = mfr || br || '';
+                          return (
+                            <>
+                              <div className="font-medium text-slate-800">{primary || '—'}</div>
+                              {mfr && br && br !== mfr ? (
+                                <div className="text-[10px] text-slate-500">Brand: {br}</div>
+                              ) : null}
+                            </>
+                          );
+                        })()}
+                      </td>
+                      <td className="py-2 px-2 text-slate-700">{item.defaultUnit?.trim() || item.uom}</td>
                       <td className="py-2 px-2 text-right text-slate-700">{formatNumberSafe(item.baseLaborMinutes, 1)} min</td>
                       <td className="py-2 px-2 text-right text-slate-700">{formatCurrencySafe(item.baseMaterialCost)}</td>
-                      <td className="py-2 px-2 text-center">
-                        <span
-                          className={`rounded px-1.5 py-0.5 ${item.active ? 'ui-status-info border text-xs font-medium' : 'border border-slate-300 bg-slate-100 text-xs text-slate-600'}`}
-                        >
-                          {item.active ? 'Yes' : 'No'}
-                        </span>
+                      <td className="py-2 px-2 align-top">
+                        <div className="flex flex-wrap gap-1">
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${item.active ? 'border border-blue-200 bg-blue-50 text-blue-900' : 'border border-slate-200 bg-slate-100 text-slate-600'}`}
+                          >
+                            {item.active ? 'Active' : 'Inactive'}
+                          </span>
+                          {item.deprecated ? (
+                            <span className="ui-mono-chip ui-mono-chip--mute text-[10px]" title={item.deprecatedReason?.trim() || undefined}>
+                              Deprecated
+                            </span>
+                          ) : null}
+                          {item.isCanonical === false ? (
+                            <span className="ui-mono-chip ui-mono-chip--warn text-[10px]" title={item.aliasOf ? `aliasOf ${item.aliasOf}` : 'Non-canonical row'}>
+                              Non-canon
+                            </span>
+                          ) : null}
+                          {item.taxable === false ? (
+                            <span className="rounded border border-slate-200 px-1 py-0.5 text-[10px] text-slate-600">Non-tax</span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="py-2 px-2 align-top text-[10px] text-slate-600">
+                        {sheetSrc ? (
+                          <div className="min-w-0 max-w-[11rem]">
+                            <div className="truncate font-mono" title={sheetSrc}>
+                              {sheetSrc}
+                            </div>
+                            {item.catalogSourceRow != null ? (
+                              <div
+                                className="mt-0.5 font-semibold tabular-nums text-slate-800"
+                                title="Workbook row (1-based)"
+                              >
+                                Row {item.catalogSourceRow}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
                       </td>
                       <td className="py-2 px-3" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-1">
+                        <div className="flex flex-wrap items-center justify-end gap-1">
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               void handleDeleteItem(item.id);
                             }}
-                            className="h-7 px-2 rounded border border-red-200 text-red-700 hover:bg-red-50 inline-flex items-center gap-1 outline-none focus-visible:ring-2 focus-visible:ring-red-400/40"
+                            className="inline-flex h-7 items-center gap-1 rounded border border-red-200 px-2 text-red-700 hover:bg-red-50 outline-none focus-visible:ring-2 focus-visible:ring-red-400/40"
                           >
-                            <Trash2 className="w-3 h-3" />
+                            <Trash2 className="h-3 w-3" aria-hidden />
                             Deactivate
                           </button>
                           {imageHref ? (
@@ -1561,7 +2122,7 @@ export function Catalog() {
                               className="inline-flex h-7 items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 font-medium text-blue-800 hover:bg-blue-100"
                               title={imageHref}
                             >
-                              <ExternalLink className="w-3 h-3 shrink-0" />
+                              <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
                               Image
                             </a>
                           ) : null}
@@ -1575,7 +2136,16 @@ export function Catalog() {
             )
           ) : activeTab === 'modifiers' ? (
             filteredModifiers.length === 0 ? (
-              <div className="p-8 text-center text-sm text-slate-600">No modifiers match the current filters.</div>
+              <div className="flex min-h-[28vh] flex-col items-center justify-center gap-3 p-10 text-center">
+                <div className="text-sm font-semibold text-slate-800">
+                  {modifiers.length === 0 ? 'No modifiers loaded yet' : 'No modifiers match these filters'}
+                </div>
+                <p className="max-w-md text-xs leading-relaxed text-slate-600">
+                  {modifiers.length === 0
+                    ? 'Run Google Sheets sync above after your workbook MODIFIERS tab is populated. Modifier rows drive labor/material deltas on estimates.'
+                    : 'Clear search or switch activation filter to “All activation”. Sync warnings above sometimes list unknown modifier keys referenced by bundles.'}
+                </p>
+              </div>
             ) : (
               <table className="w-full text-xs">
                 <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 backdrop-blur-sm">
@@ -1588,6 +2158,7 @@ export function Catalog() {
                     <th className="ui-table-th-end">+ Material</th>
                     <th className="ui-table-th-end">% Labor</th>
                     <th className="ui-table-th-end">% Material</th>
+                    <th className="ui-table-th-end whitespace-nowrap">Updated</th>
                     <th className="ui-table-th text-center">Active</th>
                     <th className="ui-table-th-end">Actions</th>
                   </tr>
@@ -1621,6 +2192,9 @@ export function Catalog() {
                       <td className="py-2 px-2 text-right text-slate-700">{formatCurrencySafe(modifier.addMaterialCost)}</td>
                       <td className="py-2 px-2 text-right text-slate-700">{formatPercentSafe(modifier.percentLabor)}</td>
                       <td className="py-2 px-2 text-right text-slate-700">{formatPercentSafe(modifier.percentMaterial)}</td>
+                      <td className="py-2 px-2 text-right whitespace-nowrap text-slate-600">
+                        {modifier.updatedAt ? new Date(modifier.updatedAt).toLocaleString() : '—'}
+                      </td>
                       <td className="py-2 px-2 text-center">
                         <span
                           className={`rounded px-1.5 py-0.5 text-xs ${modifier.active ? 'ui-status-info border font-medium' : 'border border-slate-300 bg-slate-100 text-slate-600'}`}
@@ -1649,7 +2223,16 @@ export function Catalog() {
               </table>
             )
           ) : filteredBundles.length === 0 ? (
-            <div className="p-8 text-center text-sm text-slate-600">No bundles match the current filters.</div>
+            <div className="flex min-h-[28vh] flex-col items-center justify-center gap-3 p-10 text-center">
+              <div className="text-sm font-semibold text-slate-800">
+                {bundles.length === 0 ? 'No bundles loaded yet' : 'No bundles match these filters'}
+              </div>
+              <p className="max-w-md text-xs leading-relaxed text-slate-600">
+                {bundles.length === 0
+                  ? 'Run Google Sheets sync above once your workbook BUNDLES tab has rows. Bundles reference catalog SKUs and modifiers — orphan SKU/modifier hints appear under sync warnings when something does not resolve.'
+                  : 'Clear search or widen the activation filter. Use Manual review queues in the sync panel to export orphan bundle SKU references.'}
+              </p>
+            </div>
           ) : (
             <table className="w-full text-xs">
               <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 backdrop-blur-sm">
@@ -1719,10 +2302,19 @@ export function Catalog() {
               <div>
                 <p className="ui-mono-kicker">Module 01 / Catalog Record</p>
                 <h2 className="mt-1 text-base font-semibold text-slate-900">Edit Catalog Item</h2>
+                {curatorEditorContextBadges.length ? (
+                  <div className="mt-2 flex max-w-xl flex-wrap gap-1.5" role="status" aria-label="Active catalog filters">
+                    {curatorEditorContextBadges.map((t) => (
+                      <span key={t} className="ui-mono-chip ui-mono-chip--warn text-[10px]">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <button
                 type="button"
-                onClick={() => setEditingItem(null)}
+                onClick={() => closeItemEditor()}
                 aria-label="Close edit catalog item"
                 className="ui-ghost-btn h-9 w-9 justify-center p-0"
               >
@@ -1790,6 +2382,63 @@ export function Catalog() {
                   />
                 </div>
                 <div>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Model</label>
+                  <input
+                    type="text"
+                    className="ui-input"
+                    value={editingItem.model ?? ''}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        model: e.target.value.trim() ? e.target.value.trim() : undefined,
+                      })
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Model number</label>
+                  <input
+                    type="text"
+                    className="ui-input"
+                    value={editingItem.modelNumber ?? ''}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        modelNumber: e.target.value.trim() ? e.target.value.trim() : undefined,
+                      })
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Series</label>
+                  <input
+                    type="text"
+                    className="ui-input"
+                    value={editingItem.series ?? ''}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        series: e.target.value.trim() ? e.target.value.trim() : undefined,
+                      })
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Item type (sheet)</label>
+                  <input
+                    type="text"
+                    placeholder="Normalized item type when present"
+                    className="ui-input"
+                    value={editingItem.itemType ?? ''}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        itemType: e.target.value.trim() ? e.target.value.trim() : undefined,
+                      })
+                    }
+                  />
+                </div>
+                <div>
                   <label className="block text-[11px] font-medium text-slate-600 mb-1">Unit</label>
                   <select
                     className="ui-input"
@@ -1804,12 +2453,33 @@ export function Catalog() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Type (Family/Subcategory)</label>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Family</label>
                   <input
                     type="text"
+                    placeholder="Product line / collection"
                     className="ui-input"
-                    value={editingItem.family || editingItem.subcategory || ''}
-                    onChange={(e) => setEditingItem({ ...editingItem, family: e.target.value || undefined })}
+                    value={editingItem.family ?? ''}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        family: e.target.value.trim() ? e.target.value.trim() : undefined,
+                      })
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Subcategory</label>
+                  <input
+                    type="text"
+                    placeholder="Sheet subcategory when distinct from family"
+                    className="ui-input"
+                    value={editingItem.subcategory ?? ''}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        subcategory: e.target.value.trim() ? e.target.value.trim() : undefined,
+                      })
+                    }
                   />
                 </div>
                 <div>
@@ -1984,6 +2654,34 @@ export function Catalog() {
                       />
                     </label>
                   </div>
+                </div>
+
+                <div className="col-span-2 ui-panel-muted p-3">
+                  <details className="group">
+                    <summary className="cursor-pointer text-[11px] font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
+                      <span className="underline decoration-dotted underline-offset-2 group-open:no-underline">
+                        Sheet provenance and extra API fields
+                      </span>
+                      <span className="ml-2 font-normal text-[var(--text-muted)]">(read-only)</span>
+                    </summary>
+                    {(() => {
+                      const ro = catalogItemReadOnlyRows(editingItem);
+                      return ro.length ? (
+                        <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 border-t border-[var(--line)] pt-2 text-[11px] sm:grid-cols-2">
+                          {ro.map((row) => (
+                            <div key={row.label} className="min-w-0">
+                              <dt className="text-[var(--text-muted)]">{row.label}</dt>
+                              <dd className="break-words font-mono text-slate-800">{row.value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      ) : (
+                        <p className="mt-2 border-t border-[var(--line)] pt-2 text-[11px] text-[var(--text-muted)]">
+                          No extra provenance fields on this row (they usually appear after a sheet sync).
+                        </p>
+                      );
+                    })()}
+                  </details>
                 </div>
 
                 <div className="col-span-2 ui-panel-muted p-3">
@@ -2193,7 +2891,7 @@ export function Catalog() {
             <div className="p-3 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setEditingItem(null)}
+                onClick={() => closeItemEditor()}
                 className="h-8 px-3 border border-slate-300 rounded text-xs text-slate-700 hover:bg-slate-100"
               >
                 Cancel
@@ -2273,6 +2971,13 @@ export function Catalog() {
                   Active
                 </label>
               </div>
+              <p className="text-[11px] text-[var(--text-muted)]">
+                <span className="font-medium text-slate-600">Record id:</span>{' '}
+                <span className="font-mono text-slate-800">{editingModifier.id}</span>
+                <span className="mx-2 text-slate-300">·</span>
+                <span className="font-medium text-slate-600">Updated:</span>{' '}
+                {editingModifier.updatedAt ? new Date(editingModifier.updatedAt).toLocaleString() : '—'}
+              </p>
             </div>
             <div className="flex items-center justify-end gap-2 border-t border-[var(--line)] px-4 py-3.5">
               <button type="button" onClick={() => setEditingModifier(null)} className="ui-btn-secondary" disabled={savingModifier}>
@@ -2299,6 +3004,16 @@ export function Catalog() {
               </button>
             </div>
             <div className="p-4 space-y-3">
+              <div className="rounded-lg border border-[var(--line)] bg-[var(--surface-soft)] px-3 py-2 text-[11px] text-slate-700">
+                <div>
+                  <span className="text-[var(--text-muted)]">Bundle id</span>{' '}
+                  <span className="break-all font-mono text-slate-900">{editingBundle.id}</span>
+                </div>
+                <div className="mt-1">
+                  <span className="text-[var(--text-muted)]">Last updated</span>{' '}
+                  {editingBundle.updatedAt ? new Date(editingBundle.updatedAt).toLocaleString() : '—'}
+                </div>
+              </div>
               <label className="block text-[11px] font-medium text-slate-600">
                 Bundle name
                 <input className="ui-input mt-1" value={editingBundle.bundleName} onChange={(e) => setEditingBundle({ ...editingBundle, bundleName: e.target.value })} required />

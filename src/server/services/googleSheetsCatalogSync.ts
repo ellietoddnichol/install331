@@ -1016,7 +1016,6 @@ export async function upsertItemInGoogleSheet(input: {
   baseMaterialCost: number;
   baseLaborMinutes: number;
   active: boolean;
-  imageUrl?: string | null;
 }): Promise<void> {
   const cfg = getSpreadsheetConfig();
   const key = input.sku || input.description;

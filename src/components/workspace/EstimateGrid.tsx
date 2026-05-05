@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Copy, Info, Layers3, Sparkles, Trash2 } from 'lucide-react';
-import { PricingMode, RoomRecord, TakeoffLineModifierRollup, TakeoffLineRecord, isMaterialOnlyMainBid } from '../../shared/types/estimator';
+import { LineModifierRecord, PricingMode, RoomRecord, TakeoffLineModifierRollup, TakeoffLineRecord, isMaterialOnlyMainBid } from '../../shared/types/estimator';
 import { formatClientProposalItemDisplay } from '../../shared/utils/proposalDocument';
 import { formatCurrencySafe, formatLaborDurationMinutes, formatNumberSafe } from '../../utils/numberFormat';
 import { api } from '../../services/api';
@@ -1127,27 +1127,6 @@ export function EstimateGrid({
                 const isBundleStart = organizeBy === 'room' && !!row.bundleId && (index === 0 || previousBundleId !== row.bundleId);
                 const isBundleCollapsed = organizeBy === 'room' && !!row.bundleId && !!collapsedBundles[row.bundleId];
                 const showLine = organizeBy === 'item' || !row.bundleId || !isBundleCollapsed || isBundleStart;
-
-        {groupedRows.length === 0 ? (
-          <div className="px-3 py-12 text-center">
-            <div className="mx-auto max-w-md rounded-xl border border-dashed border-slate-200 bg-slate-50 px-5 py-6">
-              <p className="text-xs font-semibold text-slate-500">{isTakeoffView ? 'Takeoff Workspace' : 'Estimate Workspace'}</p>
-              <p className="mt-2 text-base font-semibold text-slate-900">No lines in this view</p>
-              <p className="mt-1 text-sm leading-5 text-slate-500">Use the Add Items panel to insert catalog items, apply a bundle, or create a manual line for the active room.</p>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-2 p-2">
-            {groupedRows.map((group) => (
-              <section key={group.key} className="space-y-1.5">
-                <GroupedSectionHeader
-                  title={group.title}
-                  lineCount={group.rows.length}
-                  quantityTotal={group.quantityTotal}
-                  subtotal={group.subtotal}
-                  unresolvedCount={group.unresolvedCount}
-                  tone={isTakeoffView ? 'takeoff' : 'estimate'}
-                />
 
                 const currentCategory = String(row.category || '').trim() || 'Uncategorized';
                 const previousCategory = index > 0 ? (String(displayRows[index - 1].category || '').trim() || 'Uncategorized') : null;

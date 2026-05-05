@@ -13,6 +13,7 @@ import { extractDocumentWithGemini } from '../geminiExtractionService.ts';
 import { intakeAsText, normalizeComparableText } from '../metadataExtractorService.ts';
 import { EMPTY_SECTION_CONTEXT, inferCategoryFromText, normalizeExtractedCategory, parseSectionHeaderText, type SectionContext } from '../rowClassifierService.ts';
 import { evaluateInstallability } from './installabilityRules.ts';
+import { expandBundleLines } from './bundleRowExpander.ts';
 import {
   compactDescription,
   extractManufacturerModelFinish,
@@ -255,7 +256,7 @@ export async function normalizePdfChunks(input: {
   mimeType: string;
   chunks: PdfChunk[];
 }): Promise<NormalizedIntakeItem[]> {
-  const deterministicItems = normalizePdfLinesDeterministically(input);
+  const deterministicItems = expandBundleLines(normalizePdfLinesDeterministically(input));
   const llmChunks = input.chunks.slice(0, PDF_LLM_CHUNK_LIMIT);
   const detWindowItems = normalizePdfLinesDeterministically({ fileName: input.fileName, chunks: llmChunks });
   const llmEnabled = String(process.env.UPLOAD_LLM_NORMALIZATION || 'true').toLowerCase() !== 'false';
@@ -347,7 +348,7 @@ export async function normalizePdfChunks(input: {
     windowCount >= 3 && llmCount > Math.max(72, windowCount * 2);
 
   if (inflatedLlm || llmMuchRicherThanSameWindow) {
-    const strictItems = normalizePdfLinesDeterministically(input, { scopeRowFilter: 'strict' });
+    const strictItems = expandBundleLines(normalizePdfLinesDeterministically(input, { scopeRowFilter: 'strict' }));
     if (strictItems.length > 0) {
       return strictItems;
     }

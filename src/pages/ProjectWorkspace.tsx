@@ -1,5 +1,6 @@
 ﻿import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import {
   ChevronDown,
   Download,
@@ -13,6 +14,7 @@ import { api } from '../services/api';
 import {
   BundleRecord,
   InstallReviewEmailDraft,
+  LineModifierRecord,
   ModifierRecord,
   PricingMode,
   ProjectFileRecord,
@@ -24,7 +26,9 @@ import {
   isMaterialOnlyMainBid,
 } from '../shared/types/estimator';
 import { CatalogItem } from '../types';
-import { createDefaultProjectJobConditions, normalizeProjectJobConditions, recommendDeliveryPlan } from '../shared/utils/jobConditions';
+import { createDefaultProjectJobConditions, normalizeProjectJobConditions, recommendDeliveryPlan, recommendedPhasedWorkMultiplier } from '../shared/utils/jobConditions';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import {
   DEFAULT_PROPOSAL_ACCEPTANCE_LABEL,
   DEFAULT_PROPOSAL_CLARIFICATIONS,
@@ -75,11 +79,14 @@ import { OverviewPage } from './project/OverviewPage';
 import { SetupPage } from './project/SetupPage';
 import { ScopeReviewPage } from './project/ScopeReviewPage';
 import { HandoffSummary } from '../components/workflow/HandoffSummary';
+import { ActionFeedbackBanner } from '../components/feedback/ActionFeedbackBanner';
 import { formatCurrencySafe, formatLaborDurationMinutes, formatNumberSafe } from '../utils/numberFormat';
 import { getDistanceInMiles } from '../utils/geo';
 import { catalogItemMatchesQuery } from '../shared/utils/catalogItemSearch';
 import { CatalogCategorySelect } from '../components/intake/CatalogCategorySelect';
 import { useTransientNumericField } from '../hooks/useTransientNumericField';
+import { buildProposalScheduleSections, splitProposalTextLines } from '../shared/utils/proposalDocument';
+import { calculateWorkDuration, formatWorkWeeksLabel } from '../shared/utils/workDuration';
 
 interface Summary {
   materialSubtotal: number;
@@ -89,6 +96,7 @@ interface Summary {
   totalLaborMinutes?: number;
   totalLaborHours: number;
   durationDays: number;
+  durationWeeks?: number;
   lineSubtotal: number;
   conditionAdjustmentAmount: number;
   conditionLaborMultiplier: number;
@@ -155,7 +163,7 @@ export function ProjectWorkspace() {
   const [rooms, setRooms] = useState<RoomRecord[]>([]);
   const [lines, setLines] = useState<TakeoffLineRecord[]>([]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
-  const [summary, setSummary] = useState<EstimateSummary | null>(null);
+  const [summary, setSummary] = useState<Summary | null>(null);
   const [settings, setSettings] = useState<SettingsRecord | null>(null);
   const [modifiers, setModifiers] = useState<ModifierRecord[]>([]);
   const [bundles, setBundles] = useState<BundleRecord[]>([]);
@@ -197,6 +205,13 @@ export function ProjectWorkspace() {
   const [healthStripFocus, setHealthStripFocus] = useState<EstimateHealthFocus | null>(null);
   const [pricingOrganizeMode, setPricingOrganizeMode] = useState<'rooms' | 'categories'>('rooms');
   const [pricingCategoryFilter, setPricingCategoryFilter] = useState<string>(PRICING_ALL_CATEGORIES);
+
+  const [estimateEditorOpen, setEstimateEditorOpen] = useState(false);
+  const [workspaceScopeMode, setWorkspaceScopeMode] = useState<'all' | 'active_room'>('all');
+  const [takeoffSearch, setTakeoffSearch] = useState('');
+  const [takeoffMatchStatus, setTakeoffMatchStatus] = useState<'all' | 'matched' | 'unmatched'>('all');
+  const [takeoffUnresolvedOnly, setTakeoffUnresolvedOnly] = useState(false);
+  const [estimateSearch, setEstimateSearch] = useState('');
 
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [bundleModalOpen, setBundleModalOpen] = useState(false);
@@ -1209,6 +1224,10 @@ export function ProjectWorkspace() {
     if (!container) return;
 
     const proposalSettings = ensureProposalDefaults(settings);
+    const getProposalFileStem = () => {
+      const base = [project.projectNumber, project.projectName].filter(Boolean).join(' - ').trim();
+      return base.replace(/[\\/:*?"<>|]+/g, '').slice(0, 120) || `proposal-${project.id}`;
+    };
     const doc = new jsPDF({ unit: 'pt', format: 'letter' });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
@@ -1234,6 +1253,7 @@ export function ProjectWorkspace() {
     const companyAddress = proposalSettings.companyAddress || '';
     const companyPhone = proposalSettings.companyPhone || '';
     const companyEmail = proposalSettings.companyEmail || '';
+    const companyWebsite = '';
     const clientName = project.clientName || 'Client';
     const writeSectionTitle = (title: string, top: number) => {
       doc.setFont('helvetica', 'bold');
@@ -2069,6 +2089,7 @@ export function ProjectWorkspace() {
     <div className="min-h-full">
       <ProjectHeader
         project={project}
+        sectionLabel={activeTab}
         baseBidTotal={summary?.baseBidTotal || 0}
         totalLaborHours={summary?.totalLaborHours || 0}
         scopeLineCount={lines.length}
@@ -2512,7 +2533,6 @@ export function ProjectWorkspace() {
                         )}
                   </div>
                 </div>
-              </section>
 
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-[var(--line)] pt-1.5 text-[11px] text-[var(--text)]">
                   <span className="inline-flex items-center gap-1 rounded-md bg-[var(--surface-soft)] px-2 py-1 font-medium ring-1 ring-[color-mix(in_srgb,var(--line)_65%,white)]">
@@ -2575,7 +2595,6 @@ export function ProjectWorkspace() {
                   ) : null}
                 </div>
               </div>
-            </div>
 
               {estimateBulkActionBar}
 

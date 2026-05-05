@@ -516,22 +516,22 @@ export function initEstimatorSchema(db: Database) {
     db.exec("ALTER TABLE settings_v1 ADD COLUMN proposal_clarifications TEXT NOT NULL DEFAULT ''");
   }
 
-  const takeoffColumns = estimatorDb.prepare("PRAGMA table_info(takeoff_lines_v1)").all() as Array<{ name: string }>;
+  const takeoffColumns = db.prepare("PRAGMA table_info(takeoff_lines_v1)").all() as Array<{ name: string }>;
   const hasProposalVisibility = takeoffColumns.some((column) => column.name === 'proposal_visibility');
   if (!hasProposalVisibility) {
-    estimatorDb.exec("ALTER TABLE takeoff_lines_v1 ADD COLUMN proposal_visibility TEXT NOT NULL DEFAULT 'customer_visible'");
+    db.exec("ALTER TABLE takeoff_lines_v1 ADD COLUMN proposal_visibility TEXT NOT NULL DEFAULT 'customer_visible'");
   }
   const hasProposalDescriptionOverride = takeoffColumns.some((column) => column.name === 'proposal_description_override');
   if (!hasProposalDescriptionOverride) {
-    estimatorDb.exec('ALTER TABLE takeoff_lines_v1 ADD COLUMN proposal_description_override TEXT');
+    db.exec('ALTER TABLE takeoff_lines_v1 ADD COLUMN proposal_description_override TEXT');
   }
   const hasParentEstimateLineId = takeoffColumns.some((column) => column.name === 'parent_estimate_line_id');
   if (!hasParentEstimateLineId) {
-    estimatorDb.exec('ALTER TABLE takeoff_lines_v1 ADD COLUMN parent_estimate_line_id TEXT');
+    db.exec('ALTER TABLE takeoff_lines_v1 ADD COLUMN parent_estimate_line_id TEXT');
   }
   const hasSourceLineType = takeoffColumns.some((column) => column.name === 'source_line_type');
   if (!hasSourceLineType) {
-    estimatorDb.exec("ALTER TABLE takeoff_lines_v1 ADD COLUMN source_line_type TEXT NOT NULL DEFAULT 'catalog_item'");
+    db.exec("ALTER TABLE takeoff_lines_v1 ADD COLUMN source_line_type TEXT NOT NULL DEFAULT 'catalog_item'");
   }
 
   const hasProposalAcceptanceLabel = settingsColumns.some((column) => column.name === 'proposal_acceptance_label');
@@ -552,8 +552,6 @@ export function initEstimatorSchema(db: Database) {
   if (!settingsColsAutomation2.some((column) => column.name === 'intake_catalog_tier_a_min_score')) {
     db.exec('ALTER TABLE settings_v1 ADD COLUMN intake_catalog_tier_a_min_score REAL NOT NULL DEFAULT 0.82');
   }
-
-  const takeoffColumns = db.prepare("PRAGMA table_info(takeoff_lines_v1)").all() as Array<{ name: string }>;
 
   const projectColumns = db.prepare("PRAGMA table_info(projects_v1)").all() as Array<{ name: string }>;
   const ensureProjectColumn = (name: string, ddl: string) => {

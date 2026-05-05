@@ -87,6 +87,13 @@ function mapProjectRow(row: any): ProjectRecord {
   }
 
   const structuredAssumptions = parseStructuredAssumptionsJson(row.structured_assumptions_json);
+  let preferredBrands: string[] = [];
+  try {
+    const parsed = JSON.parse(row.preferred_brands_json || '[]');
+    preferredBrands = Array.isArray(parsed) ? parsed.map((e) => String(e || '').trim()).filter(Boolean) : [];
+  } catch {
+    preferredBrands = [];
+  }
 
   return {
     id: row.id,
@@ -119,6 +126,7 @@ function mapProjectRow(row: any): ProjectRecord {
     taxPercent: row.tax_percent,
     pricingMode: normalizePricingMode(row.pricing_mode),
     selectedScopeCategories,
+    preferredBrands,
     jobConditions: { ...parsedJobConditions, locationLabelSource: (row.location_label_source === 'auto' ? 'auto' : 'manual') },
     status: row.status,
     notes: row.notes,
@@ -270,6 +278,9 @@ export function createProject(input: Partial<ProjectRecord>): ProjectRecord {
     selectedScopeCategories: Array.isArray(input.selectedScopeCategories)
       ? input.selectedScopeCategories.map((entry) => String(entry || '').trim()).filter(Boolean)
       : [],
+    preferredBrands: Array.isArray(input.preferredBrands)
+      ? input.preferredBrands.map((entry) => String(entry || '').trim()).filter(Boolean)
+      : [],
     jobConditions: normalizeProjectJobConditions({
       ...(input.jobConditions || {}),
       locationLabel: (input.jobConditions as any)?.locationLabel || (locationAuto ? locationAuto.locationLabel : ''),
@@ -293,9 +304,9 @@ export function createProject(input: Partial<ProjectRecord>): ProjectRecord {
       project_size, floor_level, access_difficulty, install_height, material_handling, wall_substrate,
       labor_burden_percent, overhead_percent, profit_percent, labor_overhead_percent, labor_profit_percent,
       sub_labor_management_fee_enabled, sub_labor_management_fee_percent,
-      tax_percent, pricing_mode, scope_categories_json, job_conditions_json, status, notes, special_notes, proposal_include_special_notes, proposal_include_catalog_images, proposal_format,
+      tax_percent, pricing_mode, scope_categories_json, preferred_brands_json, job_conditions_json, status, notes, special_notes, proposal_include_special_notes, proposal_include_catalog_images, proposal_format,
       structured_assumptions_json, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     project.id,
     project.projectNumber,
@@ -499,7 +510,7 @@ export function updateProject(projectId: string, input: Partial<ProjectRecord>):
       material_handling = ?, wall_substrate = ?, labor_burden_percent = ?, overhead_percent = ?,
       profit_percent = ?, labor_overhead_percent = ?, labor_profit_percent = ?,
       sub_labor_management_fee_enabled = ?, sub_labor_management_fee_percent = ?,
-      tax_percent = ?, pricing_mode = ?, scope_categories_json = ?, job_conditions_json = ?, status = ?, notes = ?, special_notes = ?, proposal_include_special_notes = ?, proposal_include_catalog_images = ?, proposal_format = ?,
+      tax_percent = ?, pricing_mode = ?, scope_categories_json = ?, preferred_brands_json = ?, job_conditions_json = ?, status = ?, notes = ?, special_notes = ?, proposal_include_special_notes = ?, proposal_include_catalog_images = ?, proposal_format = ?,
       structured_assumptions_json = ?, updated_at = ?
     WHERE id = ?
   `).run(

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, ChevronDown, FileUp, FolderInput, Info, PlusCircle, Save, Search, Upload, WandSparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -53,6 +53,10 @@ import {
 } from '../shared/utils/intakeEstimateReview';
 import { IntakeEstimateReviewPanel } from '../components/intake/IntakeEstimateReviewPanel';
 import { IntakeFieldBadge, IntakeFieldLegend } from '../components/intake/IntakeFieldChrome';
+import { ValidationSummaryBanner } from '../components/intake/ValidationSummaryBanner';
+import { BeautifiedLineHeader } from '../components/intake/BeautifiedLineHeader';
+import { ActionFeedbackBanner } from '../components/feedback/ActionFeedbackBanner';
+import { ImportTemplateCallout } from '../components/intake/ImportTemplateCallout';
 import { createInitialProjectDraft, newIntakeProjectDraftId } from './intake/projectIntakeDraft';
 import { generateBidPackageNumberPreview, isBlankOrPlaceholderBidNumber } from '../shared/utils/bidPackageNumber';
 import { normalizeProjectSizeSelectValue, PROJECT_JOB_SIZE_OPTIONS } from '../shared/utils/projectJobSizeTiers';
@@ -835,7 +839,11 @@ function geminiLinesToParsedRows(lines: GeminiIntakeLine[], sourceReference: str
   }));
 }
 
-function suggestCatalogMatch(input: { itemName?: string; category?: string | null; description?: string; rawText?: string }, catalog: CatalogItem[]): CatalogItem | null {
+function suggestCatalogMatch(
+  input: { itemName?: string; category?: string | null; description?: string; rawText?: string; manufacturer?: string | null },
+  catalog: CatalogItem[],
+  preferredBrands: string[] = []
+): CatalogItem | null {
   const canonicalCatalog = catalog.filter((c) => !c.deprecated && c.isCanonical !== false);
   const itemName = String(input.itemName || '').trim();
   const category = String(input.category || '').trim();
@@ -1123,98 +1131,6 @@ function sumReviewLineQuantity(lines: Array<{ qty?: number | null; quantity?: nu
   return Number(lines.reduce((total, line) => total + Number(line.qty ?? line.quantity ?? 0), 0).toFixed(2));
 }
 
-function normalizeWarningGroupKey(warning: string): string {
-  const value = String(warning || '').trim();
-  if (!value) return 'other';
-  const normalized = value.toLowerCase();
-  if (normalized.includes('could not be matched to the catalog') || normalized.includes('no catalog match identified')) return 'catalog-match-missing';
-  if (normalized.includes('uncertain catalog match')) return 'catalog-match-uncertain';
-  if (normalized.includes('catalog coverage may be missing')) return 'catalog-coverage-gap';
-  if (normalized.includes('category could not be confidently inferred')) return 'category-inference';
-  if (normalized.includes('possible room header')) return 'room-header';
-  if (normalized.includes('ignored totals or summary rows')) return 'totals-rows';
-  if (normalized.includes('duplicate')) return 'duplicates';
-  if (normalized.includes('manual template')) return 'manual-template';
-  return normalized
-    .replace(/inventory list:\d+/g, 'inventory list:#')
-    .replace(/row\s+\d+/g, 'row #')
-    .replace(/page\s+\d+/g, 'page #')
-    .replace(/"[^"]+"/g, '"header"');
-}
-
-function describeWarningGroup(key: string, examples: string[]): Pick<WarningGroupSummary, 'label' | 'tone'> {
-  if (key === 'catalog-match-missing') return { label: 'Missing catalog matches', tone: 'danger' };
-  if (key === 'catalog-match-uncertain') return { label: 'Uncertain catalog matches', tone: 'warning' };
-  if (key === 'catalog-coverage-gap') return { label: 'Catalog coverage gaps', tone: 'warning' };
-  if (key === 'category-inference') return { label: 'Category review needed', tone: 'warning' };
-  if (key === 'room-header') return { label: 'Possible room-header false positives', tone: 'info' };
-  if (key === 'totals-rows') return { label: 'Totals rows ignored', tone: 'info' };
-  if (key === 'duplicates') return { label: 'Possible duplicate lines', tone: 'warning' };
-  if (key === 'manual-template') return { label: 'Manual template fallback', tone: 'danger' };
-  return { label: examples[0] || 'Other warnings', tone: 'info' };
-}
-
-function buildWarningGroupSummaries(input: {
-  intakeWarnings: string[];
-  validationWarnings: string[];
-  parseWarnings: string[];
-}): WarningGroupSummary[] {
-  const grouped = new Map<string, { count: number; examples: string[] }>();
-  [...input.intakeWarnings, ...input.validationWarnings, ...input.parseWarnings]
-    .filter(Boolean)
-    .forEach((warning) => {
-      const key = normalizeWarningGroupKey(warning);
-      const current = grouped.get(key) || { count: 0, examples: [] };
-      current.count += 1;
-      if (!current.examples.includes(warning) && current.examples.length < 3) current.examples.push(warning);
-      grouped.set(key, current);
-    });
-
-  return Array.from(grouped.entries())
-    .map(([key, value]) => ({
-      key,
-      count: value.count,
-      examples: value.examples,
-      ...describeWarningGroup(key, value.examples),
-    }))
-    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
-}
-
-function buildParserReviewSummary(result: IntakeParseResult): ParserReviewSummary {
-  return {
-    status: result.status || null,
-    fileType: result.fileType || null,
-    overallConfidence: result.confidence?.overallConfidence ?? null,
-    recommendedAction: result.confidence?.recommendedAction || null,
-    parserStrategy: result.diagnostics?.parseStrategy || null,
-    validationErrors: result.validation?.errors || [],
-    validationWarnings: result.validation?.warnings || [],
-    parseWarnings: result.parseWarnings || [],
-    sourceSummary: result.sourceSummary || null,
-  };
-}
-
-function formatConfidencePercent(value: number | null | undefined): string {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return 'n/a';
-  return `${Math.round(value * 100)}%`;
-}
-
-function formatRecommendedAction(action: string | null | undefined): string {
-  if (!action) return 'Unknown';
-  if (action === 'auto-import') return 'Auto-import';
-  if (action === 'review-before-import') return 'Review before import';
-  if (action === 'manual-template') return 'Manual template';
-  return action;
-}
-
-function formatParserStrategy(value: string | null | undefined): string {
-  return value ? value.replace(/-/g, ' ') : 'Unknown';
-}
-
-function sumReviewLineQuantity(lines: Array<{ qty?: number | null; quantity?: number | null }>): number {
-  return Number(lines.reduce((total, line) => total + Number(line.qty ?? line.quantity ?? 0), 0).toFixed(2));
-}
-
 function mergeDistinctText(base: string | null | undefined, additions: Array<string | null | undefined>): string {
   const parts = [String(base || '').trim(), ...additions.map((value) => String(value || '').trim())]
     .filter(Boolean);
@@ -1225,6 +1141,11 @@ function summarizeAssumptions(result: IntakeParseResult): string {
   const assumptions = result.projectMetadata.assumptions || [];
   return assumptions.map((assumption) => assumption.text).filter(Boolean).join('\n');
 }
+
+type ValidationMessage = {
+  text: string;
+  targetId?: string;
+};
 
 export function ProjectIntake() {
   const navigate = useNavigate();
@@ -1265,7 +1186,29 @@ export function ProjectIntake() {
   const [validationMessages, setValidationMessages] = useState<ValidationMessage[]>([]);
   const [actionFeedback, setActionFeedback] = useState<{ tone: 'success' | 'error' | 'info' | 'warning'; message: string } | null>(null);
 
+  const reportValidation = useCallback((items: Array<{ text: string; targetId?: string | null }>) => {
+    setValidationMessages(items.map((item) => ({ text: item.text, targetId: item.targetId || undefined })));
+  }, []);
+
+  const targetIdForChecklistEntry = useCallback((entry: string): string | undefined => {
+    const key = String(entry || '').trim().toLowerCase();
+    if (key.includes('project name')) return 'project-name';
+    if (key.includes('client')) return 'client-name';
+    if (key.includes('site address')) return 'site-address';
+    if (key.includes('bid due')) return 'bid-due-date';
+    if (key.includes('price mode')) return 'pricing-mode';
+    if (key.includes('scope category')) return 'scope-categories';
+    return undefined;
+  }, []);
+
+  const handleValidationSelect = useCallback((targetId?: string) => {
+    if (!targetId) return;
+    const el = document.getElementById(targetId);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, []);
+
   const [projectDraft, setProjectDraft] = useState<Partial<ProjectRecord>>(() => createInitialProjectDraft());
+  const preferredBrands = useMemo(() => projectDraft.preferredBrands || [], [projectDraft.preferredBrands]);
   const [distanceCalculating, setDistanceCalculating] = useState(false);
   const [distanceError, setDistanceError] = useState<string | null>(null);
   const [distanceMessage, setDistanceMessage] = useState('No calculated distance yet.');
@@ -1289,6 +1232,37 @@ export function ProjectIntake() {
   const [reviewSearch, setReviewSearch] = useState('');
   const [reviewDensity, setReviewDensity] = useState<'comfortable' | 'compact'>('comfortable');
   const [selectedReviewLineId, setSelectedReviewLineId] = useState<string | null>(null);
+  const [catalogPickerLineId, setCatalogPickerLineId] = useState<string | null>(null);
+
+  const filteredReviewSuggestions = useMemo(() => {
+    const q = reviewSearch.trim().toLowerCase();
+    return lineSuggestions
+      .filter((line) => {
+        if (reviewFilter === 'matched') return line.matched;
+        if (reviewFilter === 'needs-match') return !line.matched;
+        if (reviewFilter === 'ignored') return !line.include;
+        return true;
+      })
+      .filter((line) => {
+        if (!q) return true;
+        const hay = [
+          line.roomName,
+          line.itemName,
+          line.description,
+          line.category,
+          line.sku,
+          line.sourceReference,
+        ]
+          .map((v) => String(v || '').toLowerCase())
+          .join(' ');
+        return hay.includes(q);
+      });
+  }, [lineSuggestions, reviewFilter, reviewSearch]);
+
+  const selectedReviewIndex = useMemo(() => {
+    if (!selectedReviewLineId) return -1;
+    return filteredReviewSuggestions.findIndex((line) => line.id === selectedReviewLineId);
+  }, [filteredReviewSuggestions, selectedReviewLineId]);
 
   useEffect(() => {
     if (!userEmail) return;
@@ -3026,12 +3000,6 @@ function applyRoomToVisible(roomName: string) {
     setStep(3);
   }
 
-  function applyManualTemplateFallback() {
-    setMode('template');
-    loadTemplateDefaults();
-    setStep(3);
-  }
-
   async function prepareModeData(): Promise<boolean> {
     if (mode === 'blank') {
       loadBlankDefaults();
@@ -4326,50 +4294,55 @@ function applyRoomToVisible(roomName: string) {
                 </div>
 
               <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-2">
-                <button type="button" onClick={() => setStep(step === 3 ? 2 : 3)} className="ui-btn-secondary">Back</button>
-                <button type="button" onClick={() => (step === 3 ? proceedToPricingSetup() : proceedToReviewItems())} className="ui-btn-primary h-9 px-4">
+                <button type="button" onClick={() => setStep(step === 3 ? 2 : 3)} className="ui-btn-secondary">
+                  Back
+                </button>
+                <button
+                  type="button"
+                  onClick={() => (step === 3 ? proceedToPricingSetup() : proceedToReviewItems())}
+                  className="ui-btn-primary h-9 px-4"
+                >
                   {step === 3 ? 'Continue to estimate setup' : 'Continue to review'}
                 </button>
               </div>
-
-              <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-2">
-                <button onClick={() => setStep(step === 3 ? 2 : 3)} className="ui-btn-secondary">Back</button>
-                <button onClick={() => (step === 3 ? proceedToPricingSetup() : proceedToReviewItems())} className="ui-btn-primary h-9 px-4">
-                  {step === 3 ? 'Continue to Pricing' : 'Continue to Review'}
-                </button>
-              </div>
             </div>
+          </div>
           )}
 
           {step === 5 && (
             <>
-          {parserReviewSummary ? (
-            <div className={`rounded-[28px] border p-5 shadow-sm ${
-              parserReviewSummary.recommendedAction === 'auto-import'
-                ? 'border-emerald-200 bg-emerald-50/80'
-                : parserReviewSummary.recommendedAction === 'manual-template'
-                  ? 'border-red-200 bg-red-50/80'
-                  : 'border-amber-200 bg-amber-50/80'
-            }`}>
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">Parser Review</p>
-                  <h3 className="mt-1 text-lg font-semibold text-slate-950">{formatRecommendedAction(parserReviewSummary.recommendedAction)}</h3>
-                  <p className="mt-2 text-sm text-slate-700">
-                    Strategy: <span className="font-medium">{formatParserStrategy(parserReviewSummary.parserStrategy)}</span>
-                    {' · '}
-                    Confidence: <span className="font-medium">{formatConfidencePercent(parserReviewSummary.overallConfidence)}</span>
-                    {' · '}
-                    File type: <span className="font-medium uppercase">{parserReviewSummary.fileType || 'unknown'}</span>
-                  </p>
-                </div>
+              {parserReviewSummary ? (
+                <div
+                  className={`rounded-[28px] border p-5 shadow-sm ${
+                    parserReviewSummary.recommendedAction === 'auto-import'
+                      ? 'border-emerald-200 bg-emerald-50/80'
+                      : parserReviewSummary.recommendedAction === 'manual-template'
+                        ? 'border-red-200 bg-red-50/80'
+                        : 'border-amber-200 bg-amber-50/80'
+                  }`}
+                >
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">Parser Review</p>
+                      <h3 className="mt-1 text-lg font-semibold text-slate-950">{formatRecommendedAction(parserReviewSummary.recommendedAction)}</h3>
+                      <p className="mt-2 text-sm text-slate-700">
+                        Strategy: <span className="font-medium">{formatParserStrategy(parserReviewSummary.parserStrategy)}</span>
+                        {' · '}
+                        Confidence: <span className="font-medium">{formatConfidencePercent(parserReviewSummary.overallConfidence)}</span>
+                        {' · '}
+                        File type: <span className="font-medium uppercase">{parserReviewSummary.fileType || 'unknown'}</span>
+                      </p>
+                    </div>
 
-                {parserReviewSummary.recommendedAction === 'manual-template' ? (
-                  <button onClick={applyManualTemplateFallback} className="inline-flex h-10 items-center rounded-full bg-red-600 px-4 text-[11px] font-semibold text-white hover:bg-red-700">
-                    Use Manual Template
-                  </button>
-                ) : null}
-              </div>
+                    {parserReviewSummary.recommendedAction === 'manual-template' ? (
+                      <button
+                        onClick={applyManualTemplateFallback}
+                        className="inline-flex h-10 items-center rounded-full bg-red-600 px-4 text-[11px] font-semibold text-white hover:bg-red-700"
+                      >
+                        Use Manual Template
+                      </button>
+                    ) : null}
+                  </div>
 
               <div className="mt-4 grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
@@ -4570,10 +4543,8 @@ function applyRoomToVisible(roomName: string) {
                 </tbody>
               </table>
             </div>
-          )}
+          </div>
 
-          {step === 5 && (
-            <>
           {parserReviewSummary && parserReviewDisplayConfidence ? (
             <div
               className={`rounded-xl border p-4 shadow-sm ${
@@ -5043,8 +5014,6 @@ function applyRoomToVisible(roomName: string) {
               </div>
             </div>
           </div>
-            </div>
-          </details>
 
           <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-3 rounded-2xl border border-slate-200/70 bg-white p-4 shadow-md sticky bottom-3 z-10">
             <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">

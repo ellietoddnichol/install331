@@ -308,6 +308,18 @@ export interface TakeoffLineRecord {
   updatedAt: string;
 }
 
+export type ProposalVisibility = 'customer_visible' | 'internal_only';
+
+export type EstimateSourceLineType =
+  | 'catalog_item'
+  | 'source_line'
+  | 'bundle_child'
+  | 'manual'
+  | 'quote_subtotal'
+  | 'add_in'
+  | 'expanded_parent'
+  | 'expanded_child';
+
 export interface ModifierRecord {
   id: string;
   name: string;
@@ -391,6 +403,7 @@ export interface EstimateSummary {
   totalLaborMinutes: number;
   totalLaborHours: number;
   durationDays: number;
+  durationWeeks: number;
   lineSubtotal: number;
   conditionAdjustmentAmount: number;
   conditionLaborMultiplier: number;
@@ -425,6 +438,7 @@ export interface EstimateSummary {
   installerFieldSuppliesAmount: number;
   /** Always zero; legacy field. */
   laborLearningCurveAllowanceAmount: number;
+  crewRecommendation?: CrewRecommendationResult;
 }
 
 export interface InstallReviewEmailDraft {
@@ -437,6 +451,7 @@ export interface InstallReviewEmailDraft {
     crewSize?: number | null;
     estimatedHours?: number | null;
     estimatedDays?: number | null;
+    estimatedWeeks?: number | null;
     materialTotal: number;
     laborTotal: number;
     proposalTotal: number;
@@ -474,44 +489,6 @@ export interface CrewRecommendationResult {
   durationWarning: string | null;
   targetMaxFieldDays: number;
   complexityTier: 'small' | 'medium' | 'large';
-}
-
-export interface EstimateSummary {
-  materialSubtotal: number;
-  laborSubtotal: number;
-  adjustedLaborSubtotal: number;
-  totalLaborHours: number;
-  durationDays: number;
-  durationWeeks: number;
-  lineSubtotal: number;
-  conditionAdjustmentAmount: number;
-  conditionLaborMultiplier: number;
-  conditionLaborHoursMultiplier: number;
-  burdenAmount: number;
-  overheadAmount: number;
-  profitAmount: number;
-  taxAmount: number;
-  baseBidTotal: number;
-  conditionAssumptions: string[];
-  projectConditions: ProjectConditions;
-  crewRecommendation?: CrewRecommendationResult;
-}
-
-export interface InstallReviewEmailDraft {
-  subject: string;
-  body: string;
-  summary: {
-    projectName: string;
-    location?: string | null;
-    crewSize?: number | null;
-    estimatedHours?: number | null;
-    estimatedDays?: number | null;
-    estimatedWeeks?: number | null;
-    materialTotal: number;
-    laborTotal: number;
-    proposalTotal: number;
-    projectConditions: string[];
-  };
 }
 
 export interface CatalogSyncStatusRecord {

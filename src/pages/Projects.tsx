@@ -107,7 +107,6 @@ export function Projects() {
   }
 
   function goNewProject() {
-    fireCatalogSyncForNewWork();
     navigate('/project/new');
   }
 
