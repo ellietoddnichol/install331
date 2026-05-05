@@ -51,7 +51,12 @@ async function startServer() {
 
   app.use(expressErrorHandler);
 
-  if (process.env.NODE_ENV !== 'production') {
+  // Cloud Run injects K_SERVICE / K_REVISION; treat that as authoritative production runtime.
+  // This prevents accidentally booting Vite middleware (which blocks unknown hosts) in Cloud Run.
+  const runningOnCloudRun = Boolean(process.env.K_SERVICE);
+  const isProdRuntime = runningOnCloudRun || process.env.NODE_ENV === 'production';
+
+  if (!isProdRuntime) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
