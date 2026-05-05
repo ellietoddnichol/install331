@@ -53,7 +53,7 @@ async function startServer() {
 
   // Cloud Run injects K_SERVICE / K_REVISION; treat that as authoritative production runtime.
   // This prevents accidentally booting Vite middleware (which blocks unknown hosts) in Cloud Run.
-  const runningOnCloudRun = Boolean(process.env.K_SERVICE);
+  const runningOnCloudRun = Boolean(process.env.K_SERVICE || process.env.K_REVISION);
   const isProdRuntime = runningOnCloudRun || process.env.NODE_ENV === 'production';
 
   if (!isProdRuntime) {

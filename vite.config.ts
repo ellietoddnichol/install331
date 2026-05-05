@@ -24,12 +24,16 @@ export default defineConfig(({mode}) => {
       },
     },
     server: {
+      // Cloud Run and local proxies send a non-local Host; Vite blocks those hosts by default.
+      // `.run.app` matches every default Cloud Run URL (service-hash.region.run.app).
+      allowedHosts: ['.run.app', 'localhost', '.localhost'],
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
+      // Do not modify: file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       proxy: apiProxy,
     },
     preview: {
+      allowedHosts: ['.run.app', 'localhost', '.localhost'],
       proxy: apiProxy,
     },
   };
