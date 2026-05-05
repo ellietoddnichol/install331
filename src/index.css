@@ -44,6 +44,10 @@
     --brand-soft: #eff6ff;
     --brand-deep: #0b2a6f;
 
+    /** Primary CTAs (`.ui-btn-*`, `bg-[var(--primary)]`) — was undefined, so buttons rendered white-on-white. */
+    --primary: var(--brand);
+    --primary-strong: var(--brand-strong);
+
     /* Accents (kept for charts/callouts, not primary UI) */
     --accent-teal: #0f766e;
     --accent-teal-soft: #e6fffb;

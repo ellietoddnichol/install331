@@ -44,6 +44,38 @@ function splitList(input: unknown): string[] {
     .filter(Boolean);
 }
 
+/** ITEMS tab: primary SKU column + optional Canonical_SKU (distinct headers only). Matches bundle/alias preflight universe. */
+const ITEM_SHEET_SKU_HEADER_ALIASES = [
+  'sku',
+  'item sku',
+  'item code',
+  'product sku',
+  'catalog sku',
+  'vendor item',
+  'vendor part',
+  'vendor sku',
+  'mfg item',
+  'style number',
+];
+
+function collectNormalizedItemSkusFromSheet(itemRows: string[][]): Set<string> {
+  const sheet = new Set<string>();
+  if (!itemRows || itemRows.length < 2) return sheet;
+  const headers = itemRows[0].map(normalizeHeader);
+  const skuCol = columnIndex(headers, ITEM_SHEET_SKU_HEADER_ALIASES);
+  const canonCol = columnIndex(headers, ['canonical sku', 'canonical_sku']);
+  for (let i = 1; i < itemRows.length; i += 1) {
+    const row = itemRows[i];
+    if (!row) continue;
+    for (const col of [skuCol, canonCol]) {
+      if (col === null) continue;
+      const n = normalizeSku(getCell(row, col));
+      if (n) sheet.add(n);
+    }
+  }
+  return sheet;
+}
+
 function createHashKey(parts: string[]): string {
   return parts.map((p) => p.trim().toLowerCase()).filter(Boolean).join('|');
 }
@@ -172,11 +204,17 @@ export async function preflightCatalogWorkbookSync(input: {
 
   const writeTable = getCatalogItemsWriteTableName();
   const modifiersRead = getCatalogModifiersReadTableName();
-  const dbSkus = await dbCatalogAll<{ sku: string }>(
-    `SELECT sku FROM ${writeTable} WHERE sku IS NOT NULL AND trim(sku) <> ''`,
+  const dbSkuRows = await dbCatalogAll<{ sku: string | null; canonical_sku: string | null }>(
+    `SELECT sku, canonical_sku FROM ${writeTable}`,
     []
   );
-  const dbSkuNorm = new Set(dbSkus.map((r) => normalizeSku(r.sku)).filter(Boolean));
+  const dbSkuNorm = new Set<string>();
+  for (const r of dbSkuRows) {
+    for (const raw of [r.sku, r.canonical_sku]) {
+      const n = normalizeSku(String(raw ?? ''));
+      if (n) dbSkuNorm.add(n);
+    }
+  }
   const dbModifierKeys = await dbCatalogAll<{ modifier_key: string }>(`SELECT modifier_key FROM ${modifiersRead}`, []);
 
   // --- Items: duplicate SKU conflicts + cell issues
@@ -407,18 +445,6 @@ export async function preflightCatalogWorkbookSync(input: {
   let bundleUnknownMod = 0;
   if (input.bundleRows && input.itemRows && input.bundleRows.length > 1 && input.itemRows.length > 1) {
     const itemHeaders = input.itemRows[0].map(normalizeHeader);
-    const skuCol = columnIndex(itemHeaders, [
-      'sku',
-      'item sku',
-      'item code',
-      'product sku',
-      'catalog sku',
-      'vendor item',
-      'vendor part',
-      'vendor sku',
-      'mfg item',
-      'style number',
-    ]);
     const itemKeyCol = columnIndex(itemHeaders, ['item id', 'itemid', 'item key', 'search key', 'search_key', 'key']);
     const categoryCol = columnIndex(itemHeaders, ['scope category', 'category', 'product category', 'commodity']);
     const descriptionCol = columnIndex(itemHeaders, [
@@ -430,14 +456,7 @@ export async function preflightCatalogWorkbookSync(input: {
     ]);
     const itemCol = columnIndex(itemHeaders, ['item', 'item name', 'itemname', 'product name', 'short description']);
 
-    const sheetSku = new Set<string>();
-    if (skuCol !== null) {
-      for (let i = 1; i < input.itemRows.length; i += 1) {
-        const s = getCell(input.itemRows[i], skuCol);
-        const n = normalizeSku(s);
-        if (n) sheetSku.add(n);
-      }
-    }
+    const sheetSku = collectNormalizedItemSkusFromSheet(input.itemRows);
     dbSkuNorm.forEach((s) => sheetSku.add(s));
 
     const modHeaders = input.modifierRows[0].map(normalizeHeader);
@@ -498,15 +517,7 @@ export async function preflightCatalogWorkbookSync(input: {
     const h = input.attributeRows[0].map(normalizeHeader);
     const canonCol = columnIndex(h, ['canonical_sku', 'canonical sku', 'sku']);
     if (canonCol != null) {
-      const itemHeaders = input.itemRows[0].map(normalizeHeader);
-      const skuCol = columnIndex(itemHeaders, ['sku', 'item sku', 'catalog sku']);
-      const sheet = new Set<string>();
-      if (skuCol != null) {
-        for (let i = 1; i < input.itemRows.length; i += 1) {
-          const n = normalizeSku(getCell(input.itemRows[i], skuCol));
-          if (n) sheet.add(n);
-        }
-      }
+      const sheet = collectNormalizedItemSkusFromSheet(input.itemRows);
       for (let i = 1; i < input.attributeRows.length; i += 1) {
         const sku = String(input.attributeRows[i][canonCol] ?? '').trim();
         if (!sku) continue;
@@ -524,15 +535,7 @@ export async function preflightCatalogWorkbookSync(input: {
     const h = input.aliasRows[0].map(normalizeHeader);
     const canonCol = columnIndex(h, ['canonical_sku', 'canonical sku', 'sku']);
     if (canonCol != null) {
-      const itemHeaders = input.itemRows[0].map(normalizeHeader);
-      const skuCol = columnIndex(itemHeaders, ['sku', 'item sku', 'catalog sku']);
-      const sheet = new Set<string>();
-      if (skuCol != null) {
-        for (let i = 1; i < input.itemRows.length; i += 1) {
-          const n = normalizeSku(getCell(input.itemRows[i], skuCol));
-          if (n) sheet.add(n);
-        }
-      }
+      const sheet = collectNormalizedItemSkusFromSheet(input.itemRows);
       for (let i = 1; i < input.aliasRows.length; i += 1) {
         const sku = String(input.aliasRows[i][canonCol] ?? '').trim();
         if (!sku) continue;

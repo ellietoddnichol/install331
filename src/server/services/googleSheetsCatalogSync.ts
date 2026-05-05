@@ -291,8 +291,9 @@ function splitList(input: unknown): string[] {
     .filter(Boolean);
 }
 
+/** Same as catalog `normalizeSku`: must match preflight + `catalog_items` duplicate logic. */
 function normalizeSkuToken(input: unknown): string {
-  return String(input ?? '').trim().toUpperCase().replace(/\s+/g, '');
+  return normalizeSku(input);
 }
 
 function normalizeModifierToken(input: unknown): string {
@@ -369,22 +370,29 @@ async function fetchTabOrNull(params: { sheets: ReturnType<typeof google.sheets>
   }
 }
 
-async function resolveCatalogItemIdFromCanonicalSku(
-  ex: DbExec,
-  writeTable: string,
-  canonicalSku: string
-): Promise<string | null> {
-  const sku = canonicalSku.trim();
-  if (!sku) return null;
-  const row = await ex.get<{ id: string }>(
-    `SELECT id
-     FROM ${writeTable}
-     WHERE lower(sku) = lower(?)
-        OR lower(COALESCE(canonical_sku, '')) = lower(?)
-     LIMIT 1`,
-    [sku, sku]
+/**
+ * Map `normalizeSku()` → first matching `catalog_items.id` (sku or canonical_sku column in DB).
+ * Matches workbook preflight and bundle `catalogBySku` resolution.
+ */
+async function buildSkuNormToIdMap(ex: DbExec, writeTable: string): Promise<Map<string, string>> {
+  const rows = await ex.all<{ id: string; sku: string | null; canonical_sku: string | null }>(
+    `SELECT id, sku, canonical_sku FROM ${writeTable}`,
+    []
   );
-  return row?.id || null;
+  const map = new Map<string, string>();
+  for (const r of rows) {
+    for (const raw of [r.sku, r.canonical_sku]) {
+      const k = normalizeSku(raw || '');
+      if (k && !map.has(k)) map.set(k, r.id);
+    }
+  }
+  return map;
+}
+
+function catalogItemIdForNormalizedSku(normToId: Map<string, string>, canonicalSku: string): string | null {
+  const k = normalizeSku(canonicalSku);
+  if (!k) return null;
+  return normToId.get(k) ?? null;
 }
 
 export async function upsertAliases(
@@ -408,6 +416,7 @@ export async function upsertAliases(
   }
 
   const now = new Date().toISOString();
+  const skuNormToId = await buildSkuNormToIdMap(ex, writeTable);
 
   let aliasesSynced = 0;
   for (let i = 1; i < rows.length; i += 1) {
@@ -420,7 +429,7 @@ export async function upsertAliases(
     if (!canonicalSku || !aliasType || !aliasValue) continue;
     if (!active) continue; // non-destructive: skip inactive rows; do not delete existing DB rows.
 
-    const catalogItemId = await resolveCatalogItemIdFromCanonicalSku(ex, writeTable, canonicalSku);
+    const catalogItemId = catalogItemIdForNormalizedSku(skuNormToId, canonicalSku);
     if (!catalogItemId) {
       warnings.push(`ALIASES: could not resolve Canonical_SKU "${canonicalSku}" to a catalog item id; row skipped.`);
       continue;
@@ -468,6 +477,7 @@ export async function upsertAttributes(
   }
 
   const now = new Date().toISOString();
+  const skuNormToId = await buildSkuNormToIdMap(ex, writeTable);
 
   let attributesSynced = 0;
   for (let i = 1; i < rows.length; i += 1) {
@@ -478,7 +488,7 @@ export async function upsertAttributes(
     const attributeValue = String(row[valueCol] ?? '').trim();
     if (!canonicalSku || !attributeType || !attributeValue) continue;
 
-    const catalogItemId = await resolveCatalogItemIdFromCanonicalSku(ex, writeTable, canonicalSku);
+    const catalogItemId = catalogItemIdForNormalizedSku(skuNormToId, canonicalSku);
     if (!catalogItemId) {
       warnings.push(`ATTRIBUTES: could not resolve Canonical_SKU "${canonicalSku}" to a catalog item id; row skipped.`);
       continue;
