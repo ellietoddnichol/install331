@@ -887,8 +887,19 @@ export function buildGoogleServiceAccountJwt(scopes: string[] = [...DEFAULT_GOOG
         process.platform !== 'win32' && process.env.K_SERVICE
           ? ' On Cloud Run, use a secret for GOOGLE_SERVICE_ACCOUNT JSON instead of a laptop file path.'
           : '';
+      const inlineJson = process.env.GOOGLE_SERVICE_ACCOUNT;
+      const inlineTrimLen = inlineJson?.trim().length ?? 0;
+      const inlineStatus =
+        inlineJson === undefined
+          ? 'GOOGLE_SERVICE_ACCOUNT is not set in this process (Cloud Run only sees variables on **this revision**; your laptop `.env` is not uploaded automatically).'
+          : inlineTrimLen === 0
+            ? 'GOOGLE_SERVICE_ACCOUNT is set but empty/whitespace only (check Secret → env mapping and redeploy revision).'
+            : '';
       throw new Error(
-        `Google credential file not found. Env: ${fileFromEnv ? 'GOOGLE_SERVICE_ACCOUNT_FILE' : 'GOOGLE_APPLICATION_CREDENTIALS'}="${credentialFileHint}". Tried:\n${candidates.map((p) => `  - ${path.resolve(p)}`).join(`\n`)}\nPlace the service account JSON in the repo root or set an absolute path for this OS.${cloudHint} Share the spreadsheet with the service account email (Editor or Viewer).`
+        `Google credential file not found. Env: ${fileFromEnv ? 'GOOGLE_SERVICE_ACCOUNT_FILE' : 'GOOGLE_APPLICATION_CREDENTIALS'}="${credentialFileHint}". Tried:\n${candidates.map((p) => `  - ${path.resolve(p)}`).join(`\n`)}\nPlace the service account JSON in the repo root or set an absolute path for this OS.${cloudHint} Share the spreadsheet with the service account email (Editor or Viewer).` +
+          `\n\n${inlineStatus} ` +
+          `Fix: Cloud Run → Services → Edit & deploy new revision → Variables & Secrets → **Add variable or reference secret** with name exactly **GOOGLE_SERVICE_ACCOUNT** (full JSON), or **GOOGLE_SERVICE_ACCOUNT_BASE64**. ` +
+          `Then deploy; YAML "available secrets" alone is not enough without mounting each secret onto an env var.`
       );
     }
     const parsed = readServiceAccountFromFile(found);
@@ -899,13 +910,21 @@ export function buildGoogleServiceAccountJwt(scopes: string[] = [...DEFAULT_GOOG
   const privateKey = normalizePrivateKeyPem(process.env.GOOGLE_PRIVATE_KEY || '');
 
   if (!clientEmail || !privateKey) {
+    const rawInline = process.env.GOOGLE_SERVICE_ACCOUNT;
+    const inlineEnvNote =
+      rawInline === undefined
+        ? 'GOOGLE_SERVICE_ACCOUNT unset in process env.'
+        : rawInline.trim().length === 0
+          ? 'GOOGLE_SERVICE_ACCOUNT is empty/whitespace (Cloud Run secret may be unmounted or wrong revision).'
+          : `GOOGLE_SERVICE_ACCOUNT length=${rawInline.length} (if you expected inline JSON, the name must be exactly GOOGLE_SERVICE_ACCOUNT on the revision).`;
     const diagnostics = [
-      `GOOGLE_SERVICE_ACCOUNT=${serviceAccountJson ? 'set' : 'missing'}`,
+      `GOOGLE_SERVICE_ACCOUNT=${serviceAccountJson ? 'set (trimmed non-empty)' : 'missing'}`,
       `GOOGLE_SERVICE_ACCOUNT_BASE64=${serviceAccountBase64 ? 'set' : 'missing'}`,
       `GOOGLE_SERVICE_ACCOUNT_FILE=${fileFromEnv ? `set (path="${fileFromEnv}")` : 'missing'}`,
       `GOOGLE_APPLICATION_CREDENTIALS=${fileFromAdc ? `set (path="${fileFromAdc}")` : 'missing'}`,
       `GOOGLE_SERVICE_ACCOUNT_EMAIL=${clientEmail ? 'set' : 'missing'}`,
       `GOOGLE_PRIVATE_KEY=${privateKey ? 'set' : 'missing'}`,
+      inlineEnvNote,
     ].join('\n');
     throw new Error(
       `Missing Google Sheets credentials. The server sees none of the supported variables (common on cloud: a local file path in .env does not exist inside the container).\n` +
