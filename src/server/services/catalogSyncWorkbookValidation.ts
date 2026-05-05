@@ -91,6 +91,13 @@ function formatSkuSetForMessage(set: Set<string>, maxShow = 32): string {
   return `${arr.slice(0, maxShow).join(', ')} … (+${arr.length - maxShow} more)`;
 }
 
+/** Sheet may use generic_name / Generic Name / genericname — key is aliasType|value */
+function isGenericNameAliasAggKey(key: string): boolean {
+  const head = key.split('|')[0] ?? '';
+  const norm = head.replace(/_/g, '').toLowerCase();
+  return norm === 'genericname';
+}
+
 /** Labor heuristics aligned with scripts/publish-blockers-report.ts */
 export function laborSuspicionReason(row: {
   category: string;
@@ -381,7 +388,7 @@ export async function preflightCatalogWorkbookSync(input: {
           pushReviewSample(aliasMultiTargetSampleKeys, key);
           const skuPart = formatSkuSetForMessage(set);
           const base = `ALIASES: alias key "${key}" maps to multiple canonical SKUs (${set.size}): ${skuPart}.`;
-          const isGenericNameKey = key.startsWith('generic_name|');
+          const isGenericNameKey = isGenericNameAliasAggKey(key);
           if (isGenericNameKey && !strictGenericNameMultiTarget) {
             warnings.push(
               `${base} Allowed for generic_name (many catalog rows may share one broad phrase; intake resolves the first phrase match). ` +
