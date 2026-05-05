@@ -648,6 +648,11 @@ async function insertSyncRun(
 }
 
 /** Resolve a credential path: cwd, then project root (fixes Sync when the process cwd is not the repo root). */
+/** `C:\x` / `C:/x` paths only exist on Windows; Linux containers must use GOOGLE_SERVICE_ACCOUNT (secret) or a POSIX path. */
+function looksLikeWindowsAbsolutePath(rawPath: string): boolean {
+  return /^[a-zA-Z]:[\\/]/.test(String(rawPath || '').trim());
+}
+
 function resolveGoogleCredentialFilePaths(rawPath: string): string[] {
   const trimmed = rawPath.trim();
   if (!trimmed) return [];
@@ -868,11 +873,22 @@ export function buildGoogleServiceAccountJwt(scopes: string[] = [...DEFAULT_GOOG
   }
 
   if (credentialFileHint) {
+    if (process.platform !== 'win32' && looksLikeWindowsAbsolutePath(credentialFileHint)) {
+      throw new Error(
+        `GOOGLE_SERVICE_ACCOUNT_FILE points at a Windows path ("${credentialFileHint}") but this server runs on Linux (e.g. Cloud Run). That file is not inside the container. ` +
+          `Unset GOOGLE_SERVICE_ACCOUNT_FILE in production and set GOOGLE_SERVICE_ACCOUNT (full service-account JSON from Secret Manager) or GOOGLE_SERVICE_ACCOUNT_BASE64. ` +
+          `Then share the spreadsheet with the service account email (Viewer or Editor) from IAM → Service Accounts.`
+      );
+    }
     const candidates = resolveGoogleCredentialFilePaths(credentialFileHint);
     const found = candidates.find((p) => fs.existsSync(p));
     if (!found) {
+      const cloudHint =
+        process.platform !== 'win32' && process.env.K_SERVICE
+          ? ' On Cloud Run, use a secret for GOOGLE_SERVICE_ACCOUNT JSON instead of a laptop file path.'
+          : '';
       throw new Error(
-        `Google credential file not found. Env: ${fileFromEnv ? 'GOOGLE_SERVICE_ACCOUNT_FILE' : 'GOOGLE_APPLICATION_CREDENTIALS'}="${credentialFileHint}". Tried:\n${candidates.map((p) => `  - ${path.resolve(p)}`).join('\n')}\nPlace the service account JSON in the repo root or set an absolute path. Share the spreadsheet with the service account email (Editor or Viewer).`
+        `Google credential file not found. Env: ${fileFromEnv ? 'GOOGLE_SERVICE_ACCOUNT_FILE' : 'GOOGLE_APPLICATION_CREDENTIALS'}="${credentialFileHint}". Tried:\n${candidates.map((p) => `  - ${path.resolve(p)}`).join(`\n`)}\nPlace the service account JSON in the repo root or set an absolute path for this OS.${cloudHint} Share the spreadsheet with the service account email (Editor or Viewer).`
       );
     }
     const parsed = readServiceAccountFromFile(found);
