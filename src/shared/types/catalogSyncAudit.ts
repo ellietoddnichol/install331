@@ -30,7 +30,11 @@ export type CatalogSyncWorkbookSnapshot = {
     itemsFetch: string;
     /** Raw `GOOGLE_SHEETS_TAB_CLEAN_ITEMS` (defaults CLEAN_ITEMS when unset). */
     cleanItemsTabEnv: string;
-    modifiers: string;
+    modifiersConfigured: string;
+    /** Tab used after workbook-first CLEAN_MODIFIERS vs legacy MODIFIERS resolution. */
+    modifiersFetch: string;
+    /** Raw `GOOGLE_SHEETS_TAB_CLEAN_MODIFIERS` (defaults CLEAN_MODIFIERS when unset). */
+    cleanModifiersTabEnv: string;
     bundles: string;
     aliases: string;
     attributes: string;
@@ -50,6 +54,7 @@ export type CatalogSyncValidationSettingsSnapshot = {
 /** `CATALOG_SYNC_IMPORT_*` + related flags sampled at sync start (truthy strings: 1/true/yes). */
 export type CatalogSyncImportEnvSnapshot = {
   catalogSyncAllowLegacyItemsTab: boolean;
+  catalogSyncAllowLegacyModifiersTab: boolean;
   catalogSyncReplaceMode: boolean;
   catalogSyncSkipStagingSheetImportRows: boolean;
   /** Raw env string (typically `clean` / empty). */
@@ -67,6 +72,8 @@ export type CatalogSyncRunContext = {
   tabs: CatalogSyncWorkbookSnapshot['tabs'];
   /** True when configured items tab name differs from the tab sheet rows were read from. */
   itemsFetchOverridesConfiguredItemsTab: boolean;
+  /** True when configured modifiers tab name differs from the tab sheet rows were read from. */
+  modifiersFetchOverridesConfiguredModifiersTab: boolean;
   importEnv: CatalogSyncImportEnvSnapshot;
   validation: CatalogSyncValidationSettingsSnapshot;
 };
@@ -89,16 +96,28 @@ export function parseCatalogSyncRunContextJson(raw: string | null | undefined): 
     )
       return null;
     if (!v.tabs || typeof v.tabs.itemsConfigured !== 'string' || typeof v.tabs.itemsFetch !== 'string') return null;
-    if (
-      typeof v.tabs.modifiers !== 'string' ||
-      typeof v.tabs.bundles !== 'string' ||
-      typeof v.tabs.aliases !== 'string' ||
-      typeof v.tabs.attributes !== 'string'
-    )
+    const tr = v.tabs as Record<string, unknown>;
+    const legacyModifiersOnly = typeof tr.modifiers === 'string' ? tr.modifiers : null;
+    const modifiersFetch =
+      typeof tr.modifiersFetch === 'string' ? tr.modifiersFetch : legacyModifiersOnly;
+    if (!modifiersFetch || typeof tr.bundles !== 'string' || typeof tr.aliases !== 'string' || typeof tr.attributes !== 'string') {
       return null;
-    const cleanItemsTabEnv = typeof v.tabs.cleanItemsTabEnv === 'string' ? v.tabs.cleanItemsTabEnv : '';
+    }
+    const modifiersConfigured =
+      typeof tr.modifiersConfigured === 'string' ? tr.modifiersConfigured : modifiersFetch;
+    const cleanItemsTabEnv = typeof tr.cleanItemsTabEnv === 'string' ? tr.cleanItemsTabEnv : '';
+    const cleanModifiersTabEnv = typeof tr.cleanModifiersTabEnv === 'string' ? tr.cleanModifiersTabEnv : 'CLEAN_MODIFIERS';
+    const itemsFetchOverridesConfiguredItemsTab =
+      typeof v.itemsFetchOverridesConfiguredItemsTab === 'boolean' ? v.itemsFetchOverridesConfiguredItemsTab : false;
+    const modifiersFetchOverridesConfiguredModifiersTab =
+      typeof v.modifiersFetchOverridesConfiguredModifiersTab === 'boolean'
+        ? v.modifiersFetchOverridesConfiguredModifiersTab
+        : false;
     if (!v.importEnv || !v.validation) return null;
     if (typeof v.importEnv.stagingTabImportsByEnv !== 'object' || v.importEnv.stagingTabImportsByEnv === null) return null;
+    const ie = v.importEnv as Record<string, unknown>;
+    const catalogSyncAllowLegacyModifiersTab =
+      typeof ie.catalogSyncAllowLegacyModifiersTab === 'boolean' ? ie.catalogSyncAllowLegacyModifiersTab : false;
     const vmax = v.validation as Record<string, unknown>;
     if (
       typeof vmax.catalogSyncReviewMaxSamples !== 'number' ||
@@ -106,7 +125,28 @@ export function parseCatalogSyncRunContextJson(raw: string | null | undefined): 
       typeof vmax.publishBlockersAllowedCategoriesRaw !== 'string'
     )
       return null;
-    const out = { ...v, tabs: { ...v.tabs, cleanItemsTabEnv } } as CatalogSyncRunContext;
+    const normalizedTabs = {
+      itemsConfigured: v.tabs.itemsConfigured,
+      itemsFetch: v.tabs.itemsFetch,
+      cleanItemsTabEnv,
+      modifiersConfigured,
+      modifiersFetch,
+      cleanModifiersTabEnv,
+      bundles: tr.bundles as string,
+      aliases: tr.aliases as string,
+      attributes: tr.attributes as string,
+    };
+    const normalizedImportEnv = {
+      ...v.importEnv,
+      catalogSyncAllowLegacyModifiersTab,
+    };
+    const out = {
+      ...v,
+      itemsFetchOverridesConfiguredItemsTab,
+      modifiersFetchOverridesConfiguredModifiersTab,
+      tabs: normalizedTabs,
+      importEnv: normalizedImportEnv,
+    } as CatalogSyncRunContext;
     return out;
   } catch {
     return null;

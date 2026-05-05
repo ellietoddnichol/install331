@@ -1,6 +1,10 @@
 import { isPgCatalogBackend } from '../db/catalogBackend.ts';
 import { getCatalogItemsTableName, getCatalogSourceMode, type CatalogSourceMode } from '../db/catalogTable.ts';
-import { resolveConfiguredAndFetchItemsTabs, buildCatalogSyncRunContextRecord } from './googleSheetsCatalogSync.ts';
+import {
+  resolveConfiguredAndFetchItemsTabs,
+  resolveConfiguredAndFetchModifiersTabs,
+  buildCatalogSyncRunContextRecord,
+} from './googleSheetsCatalogSync.ts';
 import type {
   CatalogSyncWorkbookSnapshot,
   CatalogSyncServerConfigNow,
@@ -35,7 +39,7 @@ export function buildCatalogSourcePayload(): CatalogSourcePayload {
   const spreadsheetIdConfigured = Boolean(spreadsheetId);
 
   const { configured: sheetsItemsTab, fetch: sheetsItemsFetchTab } = resolveConfiguredAndFetchItemsTabs();
-  const sheetsModifiersTab = process.env.GOOGLE_SHEETS_TAB_MODIFIERS || 'MODIFIERS';
+  const { configured: sheetsModifiersTab, fetch: sheetsModifiersFetchTab } = resolveConfiguredAndFetchModifiersTabs();
   const sheetsBundlesTab = process.env.GOOGLE_SHEETS_TAB_BUNDLES || 'BUNDLES';
   const sheetsAliasesTab = process.env.GOOGLE_SHEETS_TAB_ALIASES || 'ALIASES';
   const sheetsAttributesTab = process.env.GOOGLE_SHEETS_TAB_ATTRIBUTES || 'ATTRIBUTES';
@@ -50,6 +54,12 @@ export function buildCatalogSourcePayload(): CatalogSourcePayload {
     );
   }
 
+  if (sheetsModifiersTab !== sheetsModifiersFetchTab) {
+    notes.push(
+      `Google Sheets modifier upserts read tab "${sheetsModifiersFetchTab}" while GOOGLE_SHEETS_TAB_MODIFIERS="${sheetsModifiersTab}" (workbook-first guard; set CATALOG_SYNC_ALLOW_LEGACY_MODIFIERS_TAB=1 to ingest MODIFIERS).`
+    );
+  }
+
   if (catalogItemsTable === 'catalog_items_clean') {
     notes.push(
       'Reads use CATALOG_ITEMS_TABLE=catalog_items_clean. In Supabase this is typically provided as a VIEW over catalog_items so CLEAN_ITEMS sync and estimator reads stay aligned.'
@@ -61,7 +71,7 @@ export function buildCatalogSourcePayload(): CatalogSourcePayload {
     catalogItemsTable,
     catalogSource,
     sheetsItemsTab,
-    sheetsModifiersTab,
+    sheetsModifiersTab: sheetsModifiersFetchTab,
     sheetsBundlesTab,
     sheetsAliasesTab,
     sheetsAttributesTab,

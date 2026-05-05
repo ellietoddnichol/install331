@@ -59,18 +59,11 @@ export interface CatalogSyncResult extends SyncCounts {
   };
   /** When set, `GOOGLE_SHEETS_TAB_ITEMS` differed from the tab actually read for item upserts. */
   itemsTabConfigured?: string;
+  /** When set, `GOOGLE_SHEETS_TAB_MODIFIERS` differed from the tab actually read for modifier upserts. */
+  modifiersTabConfigured?: string;
   warnings: string[];
   /** Structured counters / tab rows — also embedded in `warnings_json` when enabled. */
   audit?: CatalogSyncRunAuditSummary;
-  syncedAt: string;
-}
-
-export interface TakeoffRegistryBackfillResult {
-  message: string;
-  spreadsheetId: string;
-  tabName: string;
-  itemsBackfilled: number;
-  warnings: string[];
   syncedAt: string;
 }
 
@@ -89,6 +82,9 @@ interface SpreadsheetConfig {
   itemsTabConfigured: string;
   /** Sheet tab range used for item upserts (may be CLEAN_ITEMS when configured tab is legacy ITEMS). */
   itemsTab: string;
+  /** Value of GOOGLE_SHEETS_TAB_MODIFIERS (or default). May be `MODIFIERS` while reads use `modifiersTab`. */
+  modifiersTabConfigured: string;
+  /** Sheet tab used for modifier upserts (may be CLEAN_MODIFIERS when configured tab is legacy MODIFIERS). */
   modifiersTab: string;
   bundlesTab: string;
   aliasesTab: string;
@@ -166,30 +162,51 @@ export function resolveConfiguredAndFetchItemsTabs(): { configured: string; fetc
   return { configured, fetch: cleanTab };
 }
 
+/**
+ * When operators leave GOOGLE_SHEETS_TAB_MODIFIERS=MODIFIERS but publish from CLEAN, read the clean tab unless legacy override is set.
+ */
+export function resolveConfiguredAndFetchModifiersTabs(): { configured: string; fetch: string } {
+  const configured = String(process.env.GOOGLE_SHEETS_TAB_MODIFIERS || 'CLEAN_MODIFIERS').trim();
+  const cleanTab = String(process.env.GOOGLE_SHEETS_TAB_CLEAN_MODIFIERS || 'CLEAN_MODIFIERS').trim();
+  const allowLegacy = isEnvTruthy(process.env.CATALOG_SYNC_ALLOW_LEGACY_MODIFIERS_TAB);
+  if (normalizeSheetTabKey(configured) !== 'MODIFIERS') {
+    return { configured, fetch: configured };
+  }
+  if (allowLegacy) {
+    return { configured, fetch: configured };
+  }
+  return { configured, fetch: cleanTab };
+}
+
 /** Env reads only (never throws); used so failed sync runs still persist tab/env context. */
 function peekCatalogSyncSpreadsheetEnvForRunContext(): {
   spreadsheetId: string | null;
   spreadsheetIdConfigured: boolean;
   itemsTabConfigured: string;
   itemsTabFetch: string;
-  modifiersTab: string;
+  modifiersTabConfigured: string;
+  modifiersTabFetch: string;
   bundlesTab: string;
   aliasesTab: string;
   attributesTab: string;
   cleanItemsTabEnv: string;
+  cleanModifiersTabEnv: string;
 } {
   const spreadsheetIdRaw = String(process.env.GOOGLE_SHEETS_SPREADSHEET_ID || process.env.GOOGLE_SHEETS_ID || '').trim();
-  const { configured, fetch } = resolveConfiguredAndFetchItemsTabs();
+  const { configured: itemsConfigured, fetch: itemsFetch } = resolveConfiguredAndFetchItemsTabs();
+  const { configured: modifiersConfigured, fetch: modifiersFetch } = resolveConfiguredAndFetchModifiersTabs();
   return {
     spreadsheetId: spreadsheetIdRaw ? spreadsheetIdRaw : null,
     spreadsheetIdConfigured: Boolean(spreadsheetIdRaw),
-    itemsTabConfigured: configured,
-    itemsTabFetch: fetch,
-    modifiersTab: process.env.GOOGLE_SHEETS_TAB_MODIFIERS || 'MODIFIERS',
+    itemsTabConfigured: itemsConfigured,
+    itemsTabFetch: itemsFetch,
+    modifiersTabConfigured: modifiersConfigured,
+    modifiersTabFetch: modifiersFetch,
     bundlesTab: process.env.GOOGLE_SHEETS_TAB_BUNDLES || 'BUNDLES',
     aliasesTab: process.env.GOOGLE_SHEETS_TAB_ALIASES || 'ALIASES',
     attributesTab: process.env.GOOGLE_SHEETS_TAB_ATTRIBUTES || 'ATTRIBUTES',
     cleanItemsTabEnv: String(process.env.GOOGLE_SHEETS_TAB_CLEAN_ITEMS || 'CLEAN_ITEMS').trim(),
+    cleanModifiersTabEnv: String(process.env.GOOGLE_SHEETS_TAB_CLEAN_MODIFIERS || 'CLEAN_MODIFIERS').trim(),
   };
 }
 
@@ -198,6 +215,8 @@ export function buildCatalogSyncRunContextRecord(runKind: CatalogSyncRunContext[
   const env = peekCatalogSyncSpreadsheetEnvForRunContext();
   const itemsFetchOverridesConfiguredItemsTab =
     env.itemsTabConfigured.trim().toUpperCase() !== env.itemsTabFetch.trim().toUpperCase();
+  const modifiersFetchOverridesConfiguredModifiersTab =
+    env.modifiersTabConfigured.trim().toUpperCase() !== env.modifiersTabFetch.trim().toUpperCase();
   const stagingTabImportsByEnv: Record<string, boolean> = {};
   for (const flag of Object.values(STAGING_TAB_IMPORT_ENV)) {
     stagingTabImportsByEnv[flag] = isEnvTruthy(process.env[flag]);
@@ -212,14 +231,18 @@ export function buildCatalogSyncRunContextRecord(runKind: CatalogSyncRunContext[
       itemsConfigured: env.itemsTabConfigured,
       itemsFetch: env.itemsTabFetch,
       cleanItemsTabEnv: env.cleanItemsTabEnv,
-      modifiers: env.modifiersTab,
+      modifiersConfigured: env.modifiersTabConfigured,
+      modifiersFetch: env.modifiersTabFetch,
+      cleanModifiersTabEnv: env.cleanModifiersTabEnv,
       bundles: env.bundlesTab,
       aliases: env.aliasesTab,
       attributes: env.attributesTab,
     },
     itemsFetchOverridesConfiguredItemsTab,
+    modifiersFetchOverridesConfiguredModifiersTab,
     importEnv: {
       catalogSyncAllowLegacyItemsTab: isEnvTruthy(process.env.CATALOG_SYNC_ALLOW_LEGACY_ITEMS_TAB),
+      catalogSyncAllowLegacyModifiersTab: isEnvTruthy(process.env.CATALOG_SYNC_ALLOW_LEGACY_MODIFIERS_TAB),
       catalogSyncReplaceMode: isReplaceCatalogSyncMode(),
       catalogSyncSkipStagingSheetImportRows: String(process.env.CATALOG_SYNC_SKIP_STAGING || '').trim() === '1',
       catalogSyncItemsSource: String(process.env.CATALOG_SYNC_ITEMS_SOURCE || '').trim(),
@@ -894,8 +917,8 @@ function buildAuth(): JWT {
 
 function getSpreadsheetConfig(): SpreadsheetConfig {
   const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID || process.env.GOOGLE_SHEETS_ID || '1QWCGCssWtAQ8Pjx9_-7LDs4lraRbptURd8D04bNvnEg';
-  const { configured, fetch } = resolveConfiguredAndFetchItemsTabs();
-  const modifiersTab = process.env.GOOGLE_SHEETS_TAB_MODIFIERS || 'MODIFIERS';
+  const { configured: itemsConfigured, fetch: itemsFetch } = resolveConfiguredAndFetchItemsTabs();
+  const { configured: modifiersConfigured, fetch: modifiersFetch } = resolveConfiguredAndFetchModifiersTabs();
   const bundlesTab = process.env.GOOGLE_SHEETS_TAB_BUNDLES || 'BUNDLES';
   const aliasesTab = process.env.GOOGLE_SHEETS_TAB_ALIASES || 'ALIASES';
   const attributesTab = process.env.GOOGLE_SHEETS_TAB_ATTRIBUTES || 'ATTRIBUTES';
@@ -904,22 +927,23 @@ function getSpreadsheetConfig(): SpreadsheetConfig {
     throw new Error('Missing spreadsheet ID. Set GOOGLE_SHEETS_SPREADSHEET_ID or GOOGLE_SHEETS_ID.');
   }
 
-  assertNotLegacyItemsAliasForOtherRoles('GOOGLE_SHEETS_TAB_MODIFIERS', modifiersTab);
+  assertNotLegacyItemsAliasForOtherRoles('GOOGLE_SHEETS_TAB_MODIFIERS', modifiersConfigured);
   assertNotLegacyItemsAliasForOtherRoles('GOOGLE_SHEETS_TAB_BUNDLES', bundlesTab);
   assertNotLegacyItemsAliasForOtherRoles('GOOGLE_SHEETS_TAB_ALIASES', aliasesTab);
   assertNotLegacyItemsAliasForOtherRoles('GOOGLE_SHEETS_TAB_ATTRIBUTES', attributesTab);
 
-  assertCuratedEnvTabAllowsStaging('GOOGLE_SHEETS_TAB_MODIFIERS', modifiersTab);
+  assertCuratedEnvTabAllowsStaging('GOOGLE_SHEETS_TAB_MODIFIERS', modifiersConfigured);
   assertCuratedEnvTabAllowsStaging('GOOGLE_SHEETS_TAB_BUNDLES', bundlesTab);
   assertCuratedEnvTabAllowsStaging('GOOGLE_SHEETS_TAB_ALIASES', aliasesTab);
   assertCuratedEnvTabAllowsStaging('GOOGLE_SHEETS_TAB_ATTRIBUTES', attributesTab);
-  assertCuratedEnvTabAllowsStaging('GOOGLE_SHEETS_TAB_ITEMS', configured);
+  assertCuratedEnvTabAllowsStaging('GOOGLE_SHEETS_TAB_ITEMS', itemsConfigured);
 
   return {
     spreadsheetId,
-    itemsTabConfigured: configured,
-    itemsTab: fetch,
-    modifiersTab,
+    itemsTabConfigured: itemsConfigured,
+    itemsTab: itemsFetch,
+    modifiersTabConfigured: modifiersConfigured,
+    modifiersTab: modifiersFetch,
     bundlesTab,
     aliasesTab,
     attributesTab,
@@ -1850,6 +1874,14 @@ export async function syncCatalogFromGoogleSheets(): Promise<CatalogSyncResult> 
         `[catalog-sync] skipped tab ITEMS (staging for item upserts — using ${cfg.itemsTab} instead; set CATALOG_SYNC_ALLOW_LEGACY_ITEMS_TAB=1 to ingest legacy ITEMS).`
       );
     }
+    if (
+      normalizeSheetTabKey(cfg.modifiersTabConfigured) === 'MODIFIERS' &&
+      normalizeSheetTabKey(cfg.modifiersTab) !== 'MODIFIERS'
+    ) {
+      console.info(
+        `[catalog-sync] skipped tab MODIFIERS (read ${cfg.modifiersTab} instead; set CATALOG_SYNC_ALLOW_LEGACY_MODIFIERS_TAB=1 to ingest legacy MODIFIERS).`
+      );
+    }
 
     const [itemRows, modifierRows, bundleRows, aliasRows, attributeRows] = await Promise.all([
       fetchTabOrNull({ sheets, spreadsheetId: cfg.spreadsheetId, tabName: cfg.itemsTab }),
@@ -1880,6 +1912,16 @@ export async function syncCatalogFromGoogleSheets(): Promise<CatalogSyncResult> 
     } else if (cfg.itemsTab.trim().toUpperCase() === 'ITEMS' && isEnvTruthy(process.env.CATALOG_SYNC_ALLOW_LEGACY_ITEMS_TAB)) {
       warnings.push(
         'Using legacy ITEMS tab for item upserts (CATALOG_SYNC_ALLOW_LEGACY_ITEMS_TAB=1). Prefer pointing GOOGLE_SHEETS_TAB_ITEMS at CLEAN_ITEMS for production.'
+      );
+    }
+
+    if (cfg.modifiersTabConfigured !== cfg.modifiersTab) {
+      warnings.push(
+        `Modifier rows are read from "${cfg.modifiersTab}" because GOOGLE_SHEETS_TAB_MODIFIERS names legacy tab "${cfg.modifiersTabConfigured}" and CATALOG_SYNC_ALLOW_LEGACY_MODIFIERS_TAB is unset — set it to 1 only if you must ingest the raw MODIFIERS tab.`
+      );
+    } else if (cfg.modifiersTab.trim().toUpperCase() === 'MODIFIERS' && isEnvTruthy(process.env.CATALOG_SYNC_ALLOW_LEGACY_MODIFIERS_TAB)) {
+      warnings.push(
+        'Using legacy MODIFIERS tab for modifier upserts (CATALOG_SYNC_ALLOW_LEGACY_MODIFIERS_TAB=1). Prefer pointing GOOGLE_SHEETS_TAB_MODIFIERS at CLEAN_MODIFIERS for production.'
       );
     }
 
@@ -1991,6 +2033,7 @@ export async function syncCatalogFromGoogleSheets(): Promise<CatalogSyncResult> 
         attributes: cfg.attributesTab,
       },
       itemsTabConfigured: cfg.itemsTabConfigured !== cfg.itemsTab ? cfg.itemsTabConfigured : undefined,
+      modifiersTabConfigured: cfg.modifiersTabConfigured !== cfg.modifiersTab ? cfg.modifiersTabConfigured : undefined,
       warnings: uniqueWarnings,
       audit,
       syncedAt,

@@ -23,7 +23,9 @@ const NAV_ITEMS = [
   { path: '/settings', label: 'Settings', icon: Settings },
 ];
 
-const showDiv10AdminLink = String(import.meta.env.VITE_SHOW_DIV10_ADMIN || '').trim() === '1';
+/** Visible by default; set VITE_SHOW_DIV10_ADMIN=0 to hide the Div 10 Brain entry. */
+const div10AdminEnv = String(import.meta.env.VITE_SHOW_DIV10_ADMIN ?? '').trim().toLowerCase();
+const showDiv10AdminLink = div10AdminEnv !== '0' && div10AdminEnv !== 'false' && div10AdminEnv !== 'no' && div10AdminEnv !== 'off';
 
 function isActivePath(pathname: string, target: string): boolean {
   if (target === '/') return pathname === '/';

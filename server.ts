@@ -24,6 +24,16 @@ for (const [fileName, override] of envFiles) {
   }
 }
 
+/** Pull labor catalog from Sheets once after boot in production by default; opt out with AUTO_SYNC_CATALOG_ON_START=0. Local dev: set AUTO_SYNC_CATALOG_ON_START=1 to enable. */
+function shouldAutoSyncCatalogOnStart(): boolean {
+  const raw = String(process.env.AUTO_SYNC_CATALOG_ON_START ?? '').trim().toLowerCase();
+  if (raw === '0' || raw === 'false' || raw === 'no' || raw === 'off') return false;
+  if (raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on') return true;
+  const prodRuntime =
+    process.env.NODE_ENV === 'production' || Boolean(process.env.K_SERVICE || process.env.K_REVISION);
+  return prodRuntime;
+}
+
 async function startServer() {
   // Ensure SQLite persistence is prepared before any requests hit the repos.
   await prepareEstimatorDbForServer();
@@ -92,10 +102,7 @@ async function startServer() {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
 
-    const autoStart = String(process.env.AUTO_SYNC_CATALOG_ON_START || '')
-      .trim()
-      .toLowerCase();
-    if (autoStart === '1' || autoStart === 'true' || autoStart === 'yes') {
+    if (shouldAutoSyncCatalogOnStart()) {
       setTimeout(() => {
         syncCatalogFromGoogleSheets().catch((err: unknown) => {
           const message = err instanceof Error ? err.message : String(err);

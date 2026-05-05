@@ -324,16 +324,23 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
               {syncStatus.workbook.tabs.itemsConfigured !== syncStatus.workbook.tabs.itemsFetch
                 ? ` (GOOGLE_SHEETS_TAB_ITEMS ${syncStatus.workbook.tabs.itemsConfigured})`
                 : ''}{' '}
-              · CLEAN_ITEMS env: {syncStatus.workbook.tabs.cleanItemsTabEnv ?? '—'} · modifiers:{' '}
-              {syncStatus.workbook.tabs.modifiers} · bundles: {syncStatus.workbook.tabs.bundles} · aliases:{' '}
-              {syncStatus.workbook.tabs.aliases} · attributes: {syncStatus.workbook.tabs.attributes}
+              · CLEAN_ITEMS env: {syncStatus.workbook.tabs.cleanItemsTabEnv ?? '—'} · modifiers read:{' '}
+              {syncStatus.workbook.tabs.modifiersFetch}
+              {syncStatus.workbook.tabs.modifiersConfigured !== syncStatus.workbook.tabs.modifiersFetch
+                ? ` (GOOGLE_SHEETS_TAB_MODIFIERS ${syncStatus.workbook.tabs.modifiersConfigured})`
+                : ''}{' '}
+              · CLEAN_MODIFIERS env: {syncStatus.workbook.tabs.cleanModifiersTabEnv ?? '—'} · bundles:{' '}
+              {syncStatus.workbook.tabs.bundles} · aliases: {syncStatus.workbook.tabs.aliases} · attributes:{' '}
+              {syncStatus.workbook.tabs.attributes}
             </div>
             {syncStatus.serverConfigNow ? (
               <details className="mt-1.5">
                 <summary className="cursor-pointer text-[10px] text-slate-600">Live server config (now)</summary>
                 <div className="mt-1 text-[9px] text-slate-600">
-                  Items read: {syncStatus.serverConfigNow.tabs.itemsFetch} · legacy allowed:{' '}
-                  {syncStatus.serverConfigNow.importEnv.catalogSyncAllowLegacyItemsTab ? 'yes' : 'no'} · replace mode:{' '}
+                  Items read: {syncStatus.serverConfigNow.tabs.itemsFetch} · legacy ITEMS tab:{' '}
+                  {syncStatus.serverConfigNow.importEnv.catalogSyncAllowLegacyItemsTab ? 'yes' : 'no'} · modifiers read:{' '}
+                  {syncStatus.serverConfigNow.tabs.modifiersFetch} · legacy MODIFIERS tab:{' '}
+                  {syncStatus.serverConfigNow.importEnv.catalogSyncAllowLegacyModifiersTab ? 'yes' : 'no'} · replace mode:{' '}
                   {syncStatus.serverConfigNow.importEnv.catalogSyncReplaceMode ? 'yes' : 'no'} · skip staging rows:{' '}
                   {syncStatus.serverConfigNow.importEnv.catalogSyncSkipStagingSheetImportRows ? 'yes' : 'no'}
                 </div>
@@ -1448,12 +1455,12 @@ export function Catalog() {
           <div className="ui-surface-soft px-2 py-1.5 text-slate-700" title="Resolved from server env (GOOGLE_SHEETS_TAB_*)">
             {syncStatus?.workbook ? (
               <>
-                Sheet tabs: {syncStatus.workbook.tabs.itemsFetch}, {syncStatus.workbook.tabs.modifiers},{' '}
+                Sheet tabs: {syncStatus.workbook.tabs.itemsFetch}, {syncStatus.workbook.tabs.modifiersFetch},{' '}
                 {syncStatus.workbook.tabs.bundles}, {syncStatus.workbook.tabs.aliases},{' '}
                 {syncStatus.workbook.tabs.attributes}
               </>
             ) : (
-              <>Syncing ITEMS, MODIFIERS, BUNDLES, ALIASES, ATTRIBUTES</>
+              <>Syncing CLEAN_ITEMS, CLEAN_MODIFIERS, BUNDLES, ALIASES, ATTRIBUTES (defaults)</>
             )}
           </div>
           <div className="ui-surface-soft px-2 py-1.5 text-slate-700">Last synced: {lastSynced ? new Date(lastSynced).toLocaleString() : 'Never'}</div>
