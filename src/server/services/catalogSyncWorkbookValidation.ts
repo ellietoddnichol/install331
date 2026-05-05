@@ -79,6 +79,18 @@ function canonicalKey(input: string): string {
   return String(input ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+function isEnvTruthyFlag(v: string | undefined): boolean {
+  const s = String(v ?? '').trim().toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+}
+
+/** Truncate long SKU lists in preflight messages (e.g. many products under one generic_name). */
+function formatSkuSetForMessage(set: Set<string>, maxShow = 32): string {
+  const arr = Array.from(set);
+  if (arr.length <= maxShow) return arr.join(', ');
+  return `${arr.slice(0, maxShow).join(', ')} … (+${arr.length - maxShow} more)`;
+}
+
 /** Labor heuristics aligned with scripts/publish-blockers-report.ts */
 export function laborSuspicionReason(row: {
   category: string;
@@ -362,11 +374,22 @@ export async function preflightCatalogWorkbookSync(input: {
         set.add(canonicalSku.toLowerCase());
         targetByAlias.set(key, set);
       }
+      const strictGenericNameMultiTarget = isEnvTruthyFlag(process.env.CATALOG_SYNC_PREFLIGHT_STRICT_GENERIC_NAME_ALIASES);
       for (const [key, set] of targetByAlias) {
         if (set.size > 1) {
           aliasMultiTargetCount += 1;
           pushReviewSample(aliasMultiTargetSampleKeys, key);
-          blocking.push(`ALIASES: alias key "${key}" maps to multiple canonical SKUs: ${Array.from(set).join(', ')}.`);
+          const skuPart = formatSkuSetForMessage(set);
+          const base = `ALIASES: alias key "${key}" maps to multiple canonical SKUs (${set.size}): ${skuPart}.`;
+          const isGenericNameKey = key.startsWith('generic_name|');
+          if (isGenericNameKey && !strictGenericNameMultiTarget) {
+            warnings.push(
+              `${base} Allowed for generic_name (many catalog rows may share one broad phrase; intake resolves the first phrase match). ` +
+                `Set CATALOG_SYNC_PREFLIGHT_STRICT_GENERIC_NAME_ALIASES=1 to treat these as blocking.`
+            );
+          } else {
+            blocking.push(base);
+          }
         }
       }
     }
