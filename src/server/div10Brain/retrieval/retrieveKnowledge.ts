@@ -78,7 +78,7 @@ export async function retrieveCatalogExamples(
   filters: { category?: string; brand?: string; active?: boolean },
   topK: number
 ): Promise<RetrievedContextBlock[]> {
-  let q = supabase.from('catalog_items').select('id, sku, brand, category, description, normalized_name').limit(topK);
+  let q = supabase.from('brain_catalog_items').select('id, sku, brand, category, description, normalized_name').limit(topK);
   if (filters.active !== false) q = q.eq('active', true);
   if (filters.category) q = q.eq('category', filters.category);
   if (filters.brand) q = q.eq('brand', filters.brand);

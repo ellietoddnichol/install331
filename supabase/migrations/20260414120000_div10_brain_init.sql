@@ -5,9 +5,11 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS vector;
 
 -- ---------------------------------------------------------------------------
--- catalog_items (Supabase truth layer — not the SQLite catalog_items table)
+-- brain_catalog_items (Supabase/Brain truth layer — separate from the
+-- estimator's `catalog_items` table which uses TEXT primary keys for SQLite
+-- parity; this table uses UUIDs and richer normalized fields for the AI brain).
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.catalog_items (
+CREATE TABLE IF NOT EXISTS public.brain_catalog_items (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   sku text NOT NULL UNIQUE,
   brand text NOT NULL,
@@ -27,15 +29,15 @@ CREATE TABLE IF NOT EXISTS public.catalog_items (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS catalog_items_sku_idx ON public.catalog_items (sku);
-CREATE INDEX IF NOT EXISTS catalog_items_brand_idx ON public.catalog_items (brand);
-CREATE INDEX IF NOT EXISTS catalog_items_category_idx ON public.catalog_items (category);
-CREATE INDEX IF NOT EXISTS catalog_items_subcategory_idx ON public.catalog_items (subcategory);
-CREATE INDEX IF NOT EXISTS catalog_items_active_idx ON public.catalog_items (active);
+CREATE INDEX IF NOT EXISTS brain_catalog_items_sku_idx ON public.brain_catalog_items (sku);
+CREATE INDEX IF NOT EXISTS brain_catalog_items_brand_idx ON public.brain_catalog_items (brand);
+CREATE INDEX IF NOT EXISTS brain_catalog_items_category_idx ON public.brain_catalog_items (category);
+CREATE INDEX IF NOT EXISTS brain_catalog_items_subcategory_idx ON public.brain_catalog_items (subcategory);
+CREATE INDEX IF NOT EXISTS brain_catalog_items_active_idx ON public.brain_catalog_items (active);
 
 CREATE TABLE IF NOT EXISTS public.catalog_aliases (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  catalog_item_id uuid NOT NULL REFERENCES public.catalog_items (id) ON DELETE CASCADE,
+  catalog_item_id uuid NOT NULL REFERENCES public.brain_catalog_items (id) ON DELETE CASCADE,
   alias_text text NOT NULL,
   alias_type text,
   created_at timestamptz NOT NULL DEFAULT now()
@@ -71,7 +73,7 @@ CREATE TABLE IF NOT EXISTS public.bundle_templates (
 CREATE TABLE IF NOT EXISTS public.bundle_template_items (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   bundle_template_id uuid NOT NULL REFERENCES public.bundle_templates (id) ON DELETE CASCADE,
-  catalog_item_id uuid REFERENCES public.catalog_items (id),
+  catalog_item_id uuid REFERENCES public.brain_catalog_items (id),
   quantity numeric NOT NULL,
   required boolean NOT NULL DEFAULT true,
   modifier_defaults jsonb,
@@ -144,7 +146,7 @@ CREATE TABLE IF NOT EXISTS public.estimate_examples (
   normalized_line_text text,
   section_context text,
   project_context jsonb,
-  chosen_catalog_item_id uuid REFERENCES public.catalog_items (id),
+  chosen_catalog_item_id uuid REFERENCES public.brain_catalog_items (id),
   accepted_modifiers text[],
   review_outcome text,
   estimator_notes text,
@@ -179,7 +181,7 @@ CREATE INDEX IF NOT EXISTS ai_run_logs_task_type_idx ON public.ai_run_logs (task
 CREATE INDEX IF NOT EXISTS ai_run_logs_created_idx ON public.ai_run_logs (created_at DESC);
 
 -- RLS: default deny for JWT roles; service_role bypasses RLS in Supabase.
-ALTER TABLE public.catalog_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.brain_catalog_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.catalog_aliases ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.modifier_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.bundle_templates ENABLE ROW LEVEL SECURITY;
