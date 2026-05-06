@@ -932,16 +932,16 @@ function buildRoomCandidates(lines: IntakeReviewLine[]): IntakeRoomCandidate[] {
     .sort((left, right) => right.lineCount - left.lineCount || left.roomName.localeCompare(right.roomName));
 }
 
-function attachEstimateDraft(
+async function attachEstimateDraft(
   matchCatalog: boolean,
   catalog: CatalogItem[],
   modifiers: ModifierRecord[],
   reviewLines: IntakeReviewLine[],
   aiSuggestions?: IntakeAiSuggestions | null,
   intakeSettings?: SettingsRecord | null
-): Pick<IntakeParseResult, 'estimateDraft'> {
+): Promise<Pick<IntakeParseResult, 'estimateDraft'>> {
   if (!matchCatalog || !catalog.length) return {};
-  const estimateDraft = buildIntakeEstimateDraft({
+  const estimateDraft = await buildIntakeEstimateDraft({
     reviewLines,
     catalog,
     modifiers,
@@ -1050,7 +1050,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
         warnings,
         diagnostics: buildDiagnostics('spreadsheet-unstructured', 'spreadsheet-fallback', metadata, reviewLines, warnings),
         proposalAssist,
-        ...attachEstimateDraft(matchCatalog, catalog, modifiers, reviewLines, null, intakeSettings),
+        ...(await attachEstimateDraft(matchCatalog, catalog, modifiers, reviewLines, null, intakeSettings)),
       };
       emitIntakeParseMetrics(out, parseStarted, intakeSettings);
       return out;
@@ -1221,7 +1221,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
         diagnostics: buildDiagnostics(parsedSheets[0]?.sourceKind || 'spreadsheet-row', 'spreadsheet-structure+gemini', enrichedMetadata, reviewLines, warnings),
         proposalAssist,
         aiSuggestions,
-        ...attachEstimateDraft(matchCatalog, catalog, modifiers, reviewLines, aiSuggestions, intakeSettings),
+        ...(await attachEstimateDraft(matchCatalog, catalog, modifiers, reviewLines, aiSuggestions, intakeSettings)),
         discardedLineSnapshots: discardedSpreadsheetSnapshots.length ? discardedSpreadsheetSnapshots : undefined,
       };
       emitIntakeParseMetrics(out, parseStarted, intakeSettings);
@@ -1246,7 +1246,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
         warnings: Array.from(new Set(warnings)),
         diagnostics: buildDiagnostics(parsedSheets[0]?.sourceKind || 'spreadsheet-row', 'spreadsheet-structure', metadata, reviewLines, warnings),
         proposalAssist,
-        ...attachEstimateDraft(matchCatalog, catalog, modifiers, reviewLines),
+        ...(await attachEstimateDraft(matchCatalog, catalog, modifiers, reviewLines)),
       };
     }
   }
@@ -1381,7 +1381,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
       diagnostics: buildDiagnostics(sourceKind, usableGeminiLines.length ? 'gemini-first' : 'gemini+fallback', metadata, reviewLines, warnings),
       proposalAssist,
       aiSuggestions: aiSuggestionsDoc,
-      ...attachEstimateDraft(matchCatalog, catalog, modifiers, reviewLines, aiSuggestionsDoc, intakeSettings),
+      ...(await attachEstimateDraft(matchCatalog, catalog, modifiers, reviewLines, aiSuggestionsDoc, intakeSettings)),
       discardedLineSnapshots: discardedLineSnapshots.length ? discardedLineSnapshots : undefined,
     };
     emitIntakeParseMetrics(out, parseStarted, intakeSettings);
@@ -1407,7 +1407,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
       warnings: Array.from(new Set(warnings)),
       diagnostics: buildDiagnostics(sourceKind, 'text-fallback', metadata, reviewLines, warnings),
       proposalAssist,
-      ...attachEstimateDraft(matchCatalog, catalog, modifiers, reviewLines, null, intakeSettings),
+      ...(await attachEstimateDraft(matchCatalog, catalog, modifiers, reviewLines, null, intakeSettings)),
     };
     emitIntakeParseMetrics(out, parseStarted, intakeSettings);
     return out;

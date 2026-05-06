@@ -1,5 +1,8 @@
 import { randomUUID } from 'crypto';
 import { getEstimatorDb } from '../db/connection.ts';
+import { isPgCatalogBackend } from '../db/catalogBackend.ts';
+import { isPgDriver } from '../db/driver.ts';
+import { dbAll, dbCatalogAll, dbCatalogGet, dbGet, dbRun, withPgTransaction } from '../db/query.ts';
 import type { IntakeMatchConfidence, IntakeScopeBucket } from '../../shared/types/intake.ts';
 import { TakeoffLineModifierRollup, TakeoffLineRecord, TakeoffPricingSource } from '../../shared/types/estimator.ts';
 import { recordIntakeCatalogMemoryFromAcceptedMatch } from './intakeCatalogMemoryRepo.ts';
@@ -8,9 +11,11 @@ import { getCatalogItemAttributesReadTableName, getCatalogItemsTableName } from 
 
 const DEFAULT_LABOR_RATE_PER_HOUR = Number(process.env.DEFAULT_LABOR_RATE_PER_HOUR || 100);
 
-export function getConfiguredLaborRatePerHour(): number {
-  const row = getEstimatorDb().prepare('SELECT default_labor_rate_per_hour FROM settings_v1 WHERE id = ?').get('global') as { default_labor_rate_per_hour?: number } | undefined;
-  const rate = Number(row?.default_labor_rate_per_hour);
+export async function getConfiguredLaborRatePerHour(): Promise<number> {
+  const row = isPgDriver()
+    ? await dbGet('SELECT default_labor_rate_per_hour FROM settings_v1 WHERE id = ?', ['global'])
+    : getEstimatorDb().prepare('SELECT default_labor_rate_per_hour FROM settings_v1 WHERE id = ?').get('global');
+  const rate = Number((row as { default_labor_rate_per_hour?: number } | undefined)?.default_labor_rate_per_hour);
   return Number.isFinite(rate) && rate > 0 ? rate : DEFAULT_LABOR_RATE_PER_HOUR;
 }
 
@@ -179,19 +184,25 @@ function mapTakeoffRow(row: any): TakeoffLineRecord {
 }
 
 /** Takeoff row from DB only (no line_modifiers). Use for pricing math and internal joins. */
-export function getTakeoffLineCore(lineId: string): TakeoffLineRecord | null {
-  const row = getEstimatorDb().prepare('SELECT * FROM takeoff_lines_v1 WHERE id = ?').get(lineId);
+export async function getTakeoffLineCore(lineId: string): Promise<TakeoffLineRecord | null> {
+  const row = isPgDriver()
+    ? await dbGet('SELECT * FROM takeoff_lines_v1 WHERE id = ?', [lineId])
+    : getEstimatorDb().prepare('SELECT * FROM takeoff_lines_v1 WHERE id = ?').get(lineId);
   return row ? mapTakeoffRow(row) : null;
 }
 
-function batchModifierNamesByLineIds(lineIds: string[]): Map<string, string[]> {
+async function batchModifierNamesByLineIds(lineIds: string[]): Promise<Map<string, string[]>> {
   const map = new Map<string, string[]>();
   if (lineIds.length === 0) return map;
-  const db = getEstimatorDb();
   const placeholders = lineIds.map(() => '?').join(',');
-  const rows = db
-    .prepare(`SELECT line_id, name FROM line_modifiers_v1 WHERE line_id IN (${placeholders}) ORDER BY created_at`)
-    .all(...lineIds) as Array<{ line_id: string; name: string }>;
+  const rows = isPgDriver()
+    ? await dbAll<{ line_id: string; name: string }>(
+        `SELECT line_id, name FROM line_modifiers_v1 WHERE line_id IN (${placeholders}) ORDER BY created_at`,
+        lineIds
+      )
+    : (getEstimatorDb()
+        .prepare(`SELECT line_id, name FROM line_modifiers_v1 WHERE line_id IN (${placeholders}) ORDER BY created_at`)
+        .all(...lineIds) as Array<{ line_id: string; name: string }>);
   for (const row of rows) {
     const list = map.get(row.line_id) || [];
     const n = String(row.name || '').trim();
@@ -201,26 +212,42 @@ function batchModifierNamesByLineIds(lineIds: string[]): Map<string, string[]> {
   return map;
 }
 
-function batchLineModifierRollups(lineIds: string[]): Map<string, TakeoffLineModifierRollup> {
+async function batchLineModifierRollups(lineIds: string[]): Promise<Map<string, TakeoffLineModifierRollup>> {
   const out = new Map<string, TakeoffLineModifierRollup>();
   if (lineIds.length === 0) return out;
   const placeholders = lineIds.map(() => '?').join(',');
-  const rows = getEstimatorDb()
-    .prepare(
-      `SELECT line_id,
+  const rows = isPgDriver()
+    ? await dbAll<{
+        line_id: string;
+        modifier_count: number;
+        sum_add_material: number;
+        sum_add_labor_minutes: number;
+        has_percent: number;
+      }>(
+        `SELECT line_id,
+        COUNT(*) AS modifier_count,
+        COALESCE(SUM(add_material_cost), 0) AS sum_add_material,
+        COALESCE(SUM(add_labor_minutes), 0) AS sum_add_labor_minutes,
+        MAX(CASE WHEN COALESCE(percent_material, 0) > 0 OR COALESCE(percent_labor, 0) > 0 THEN 1 ELSE 0 END) AS has_percent
+       FROM line_modifiers_v1 WHERE line_id IN (${placeholders}) GROUP BY line_id`,
+        lineIds
+      )
+    : (getEstimatorDb()
+        .prepare(
+          `SELECT line_id,
         COUNT(*) AS modifier_count,
         COALESCE(SUM(add_material_cost), 0) AS sum_add_material,
         COALESCE(SUM(add_labor_minutes), 0) AS sum_add_labor_minutes,
         MAX(CASE WHEN COALESCE(percent_material, 0) > 0 OR COALESCE(percent_labor, 0) > 0 THEN 1 ELSE 0 END) AS has_percent
        FROM line_modifiers_v1 WHERE line_id IN (${placeholders}) GROUP BY line_id`
-    )
-    .all(...lineIds) as Array<{
-      line_id: string;
-      modifier_count: number;
-      sum_add_material: number;
-      sum_add_labor_minutes: number;
-      has_percent: number;
-    }>;
+        )
+        .all(...lineIds) as Array<{
+        line_id: string;
+        modifier_count: number;
+        sum_add_material: number;
+        sum_add_labor_minutes: number;
+        has_percent: number;
+      }>);
   for (const row of rows) {
     out.set(row.line_id, {
       count: Number(row.modifier_count) || 0,
@@ -232,9 +259,9 @@ function batchLineModifierRollups(lineIds: string[]): Map<string, TakeoffLineMod
   return out;
 }
 
-export function enrichLineWithModifierNames(line: TakeoffLineRecord): TakeoffLineRecord {
-  const names = batchModifierNamesByLineIds([line.id]).get(line.id);
-  const rollup = batchLineModifierRollups([line.id]).get(line.id);
+export async function enrichLineWithModifierNames(line: TakeoffLineRecord): Promise<TakeoffLineRecord> {
+  const names = (await batchModifierNamesByLineIds([line.id])).get(line.id);
+  const rollup = (await batchLineModifierRollups([line.id])).get(line.id);
   return {
     ...line,
     modifierNames: names && names.length > 0 ? names : undefined,
@@ -242,14 +269,18 @@ export function enrichLineWithModifierNames(line: TakeoffLineRecord): TakeoffLin
   };
 }
 
-export function listTakeoffLines(projectId: string, roomId?: string): TakeoffLineRecord[] {
-  const rows = roomId
-    ? getEstimatorDb().prepare('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? AND room_id = ? ORDER BY created_at').all(projectId, roomId)
-    : getEstimatorDb().prepare('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? ORDER BY created_at').all(projectId);
+export async function listTakeoffLines(projectId: string, roomId?: string): Promise<TakeoffLineRecord[]> {
+  const rows = isPgDriver()
+    ? roomId
+      ? await dbAll('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? AND room_id = ? ORDER BY created_at', [projectId, roomId])
+      : await dbAll('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? ORDER BY created_at', [projectId])
+    : roomId
+      ? getEstimatorDb().prepare('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? AND room_id = ? ORDER BY created_at').all(projectId, roomId)
+      : getEstimatorDb().prepare('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? ORDER BY created_at').all(projectId);
   const lines = rows.map(mapTakeoffRow);
   const ids = lines.map((l) => l.id);
-  const byLine = batchModifierNamesByLineIds(ids);
-  const rollups = batchLineModifierRollups(ids);
+  const byLine = await batchModifierNamesByLineIds(ids);
+  const rollups = await batchLineModifierRollups(ids);
   return lines.map((line) => ({
     ...line,
     modifierNames: byLine.get(line.id)?.length ? byLine.get(line.id) : undefined,
@@ -257,8 +288,8 @@ export function listTakeoffLines(projectId: string, roomId?: string): TakeoffLin
   }));
 }
 
-export function getTakeoffLine(lineId: string): TakeoffLineRecord | null {
-  const line = getTakeoffLineCore(lineId);
+export async function getTakeoffLine(lineId: string): Promise<TakeoffLineRecord | null> {
+  const line = await getTakeoffLineCore(lineId);
   return line ? enrichLineWithModifierNames(line) : null;
 }
 
@@ -279,7 +310,7 @@ function computeLineTotal(
   };
 }
 
-function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): {
+async function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): Promise<{
   baseMaterialCost?: number;
   baseLaborMinutes?: number;
   materialCost?: number;
@@ -288,14 +319,14 @@ function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): {
   baseLaborMinutesSnapshot?: number | null;
   attributeDeltaMaterialSnapshot?: TakeoffLineRecord['attributeDeltaMaterialSnapshot'] | null;
   attributeDeltaLaborSnapshot?: TakeoffLineRecord['attributeDeltaLaborSnapshot'] | null;
-} {
+}> {
   const percentFactor = (value: number) => {
     if (!Number.isFinite(value)) return 0;
     // Accept either 10 (=10%) or 0.10 (=10%). Keeps authoring flexible.
     return Math.abs(value) > 1 ? value / 100 : value;
   };
 
-  const applyAttributeDeltas = (baseMaterialCost: number, baseLaborMinutes: number) => {
+  const applyAttributeDeltas = async (baseMaterialCost: number, baseLaborMinutes: number) => {
     const catalogItemId = input.catalogItemId;
     const snapshot = input.catalogAttributeSnapshot;
     if (!catalogItemId || !snapshot || !Array.isArray(snapshot) || snapshot.length === 0) {
@@ -311,20 +342,34 @@ function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): {
 
     const selected = new Set(snapshot.map((a) => `${a.attributeType}:${a.attributeValue}`));
     const attrRel = getCatalogItemAttributesReadTableName();
-    const rows = getEstimatorDb()
-      .prepare(
-        `SELECT attribute_type, attribute_value, material_delta_type, material_delta_value, labor_delta_type, labor_delta_value
+    const rows = isPgCatalogBackend()
+      ? await dbCatalogAll<{
+          attribute_type: string;
+          attribute_value: string;
+          material_delta_type: string | null;
+          material_delta_value: number | null;
+          labor_delta_type: string | null;
+          labor_delta_value: number | null;
+        }>(
+          `SELECT attribute_type, attribute_value, material_delta_type, material_delta_value, labor_delta_type, labor_delta_value
+         FROM ${attrRel}
+         WHERE catalog_item_id = ? AND active = 1`,
+          [catalogItemId]
+        )
+      : (getEstimatorDb()
+          .prepare(
+            `SELECT attribute_type, attribute_value, material_delta_type, material_delta_value, labor_delta_type, labor_delta_value
          FROM ${attrRel}
          WHERE catalog_item_id = ? AND active = 1`
-      )
-      .all(catalogItemId) as Array<{
-      attribute_type: string;
-      attribute_value: string;
-      material_delta_type: string | null;
-      material_delta_value: number | null;
-      labor_delta_type: string | null;
-      labor_delta_value: number | null;
-    }>;
+          )
+          .all(catalogItemId) as Array<{
+          attribute_type: string;
+          attribute_value: string;
+          material_delta_type: string | null;
+          material_delta_value: number | null;
+          labor_delta_type: string | null;
+          labor_delta_value: number | null;
+        }>);
 
     let materialCost = baseMaterialCost;
     let laborMinutes = baseLaborMinutes;
@@ -404,15 +449,16 @@ function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): {
 
   const table = getCatalogItemsTableName();
   if (input.catalogItemId) {
-    const row = getEstimatorDb()
-      .prepare(`SELECT base_material_cost, base_labor_minutes FROM ${table} WHERE id = ? LIMIT 1`)
-      .get(input.catalogItemId) as
-      | { base_material_cost: number; base_labor_minutes: number }
-      | undefined;
+    const row = isPgCatalogBackend()
+      ? await dbCatalogGet(`SELECT base_material_cost, base_labor_minutes FROM ${table} WHERE id = ? LIMIT 1`, [input.catalogItemId])
+      : getEstimatorDb()
+          .prepare(`SELECT base_material_cost, base_labor_minutes FROM ${table} WHERE id = ? LIMIT 1`)
+          .get(input.catalogItemId);
     if (row) {
-      const baseMaterialCost = Number(row.base_material_cost || 0);
-      const baseLaborMinutes = Number(row.base_labor_minutes || 0);
-      const adjusted = applyAttributeDeltas(baseMaterialCost, baseLaborMinutes);
+      const r = row as { base_material_cost: number; base_labor_minutes: number };
+      const baseMaterialCost = Number(r.base_material_cost || 0);
+      const baseLaborMinutes = Number(r.base_labor_minutes || 0);
+      const adjusted = await applyAttributeDeltas(baseMaterialCost, baseLaborMinutes);
       return {
         baseMaterialCost,
         baseLaborMinutes,
@@ -427,14 +473,15 @@ function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): {
   }
 
   if (input.sku) {
-    const row = getEstimatorDb()
-      .prepare(`SELECT base_material_cost, base_labor_minutes FROM ${table} WHERE lower(sku) = lower(?) LIMIT 1`)
-      .get(input.sku) as
-      | { base_material_cost: number; base_labor_minutes: number }
-      | undefined;
+    const row = isPgCatalogBackend()
+      ? await dbCatalogGet(`SELECT base_material_cost, base_labor_minutes FROM ${table} WHERE lower(sku) = lower(?) LIMIT 1`, [input.sku])
+      : getEstimatorDb()
+          .prepare(`SELECT base_material_cost, base_labor_minutes FROM ${table} WHERE lower(sku) = lower(?) LIMIT 1`)
+          .get(input.sku);
     if (row) {
-      const baseMaterialCost = Number(row.base_material_cost || 0);
-      const baseLaborMinutes = Number(row.base_labor_minutes || 0);
+      const r = row as { base_material_cost: number; base_labor_minutes: number };
+      const baseMaterialCost = Number(r.base_material_cost || 0);
+      const baseLaborMinutes = Number(r.base_labor_minutes || 0);
       return {
         baseMaterialCost,
         baseLaborMinutes,
@@ -447,10 +494,12 @@ function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): {
   return {};
 }
 
-export function createTakeoffLine(input: Partial<TakeoffLineRecord> & { projectId: string; roomId: string; description: string }): TakeoffLineRecord {
+export async function createTakeoffLine(
+  input: Partial<TakeoffLineRecord> & { projectId: string; roomId: string; description: string }
+): Promise<TakeoffLineRecord> {
   const now = new Date().toISOString();
-  const catalogDefaults = resolveCatalogDefaults(input);
-  const laborRatePerHour = getConfiguredLaborRatePerHour();
+  const catalogDefaults = await resolveCatalogDefaults(input);
+  const laborRatePerHour = await getConfiguredLaborRatePerHour();
   const qty = input.qty ?? 1;
   const sourceMaterialCost = normalizeNullableNumber(input.sourceMaterialCost);
   const materialCost = input.materialCost ?? catalogDefaults.materialCost ?? sourceMaterialCost ?? 0;
@@ -563,21 +612,7 @@ export function createTakeoffLine(input: Partial<TakeoffLineRecord> & { projectI
     updatedAt: now
   };
 
-  getEstimatorDb().prepare(`
-    INSERT INTO takeoff_lines_v1 (
-      id, project_id, room_id, source_type, source_ref, description,
-      proposal_visibility, proposal_description_override, parent_estimate_line_id, source_line_type,
-      sku, category, subcategory, base_type,
-      qty, unit, material_cost, base_material_cost, labor_minutes, labor_cost, base_labor_cost, pricing_source, unit_sell, line_total, notes, bundle_id, catalog_item_id,
-      variant_id, intake_scope_bucket, intake_match_confidence,
-      source_manufacturer, source_bid_bucket, source_section_header,
-      is_installable_scope, install_scope_type, install_labor_family, source_material_cost, generated_labor_minutes, labor_origin,
-      catalog_attribute_snapshot_json,
-      base_material_cost_snapshot, base_labor_minutes_snapshot,
-      attribute_delta_material_snapshot_json, attribute_delta_labor_snapshot_json,
-      created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+  const insertParams = [
     line.id,
     line.projectId,
     line.roomId,
@@ -623,11 +658,51 @@ export function createTakeoffLine(input: Partial<TakeoffLineRecord> & { projectI
     attributeDeltaMaterialSnapshotJson,
     attributeDeltaLaborSnapshotJson,
     line.createdAt,
-    line.updatedAt
-  );
+    line.updatedAt,
+  ];
+  if (isPgDriver()) {
+    await dbRun(
+      `
+    INSERT INTO takeoff_lines_v1 (
+      id, project_id, room_id, source_type, source_ref, description,
+      proposal_visibility, proposal_description_override, parent_estimate_line_id, source_line_type,
+      sku, category, subcategory, base_type,
+      qty, unit, material_cost, base_material_cost, labor_minutes, labor_cost, base_labor_cost, pricing_source, unit_sell, line_total, notes, bundle_id, catalog_item_id,
+      variant_id, intake_scope_bucket, intake_match_confidence,
+      source_manufacturer, source_bid_bucket, source_section_header,
+      is_installable_scope, install_scope_type, install_labor_family, source_material_cost, generated_labor_minutes, labor_origin,
+      catalog_attribute_snapshot_json,
+      base_material_cost_snapshot, base_labor_minutes_snapshot,
+      attribute_delta_material_snapshot_json, attribute_delta_labor_snapshot_json,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `,
+      insertParams
+    );
+  } else {
+    getEstimatorDb()
+      .prepare(
+        `
+    INSERT INTO takeoff_lines_v1 (
+      id, project_id, room_id, source_type, source_ref, description,
+      proposal_visibility, proposal_description_override, parent_estimate_line_id, source_line_type,
+      sku, category, subcategory, base_type,
+      qty, unit, material_cost, base_material_cost, labor_minutes, labor_cost, base_labor_cost, pricing_source, unit_sell, line_total, notes, bundle_id, catalog_item_id,
+      variant_id, intake_scope_bucket, intake_match_confidence,
+      source_manufacturer, source_bid_bucket, source_section_header,
+      is_installable_scope, install_scope_type, install_labor_family, source_material_cost, generated_labor_minutes, labor_origin,
+      catalog_attribute_snapshot_json,
+      base_material_cost_snapshot, base_labor_minutes_snapshot,
+      attribute_delta_material_snapshot_json, attribute_delta_labor_snapshot_json,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `
+      )
+      .run(...insertParams);
+  }
 
   if (shouldRecordCatalogMemoryForLineChange(null, line)) {
-    recordIntakeCatalogMemoryFromAcceptedMatch({
+    await recordIntakeCatalogMemoryFromAcceptedMatch({
       sku: line.sku,
       description: line.description,
       catalogItemId: line.catalogItemId,
@@ -637,12 +712,12 @@ export function createTakeoffLine(input: Partial<TakeoffLineRecord> & { projectI
   return enrichLineWithModifierNames(line);
 }
 
-export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineRecord>): TakeoffLineRecord | null {
-  const existing = getTakeoffLineCore(lineId);
+export async function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineRecord>): Promise<TakeoffLineRecord | null> {
+  const existing = await getTakeoffLineCore(lineId);
   if (!existing) return null;
 
   if (input.roomId !== undefined && input.roomId !== existing.roomId) {
-    const targetRoom = getRoom(String(input.roomId));
+    const targetRoom = await getRoom(String(input.roomId));
     if (!targetRoom || targetRoom.projectId !== existing.projectId) {
       return null;
     }
@@ -652,7 +727,7 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
   delete (sanitizedInput as Partial<{ modifierNames?: unknown }>).modifierNames;
   delete (sanitizedInput as Partial<{ lineModifierRollup?: unknown }>).lineModifierRollup;
 
-  const laborRatePerHour = getConfiguredLaborRatePerHour();
+  const laborRatePerHour = await getConfiguredLaborRatePerHour();
   const qty = input.qty ?? existing.qty;
   const materialCost = input.materialCost ?? existing.materialCost;
   const laborMinutes = input.laborMinutes ?? existing.laborMinutes;
@@ -768,21 +843,7 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
     updatedAt: new Date().toISOString()
   };
 
-  getEstimatorDb().prepare(`
-    UPDATE takeoff_lines_v1 SET
-      room_id = ?, source_type = ?, source_ref = ?, description = ?,
-      proposal_visibility = ?, proposal_description_override = ?, parent_estimate_line_id = ?, source_line_type = ?,
-      sku = ?, category = ?, subcategory = ?, base_type = ?,
-      qty = ?, unit = ?, material_cost = ?, base_material_cost = ?, labor_minutes = ?, labor_cost = ?, base_labor_cost = ?, pricing_source = ?, unit_sell = ?, line_total = ?, notes = ?,
-      bundle_id = ?, catalog_item_id = ?, variant_id = ?, intake_scope_bucket = ?, intake_match_confidence = ?,
-      source_manufacturer = ?, source_bid_bucket = ?, source_section_header = ?,
-      is_installable_scope = ?, install_scope_type = ?, install_labor_family = ?, source_material_cost = ?, generated_labor_minutes = ?, labor_origin = ?,
-      catalog_attribute_snapshot_json = ?,
-      base_material_cost_snapshot = ?, base_labor_minutes_snapshot = ?,
-      attribute_delta_material_snapshot_json = ?, attribute_delta_labor_snapshot_json = ?,
-      updated_at = ?
-    WHERE id = ?
-  `).run(
+  const updateParams = [
     next.roomId,
     next.sourceType,
     next.sourceRef,
@@ -826,11 +887,51 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
     nextAttributeDeltaMaterialSnapshotJson,
     nextAttributeDeltaLaborSnapshotJson,
     next.updatedAt,
-    lineId
-  );
+    lineId,
+  ];
+  if (isPgDriver()) {
+    await dbRun(
+      `
+    UPDATE takeoff_lines_v1 SET
+      room_id = ?, source_type = ?, source_ref = ?, description = ?,
+      proposal_visibility = ?, proposal_description_override = ?, parent_estimate_line_id = ?, source_line_type = ?,
+      sku = ?, category = ?, subcategory = ?, base_type = ?,
+      qty = ?, unit = ?, material_cost = ?, base_material_cost = ?, labor_minutes = ?, labor_cost = ?, base_labor_cost = ?, pricing_source = ?, unit_sell = ?, line_total = ?, notes = ?,
+      bundle_id = ?, catalog_item_id = ?, variant_id = ?, intake_scope_bucket = ?, intake_match_confidence = ?,
+      source_manufacturer = ?, source_bid_bucket = ?, source_section_header = ?,
+      is_installable_scope = ?, install_scope_type = ?, install_labor_family = ?, source_material_cost = ?, generated_labor_minutes = ?, labor_origin = ?,
+      catalog_attribute_snapshot_json = ?,
+      base_material_cost_snapshot = ?, base_labor_minutes_snapshot = ?,
+      attribute_delta_material_snapshot_json = ?, attribute_delta_labor_snapshot_json = ?,
+      updated_at = ?
+    WHERE id = ?
+  `,
+      updateParams
+    );
+  } else {
+    getEstimatorDb()
+      .prepare(
+        `
+    UPDATE takeoff_lines_v1 SET
+      room_id = ?, source_type = ?, source_ref = ?, description = ?,
+      proposal_visibility = ?, proposal_description_override = ?, parent_estimate_line_id = ?, source_line_type = ?,
+      sku = ?, category = ?, subcategory = ?, base_type = ?,
+      qty = ?, unit = ?, material_cost = ?, base_material_cost = ?, labor_minutes = ?, labor_cost = ?, base_labor_cost = ?, pricing_source = ?, unit_sell = ?, line_total = ?, notes = ?,
+      bundle_id = ?, catalog_item_id = ?, variant_id = ?, intake_scope_bucket = ?, intake_match_confidence = ?,
+      source_manufacturer = ?, source_bid_bucket = ?, source_section_header = ?,
+      is_installable_scope = ?, install_scope_type = ?, install_labor_family = ?, source_material_cost = ?, generated_labor_minutes = ?, labor_origin = ?,
+      catalog_attribute_snapshot_json = ?,
+      base_material_cost_snapshot = ?, base_labor_minutes_snapshot = ?,
+      attribute_delta_material_snapshot_json = ?, attribute_delta_labor_snapshot_json = ?,
+      updated_at = ?
+    WHERE id = ?
+  `
+      )
+      .run(...updateParams);
+  }
 
   if (shouldRecordCatalogMemoryForLineChange(existing, next)) {
-    recordIntakeCatalogMemoryFromAcceptedMatch({
+    await recordIntakeCatalogMemoryFromAcceptedMatch({
       sku: next.sku,
       description: next.description,
       catalogItemId: next.catalogItemId,
@@ -840,45 +941,52 @@ export function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineReco
   return enrichLineWithModifierNames(next);
 }
 
-export function deleteTakeoffLine(lineId: string): boolean {
-  const result = getEstimatorDb().prepare('DELETE FROM takeoff_lines_v1 WHERE id = ?').run(lineId);
+export async function deleteTakeoffLine(lineId: string): Promise<boolean> {
+  const result = isPgDriver()
+    ? await dbRun('DELETE FROM takeoff_lines_v1 WHERE id = ?', [lineId])
+    : getEstimatorDb().prepare('DELETE FROM takeoff_lines_v1 WHERE id = ?').run(lineId);
   return result.changes > 0;
 }
 
 /** Move lines to a room in the same project. Validates all ids before updating any. */
-export function bulkMoveTakeoffLinesToRoom(
+export async function bulkMoveTakeoffLinesToRoom(
   lineIds: string[],
   targetRoomId: string
-): { lines: TakeoffLineRecord[] } | { error: string } {
+): Promise<{ lines: TakeoffLineRecord[] } | { error: string }> {
   const trimmedRoom = String(targetRoomId || '').trim();
   if (!trimmedRoom) return { error: 'roomId is required' };
 
-  const room = getRoom(trimmedRoom);
+  const room = await getRoom(trimmedRoom);
   if (!room) return { error: 'Room not found' };
 
   const uniqueIds = Array.from(new Set(lineIds.map((id) => String(id || '').trim()).filter(Boolean)));
   if (uniqueIds.length === 0) return { error: 'lineIds must include at least one line id' };
 
   for (const id of uniqueIds) {
-    const core = getTakeoffLineCore(id);
+    const core = await getTakeoffLineCore(id);
     if (!core) return { error: `Takeoff line not found: ${id}` };
     if (core.projectId !== room.projectId) {
       return { error: 'All lines must belong to the same project as the target room' };
     }
   }
 
-  const db = getEstimatorDb();
   try {
-    const lines = db.transaction(() => {
-      const out: TakeoffLineRecord[] = [];
-      for (const id of uniqueIds) {
-        const updated = updateTakeoffLine(id, { roomId: trimmedRoom });
-        if (!updated) throw new Error(`update_failed:${id}`);
-        out.push(updated);
-      }
-      return out;
-    })();
-    return { lines };
+    const now = new Date().toISOString();
+    if (isPgDriver()) {
+      await withPgTransaction(async (exec) => {
+        for (const id of uniqueIds) {
+          await exec.run(`UPDATE takeoff_lines_v1 SET room_id = ?, updated_at = ? WHERE id = ?`, [trimmedRoom, now, id]);
+        }
+      });
+    } else {
+      const db = getEstimatorDb();
+      db.transaction(() => {
+        const stmt = db.prepare('UPDATE takeoff_lines_v1 SET room_id = ?, updated_at = ? WHERE id = ?');
+        for (const id of uniqueIds) stmt.run(trimmedRoom, now, id);
+      })();
+    }
+    const lines = await Promise.all(uniqueIds.map((id) => getTakeoffLine(id)));
+    return { lines: lines.filter(Boolean) as TakeoffLineRecord[] };
   } catch {
     return { error: 'Failed to move one or more lines' };
   }
@@ -889,19 +997,15 @@ export function bulkMoveTakeoffLinesToRoom(
  * Copies stored pricing, catalog link, attribute/delta snapshots, and line_modifiers rows.
  * Does not write intake catalog memory (duplicate is not a new match event).
  */
-export function duplicateTakeoffLine(sourceLineId: string, targetRoomId: string): TakeoffLineRecord | null {
-  const source = getTakeoffLineCore(sourceLineId);
+export async function duplicateTakeoffLine(sourceLineId: string, targetRoomId: string): Promise<TakeoffLineRecord | null> {
+  const source = await getTakeoffLineCore(sourceLineId);
   if (!source) return null;
-  const room = getRoom(targetRoomId);
+  const room = await getRoom(targetRoomId);
   if (!room || room.projectId !== source.projectId) return null;
 
   const newId = randomUUID();
   const now = new Date().toISOString();
-  const db = getEstimatorDb();
-
-  const inserted = db
-    .prepare(
-      `
+  const insertSelectSql = `
     INSERT INTO takeoff_lines_v1 (
       id, project_id, room_id, source_type, source_ref, description, sku, category, subcategory, base_type,
       qty, unit, material_cost, base_material_cost, labor_minutes, labor_cost, base_labor_cost, pricing_source, unit_sell, line_total, notes, bundle_id, catalog_item_id,
@@ -924,33 +1028,47 @@ export function duplicateTakeoffLine(sourceLineId: string, targetRoomId: string)
       attribute_delta_material_snapshot_json, attribute_delta_labor_snapshot_json,
       ?, ?
     FROM takeoff_lines_v1 WHERE id = ?
-  `
-    )
-    .run(newId, targetRoomId, now, now, sourceLineId);
+  `;
+  const insertParams = [newId, targetRoomId, now, now, sourceLineId];
+  const inserted = isPgDriver()
+    ? await dbRun(insertSelectSql, insertParams)
+    : getEstimatorDb().prepare(insertSelectSql).run(...insertParams);
 
   if (!inserted.changes) return null;
 
-  const modRows = db
-    .prepare(
-      `SELECT modifier_id, name, add_material_cost, add_labor_minutes, percent_material, percent_labor, created_at
+  const modRows = isPgDriver()
+    ? await dbAll<{
+        modifier_id: string;
+        name: string;
+        add_material_cost: number;
+        add_labor_minutes: number;
+        percent_material: number;
+        percent_labor: number;
+        created_at: string;
+      }>(
+        `SELECT modifier_id, name, add_material_cost, add_labor_minutes, percent_material, percent_labor, created_at
+       FROM line_modifiers_v1 WHERE line_id = ? ORDER BY created_at`,
+        [sourceLineId]
+      )
+    : (getEstimatorDb()
+        .prepare(
+          `SELECT modifier_id, name, add_material_cost, add_labor_minutes, percent_material, percent_labor, created_at
        FROM line_modifiers_v1 WHERE line_id = ? ORDER BY created_at`
-    )
-    .all(sourceLineId) as Array<{
-      modifier_id: string;
-      name: string;
-      add_material_cost: number;
-      add_labor_minutes: number;
-      percent_material: number;
-      percent_labor: number;
-      created_at: string;
-    }>;
+        )
+        .all(sourceLineId) as Array<{
+        modifier_id: string;
+        name: string;
+        add_material_cost: number;
+        add_labor_minutes: number;
+        percent_material: number;
+        percent_labor: number;
+        created_at: string;
+      }>);
 
-  const insMod = db.prepare(
-    `INSERT INTO line_modifiers_v1 (id, line_id, modifier_id, name, add_material_cost, add_labor_minutes, percent_material, percent_labor, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  );
+  const insSql = `INSERT INTO line_modifiers_v1 (id, line_id, modifier_id, name, add_material_cost, add_labor_minutes, percent_material, percent_labor, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
   for (const m of modRows) {
-    insMod.run(
+    const rowParams = [
       randomUUID(),
       newId,
       m.modifier_id,
@@ -959,9 +1077,14 @@ export function duplicateTakeoffLine(sourceLineId: string, targetRoomId: string)
       m.add_labor_minutes,
       m.percent_material,
       m.percent_labor,
-      m.created_at
-    );
+      m.created_at,
+    ];
+    if (isPgDriver()) {
+      await dbRun(insSql, rowParams);
+    } else {
+      getEstimatorDb().prepare(insSql).run(...rowParams);
+    }
   }
 
-  return getTakeoffLine(newId);
+  return await getTakeoffLine(newId);
 }

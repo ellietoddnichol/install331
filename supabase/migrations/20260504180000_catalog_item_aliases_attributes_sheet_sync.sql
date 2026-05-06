@@ -6,7 +6,7 @@
 
 CREATE TABLE IF NOT EXISTS catalog_item_aliases (
   id TEXT PRIMARY KEY,
-  catalog_item_id TEXT NOT NULL REFERENCES catalog_items (id) ON DELETE CASCADE,
+  catalog_item_id TEXT NOT NULL,
   alias_type TEXT NOT NULL,
   alias_value TEXT NOT NULL,
   created_at TEXT NOT NULL,
@@ -24,7 +24,7 @@ CREATE INDEX IF NOT EXISTS idx_catalog_item_aliases_value
 
 CREATE TABLE IF NOT EXISTS catalog_item_attributes (
   id TEXT PRIMARY KEY,
-  catalog_item_id TEXT NOT NULL REFERENCES catalog_items (id) ON DELETE CASCADE,
+  catalog_item_id TEXT NOT NULL,
   attribute_type TEXT NOT NULL,
   attribute_value TEXT NOT NULL,
   material_delta_type TEXT,

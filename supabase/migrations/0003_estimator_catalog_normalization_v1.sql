@@ -1,6 +1,7 @@
 -- Phase 2: Additive "normalization layer" for estimator v1.
--- Does NOT change catalog_items, modifiers_v1, bundles_v1, or takeoff. Same TEXT ids as 0001.
--- Kept in estimator_* to avoid clashing with Div 10 Brain tables (e.g. public.catalog_items uuid in other migrations).
+-- Does NOT change catalog_items, modifiers_v1, bundles_v1, or takeoff.
+-- Catalog pointers are TEXT (uuid string or legacy TEXT id) without FK to catalog_items so both
+-- SQLite-parity TEXT ids and Supabase uuid catalogs work.
 
 CREATE TABLE IF NOT EXISTS estimator_catalog_attribute_defs (
   id TEXT PRIMARY KEY,
@@ -31,7 +32,7 @@ CREATE TABLE IF NOT EXISTS estimator_sku_aliases (
   id TEXT PRIMARY KEY,
   alias_text TEXT NOT NULL,
   alias_kind TEXT NOT NULL,
-  target_catalog_item_id TEXT NOT NULL REFERENCES catalog_items (id) ON DELETE CASCADE,
+  target_catalog_item_id TEXT NOT NULL,
   notes TEXT,
   active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
@@ -41,7 +42,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_estimator_sku_aliases_lower ON estimator_s
 
 CREATE TABLE IF NOT EXISTS estimator_catalog_item_attributes (
   id TEXT PRIMARY KEY,
-  catalog_item_id TEXT NOT NULL REFERENCES catalog_items (id) ON DELETE CASCADE,
+  catalog_item_id TEXT NOT NULL,
   attribute_id TEXT NOT NULL REFERENCES estimator_catalog_attribute_defs (id) ON DELETE CASCADE,
   value TEXT NOT NULL,
   created_at TEXT NOT NULL
@@ -65,7 +66,7 @@ CREATE TABLE IF NOT EXISTS estimator_norm_bundles_v1 (
 CREATE TABLE IF NOT EXISTS estimator_norm_bundle_items_v1 (
   id TEXT PRIMARY KEY,
   norm_bundle_id TEXT NOT NULL REFERENCES estimator_norm_bundles_v1 (id) ON DELETE CASCADE,
-  catalog_item_id TEXT NOT NULL REFERENCES catalog_items (id) ON DELETE CASCADE,
+  catalog_item_id TEXT NOT NULL,
   qty DOUBLE PRECISION NOT NULL DEFAULT 1,
   sort_order INTEGER NOT NULL DEFAULT 0,
   notes TEXT

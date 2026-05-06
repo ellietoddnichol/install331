@@ -1,8 +1,11 @@
 import { randomUUID } from 'crypto';
 import { getCatalogModifiersReadTableName } from '../db/catalogTable.ts';
+import { isPgCatalogBackend } from '../db/catalogBackend.ts';
 import { getEstimatorDb } from '../db/connection.ts';
+import { isPgDriver } from '../db/driver.ts';
+import { dbAll, dbCatalogAll, dbCatalogGet, dbRun } from '../db/query.ts';
 import { LineModifierRecord, ModifierRecord } from '../../shared/types/estimator.ts';
-import { getTakeoffLineCore, resolveUnitLaborCostFromMinutes, updateTakeoffLine } from './takeoffRepo.ts';
+import { getConfiguredLaborRatePerHour, getTakeoffLineCore, resolveUnitLaborCostFromMinutes, updateTakeoffLine } from './takeoffRepo.ts';
 
 function mapModifier(row: any): ModifierRecord {
   return {
@@ -34,35 +37,50 @@ function mapLineModifier(row: any): LineModifierRecord {
   };
 }
 
-export function listModifiers(): ModifierRecord[] {
+function modifiersActiveSql(): string {
+  return isPgDriver() ? '(active IS TRUE OR active = 1)' : 'active = 1';
+}
+
+export async function listModifiers(): Promise<ModifierRecord[]> {
   const rel = getCatalogModifiersReadTableName();
-  const rows = getEstimatorDb().prepare(`SELECT * FROM ${rel} WHERE active = 1 ORDER BY name`).all();
+  const act = modifiersActiveSql();
+  if (isPgDriver()) {
+    const rows = await dbCatalogAll(`SELECT * FROM ${rel} WHERE ${act} ORDER BY name`);
+    return rows.map(mapModifier);
+  }
+  const rows = getEstimatorDb().prepare(`SELECT * FROM ${rel} WHERE ${act} ORDER BY name`).all();
   return rows.map(mapModifier);
 }
 
-export function listLineModifiers(lineId: string): LineModifierRecord[] {
-  const rows = getEstimatorDb().prepare('SELECT * FROM line_modifiers_v1 WHERE line_id = ? ORDER BY created_at').all(lineId);
+export async function listLineModifiers(lineId: string): Promise<LineModifierRecord[]> {
+  const rows = isPgDriver()
+    ? await dbAll('SELECT * FROM line_modifiers_v1 WHERE line_id = ? ORDER BY created_at', [lineId])
+    : getEstimatorDb().prepare('SELECT * FROM line_modifiers_v1 WHERE line_id = ? ORDER BY created_at').all(lineId);
   return rows.map(mapLineModifier);
 }
 
-export function recalculateLineFromModifiers(lineId: string) {
-  const line = getTakeoffLineCore(lineId);
+export async function recalculateLineFromModifiers(lineId: string) {
+  const line = await getTakeoffLineCore(lineId);
   if (!line) return null;
 
-  const lineModifiers = listLineModifiers(lineId);
+  const lineModifiers = await listLineModifiers(lineId);
+  const laborRatePerHour = await getConfiguredLaborRatePerHour();
 
   let materialCost = line.baseMaterialCost;
-  const baseLaborCost = line.laborMinutes > 0
-    ? resolveUnitLaborCostFromMinutes(line.laborMinutes || 0)
-    : (line.baseLaborCost || 0);
+  const baseLaborCost =
+    line.laborMinutes > 0
+      ? resolveUnitLaborCostFromMinutes(line.laborMinutes || 0, laborRatePerHour)
+      : line.baseLaborCost || 0;
   let laborCost = baseLaborCost;
 
   lineModifiers.forEach((modifier) => {
-    materialCost += modifier.addMaterialCost + (line.baseMaterialCost * (modifier.percentMaterial / 100));
-    laborCost += resolveUnitLaborCostFromMinutes(modifier.addLaborMinutes || 0) + (baseLaborCost * (modifier.percentLabor / 100));
+    materialCost += modifier.addMaterialCost + line.baseMaterialCost * (modifier.percentMaterial / 100);
+    laborCost +=
+      resolveUnitLaborCostFromMinutes(modifier.addLaborMinutes || 0, laborRatePerHour) +
+      baseLaborCost * (modifier.percentLabor / 100);
   });
 
-  return updateTakeoffLine(lineId, {
+  return await updateTakeoffLine(lineId, {
     materialCost: Number(materialCost.toFixed(2)),
     laborCost: Number(laborCost.toFixed(2)),
     baseMaterialCost: line.baseMaterialCost,
@@ -70,22 +88,36 @@ export function recalculateLineFromModifiers(lineId: string) {
   });
 }
 
-export function recalculateProjectLinePricing(projectId: string) {
-  const rows = getEstimatorDb().prepare('SELECT id FROM takeoff_lines_v1 WHERE project_id = ? ORDER BY created_at').all(projectId) as Array<{ id: string }>;
-  return rows.map((row) => recalculateLineFromModifiers(row.id)).filter(Boolean);
+export async function recalculateProjectLinePricing(projectId: string) {
+  const rows = isPgDriver()
+    ? await dbAll('SELECT id FROM takeoff_lines_v1 WHERE project_id = ? ORDER BY created_at', [projectId])
+    : getEstimatorDb().prepare('SELECT id FROM takeoff_lines_v1 WHERE project_id = ? ORDER BY created_at').all(projectId);
+  const typed = rows as Array<{ id: string }>;
+  const results = await Promise.all(typed.map((row) => recalculateLineFromModifiers(row.id)));
+  return results.filter(Boolean);
 }
 
-export function recalculateAllLinePricing() {
-  const rows = getEstimatorDb().prepare('SELECT id FROM takeoff_lines_v1 ORDER BY created_at').all() as Array<{ id: string }>;
-  return rows.map((row) => recalculateLineFromModifiers(row.id)).filter(Boolean);
+export async function recalculateAllLinePricing() {
+  const rows = isPgDriver()
+    ? await dbAll('SELECT id FROM takeoff_lines_v1 ORDER BY created_at')
+    : getEstimatorDb().prepare('SELECT id FROM takeoff_lines_v1 ORDER BY created_at').all();
+  const typed = rows as Array<{ id: string }>;
+  const results = await Promise.all(typed.map((row) => recalculateLineFromModifiers(row.id)));
+  return results.filter(Boolean);
 }
 
-export function applyModifierToLine(lineId: string, modifierId: string): { line: any; modifier: LineModifierRecord } | null {
-  const line = getTakeoffLineCore(lineId);
+export async function applyModifierToLine(
+  lineId: string,
+  modifierId: string
+): Promise<{ line: any; modifier: LineModifierRecord } | null> {
+  const line = await getTakeoffLineCore(lineId);
   if (!line) return null;
 
   const rel = getCatalogModifiersReadTableName();
-  const modifierRow = getEstimatorDb().prepare(`SELECT * FROM ${rel} WHERE id = ? AND active = 1`).get(modifierId);
+  const act = modifiersActiveSql();
+  const modifierRow = isPgCatalogBackend()
+    ? await dbCatalogGet(`SELECT * FROM ${rel} WHERE id = ? AND ${act}`, [modifierId])
+    : getEstimatorDb().prepare(`SELECT * FROM ${rel} WHERE id = ? AND active = 1`).get(modifierId);
   if (!modifierRow) return null;
 
   const modifier = mapModifier(modifierRow);
@@ -99,14 +131,10 @@ export function applyModifierToLine(lineId: string, modifierId: string): { line:
     addLaborMinutes: modifier.addLaborMinutes,
     percentMaterial: modifier.percentMaterial,
     percentLabor: modifier.percentLabor,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
   };
 
-  getEstimatorDb().prepare(`
-    INSERT INTO line_modifiers_v1 (
-      id, line_id, modifier_id, name, add_material_cost, add_labor_minutes, percent_material, percent_labor, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+  const insParams = [
     savedLineModifier.id,
     savedLineModifier.lineId,
     savedLineModifier.modifierId,
@@ -115,23 +143,48 @@ export function applyModifierToLine(lineId: string, modifierId: string): { line:
     savedLineModifier.addLaborMinutes,
     savedLineModifier.percentMaterial,
     savedLineModifier.percentLabor,
-    savedLineModifier.createdAt
-  );
+    savedLineModifier.createdAt,
+  ];
+  if (isPgDriver()) {
+    await dbRun(
+      `
+    INSERT INTO line_modifiers_v1 (
+      id, line_id, modifier_id, name, add_material_cost, add_labor_minutes, percent_material, percent_labor, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `,
+      insParams
+    );
+  } else {
+    getEstimatorDb()
+      .prepare(
+        `
+    INSERT INTO line_modifiers_v1 (
+      id, line_id, modifier_id, name, add_material_cost, add_labor_minutes, percent_material, percent_labor, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `
+      )
+      .run(...insParams);
+  }
 
-  const updatedLine = recalculateLineFromModifiers(lineId);
+  const updatedLine = await recalculateLineFromModifiers(lineId);
 
   return { line: updatedLine, modifier: savedLineModifier };
 }
 
-export function removeLineModifier(lineId: string, lineModifierId: string): { line: any; removed: boolean } | null {
-  const line = getTakeoffLineCore(lineId);
+export async function removeLineModifier(
+  lineId: string,
+  lineModifierId: string
+): Promise<{ line: any; removed: boolean } | null> {
+  const line = await getTakeoffLineCore(lineId);
   if (!line) return null;
 
-  const result = getEstimatorDb().prepare('DELETE FROM line_modifiers_v1 WHERE id = ? AND line_id = ?').run(lineModifierId, lineId);
+  const result = isPgDriver()
+    ? await dbRun('DELETE FROM line_modifiers_v1 WHERE id = ? AND line_id = ?', [lineModifierId, lineId])
+    : getEstimatorDb().prepare('DELETE FROM line_modifiers_v1 WHERE id = ? AND line_id = ?').run(lineModifierId, lineId);
   if (result.changes === 0) {
     return null;
   }
 
-  const updatedLine = recalculateLineFromModifiers(lineId);
+  const updatedLine = await recalculateLineFromModifiers(lineId);
   return { line: updatedLine, removed: true };
 }

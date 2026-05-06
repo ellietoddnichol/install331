@@ -1,18 +1,36 @@
 import { getEstimatorDb } from '../db/connection.ts';
+import { isPgDriver } from '../db/driver.ts';
+import { dbAll, dbRun } from '../db/query.ts';
 
 export type IntakeReviewOverrideStatus = 'ignored';
 
-export function upsertIntakeReviewOverride(input: {
+export async function upsertIntakeReviewOverride(input: {
   reviewLineFingerprint: string;
   status: IntakeReviewOverrideStatus;
   reviewLineContentKey?: string | null;
-}): void {
+}): Promise<void> {
   const fp = String(input.reviewLineFingerprint || '').trim();
   const status = String(input.status || '').trim();
   if (!fp) return;
   if (status !== 'ignored') return;
   const rawCk = input.reviewLineContentKey;
   const contentKey = rawCk != null && String(rawCk).trim() ? String(rawCk).trim() : null;
+  const now = new Date().toISOString();
+
+  if (isPgDriver()) {
+    await dbRun(
+      `INSERT INTO intake_review_overrides_v1 (review_line_fingerprint, status, updated_at, content_ignore_key)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(review_line_fingerprint)
+       DO UPDATE SET
+         status = EXCLUDED.status,
+         updated_at = EXCLUDED.updated_at,
+         content_ignore_key = COALESCE(EXCLUDED.content_ignore_key, intake_review_overrides_v1.content_ignore_key)`,
+      [fp, status, now, contentKey]
+    );
+    return;
+  }
+
   getEstimatorDb()
     .prepare(
       `INSERT INTO intake_review_overrides_v1 (review_line_fingerprint, status, updated_at, content_ignore_key)
@@ -23,13 +41,13 @@ export function upsertIntakeReviewOverride(input: {
          updated_at = excluded.updated_at,
          content_ignore_key = COALESCE(excluded.content_ignore_key, intake_review_overrides_v1.content_ignore_key)`
     )
-    .run(fp, status, new Date().toISOString(), contentKey);
+    .run(fp, status, now, contentKey);
 }
 
 /** Match by current fingerprint, or by content key when a prior pass stored the same line under a different fingerprint. */
-export function getIntakeReviewOverridesForMatcherLines(
+export async function getIntakeReviewOverridesForMatcherLines(
   lines: Array<{ reviewLineFingerprint: string; reviewLineContentKey: string }>
-): Map<string, { status: IntakeReviewOverrideStatus; updatedAt: string }> {
+): Promise<Map<string, { status: IntakeReviewOverrideStatus; updatedAt: string }>> {
   const fps = (lines || [])
     .map((l) => String(l.reviewLineFingerprint || '').trim())
     .filter(Boolean);
@@ -48,18 +66,26 @@ export function getIntakeReviewOverridesForMatcherLines(
     orParts.push(`(content_ignore_key IS NOT NULL AND content_ignore_key IN (${cks.map(() => '?').join(', ')}))`);
     params.push(...cks);
   }
-  const rows = getEstimatorDb()
-    .prepare(
-      `SELECT review_line_fingerprint, status, updated_at, content_ignore_key
+  const sql = `SELECT review_line_fingerprint, status, updated_at, content_ignore_key
        FROM intake_review_overrides_v1
-       WHERE status = 'ignored' AND (${orParts.join(' OR ')})`
-    )
-    .all(...params) as Array<{
-    review_line_fingerprint: string;
-    status: string;
-    updated_at: string;
-    content_ignore_key: string | null;
-  }>;
+       WHERE status = 'ignored' AND (${orParts.join(' OR ')})`;
+
+  const rows = isPgDriver()
+    ? ((await dbAll(sql, params)) as Array<{
+        review_line_fingerprint: string;
+        status: string;
+        updated_at: string;
+        content_ignore_key: string | null;
+      }>)
+    : (getEstimatorDb()
+        .prepare(sql)
+        .all(...params) as Array<{
+        review_line_fingerprint: string;
+        status: string;
+        updated_at: string;
+        content_ignore_key: string | null;
+      }>);
+
   const out = new Map<string, { status: IntakeReviewOverrideStatus; updatedAt: string }>();
   for (const line of lines) {
     const fp = String(line.reviewLineFingerprint || '').trim();
@@ -80,9 +106,10 @@ export function getIntakeReviewOverridesForMatcherLines(
   return out;
 }
 
-export function getIntakeReviewOverridesByFingerprints(fingerprints: string[]): Map<string, { status: IntakeReviewOverrideStatus; updatedAt: string }> {
+export async function getIntakeReviewOverridesByFingerprints(
+  fingerprints: string[]
+): Promise<Map<string, { status: IntakeReviewOverrideStatus; updatedAt: string }>> {
   return getIntakeReviewOverridesForMatcherLines(
     (fingerprints || []).map((reviewLineFingerprint) => ({ reviewLineFingerprint, reviewLineContentKey: '' }))
   );
 }
-

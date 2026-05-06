@@ -21,7 +21,8 @@ import {
   getCatalogItemAliasesReadTableName,
   getCatalogItemAttributesReadTableName,
 } from '../db/catalogTable.ts';
-import { getEstimatorDb } from '../db/connection.ts';
+import { isPgDriver } from '../db/driver.ts';
+import { dbCatalogAll, dbCatalogGet } from '../db/query.ts';
 import { getIntakeReviewOverridesForMatcherLines } from '../repos/intakeReviewOverridesRepo.ts';
 
 const TOP_N = 3;
@@ -216,36 +217,34 @@ function extractSkuLikeTokens(text: string): string[] {
   return Array.from(out);
 }
 
-function findStrongAliasCatalogItemId(input: CatalogMatchInput): { catalogItemId: string; aliasType: string; aliasValue: string } | null {
+async function findStrongAliasCatalogItemId(
+  input: CatalogMatchInput
+): Promise<{ catalogItemId: string; aliasType: string; aliasValue: string } | null> {
   const text = normalizeComparable([input.itemCode, input.itemName, input.description, input.notes].filter(Boolean).join(' '));
   const skuTokens = extractSkuLikeTokens([input.itemCode, input.description].filter(Boolean).join(' '));
 
-  const db = getEstimatorDb();
   const aliasesRel = getCatalogItemAliasesReadTableName();
 
   for (const token of skuTokens) {
-    const row = db
-      .prepare(
-        `SELECT catalog_item_id, alias_type, alias_value
+    const row = await dbCatalogGet<{ catalog_item_id: string; alias_type: string; alias_value: string }>(
+      `SELECT catalog_item_id, alias_type, alias_value
          FROM ${aliasesRel}
          WHERE lower(alias_value) = lower(?)
            AND alias_type IN ('legacy_sku', 'vendor_sku')
-         LIMIT 1`
-      )
-      .get(token) as { catalog_item_id: string; alias_type: string; alias_value: string } | undefined;
+         LIMIT 1`,
+      [token]
+    );
     if (row?.catalog_item_id) return { catalogItemId: row.catalog_item_id, aliasType: row.alias_type, aliasValue: row.alias_value };
   }
 
   if (text.length >= 8) {
-    const phraseRows = db
-      .prepare(
-        `SELECT catalog_item_id, alias_type, alias_value
+    const phraseRows = await dbCatalogAll<{ catalog_item_id: string; alias_type: string; alias_value: string }>(
+      `SELECT catalog_item_id, alias_type, alias_value
          FROM ${aliasesRel}
          WHERE alias_type IN ('parser_phrase', 'search_key', 'generic_name')
            AND length(trim(alias_value)) >= 6
          LIMIT 5000`
-      )
-      .all() as Array<{ catalog_item_id: string; alias_type: string; alias_value: string }>;
+    );
     for (const r of phraseRows) {
       const phrase = normalizeComparable(r.alias_value);
       if (!phrase) continue;
@@ -256,10 +255,14 @@ function findStrongAliasCatalogItemId(input: CatalogMatchInput): { catalogItemId
   return null;
 }
 
-function inferExplicitAttributesForItem(params: {
+async function inferExplicitAttributesForItem(params: {
   catalogItemId: string;
   lineText: string;
-}): Array<{ attributeType: 'finish' | 'coating' | 'grip' | 'mounting' | 'assembly'; attributeValue: string; reason: string }> | null {
+}): Promise<Array<{
+  attributeType: 'finish' | 'coating' | 'grip' | 'mounting' | 'assembly';
+  attributeValue: string;
+  reason: string;
+}> | null> {
   const t = String(params.lineText || '').toLowerCase();
   const wanted: Array<{ attributeType: any; attributeValue: string; reason: string }> = [];
   const push = (attributeType: any, attributeValue: string, reason: string) => wanted.push({ attributeType, attributeValue, reason });
@@ -276,13 +279,13 @@ function inferExplicitAttributesForItem(params: {
   if (wanted.length === 0) return null;
 
   const attrRel = getCatalogItemAttributesReadTableName();
-  const active = getEstimatorDb()
-    .prepare(
-      `SELECT attribute_type, attribute_value
+  const act = isPgDriver() ? '(active IS TRUE OR active = 1)' : 'active = 1';
+  const active = await dbCatalogAll<{ attribute_type: string; attribute_value: string }>(
+    `SELECT attribute_type, attribute_value
        FROM ${attrRel}
-       WHERE catalog_item_id = ? AND active = 1`
-    )
-    .all(params.catalogItemId) as Array<{ attribute_type: string; attribute_value: string }>;
+       WHERE catalog_item_id = ? AND ${act}`,
+    [params.catalogItemId]
+  );
   const allow = new Set(active.map((r) => `${String(r.attribute_type)}:${String(r.attribute_value)}`));
 
   const out = wanted.filter((w) => allow.has(`${w.attributeType}:${w.attributeValue}`));
@@ -319,13 +322,13 @@ function applyCrossLineBoost(
   });
 }
 
-export function buildIntakeEstimateDraft(params: {
+export async function buildIntakeEstimateDraft(params: {
   reviewLines: IntakeReviewLine[];
   catalog: CatalogItem[];
   modifiers: ModifierRecord[];
   aiSuggestions?: IntakeAiSuggestions | null;
   intakeAutomation?: { mode: IntakeCatalogAutoApplyMode; tierAMinScore: number };
-}): IntakeEstimateDraft | undefined {
+}): Promise<IntakeEstimateDraft | undefined> {
   const { reviewLines, catalog, modifiers, aiSuggestions, intakeAutomation } = params;
   const autoMode = intakeAutomation?.mode ?? 'off';
   if (!catalog.length) return undefined;
@@ -334,7 +337,8 @@ export function buildIntakeEstimateDraft(params: {
   const { manufacturerCounts, categoryCounts } = extractRoomConsistencySignals(reviewLines, catalogById);
   const projectModIds = matchProjectModifierIdsFromHints(aiSuggestions?.suggestedProjectModifierHints ?? [], modifiers);
 
-  const rawLineSuggestions: IntakeLineEstimateSuggestion[] = reviewLines.map((line, lineIndex) => {
+  const rawLineSuggestions: IntakeLineEstimateSuggestion[] = await Promise.all(
+    reviewLines.map(async (line, lineIndex) => {
     const room = normRoom(line.roomName);
     const input: CatalogMatchInput = {
       itemCode: line.itemCode,
@@ -349,7 +353,7 @@ export function buildIntakeEstimateDraft(params: {
     const boosted = applyCrossLineBoost(rankedBase, room, manufacturerCounts, categoryCounts).sort((a, b) => b.score - a.score);
     let topCatalogMatches: IntakeCatalogMatch[] = boosted.slice(0, TOP_N).map(catalogMatchScoreToIntake);
 
-    const aliasHit = findStrongAliasCatalogItemId(input);
+    const aliasHit = await findStrongAliasCatalogItemId(input);
     if (aliasHit) {
       const item = catalogById.get(aliasHit.catalogItemId);
       if (item) {
@@ -473,7 +477,7 @@ export function buildIntakeEstimateDraft(params: {
 
     const inferredAttrsRaw =
       suggestedCatalogItemId
-        ? inferExplicitAttributesForItem({
+        ? await inferExplicitAttributesForItem({
             catalogItemId: suggestedCatalogItemId,
             lineText: `${line.itemCode || ''} ${line.itemName || ''} ${line.description || ''} ${line.notes || ''}`,
           })
@@ -515,9 +519,10 @@ export function buildIntakeEstimateDraft(params: {
       installScopeType: line.installScopeType ?? null,
       inferredCatalogAttributeSnapshot,
     };
-  });
+  })
+  );
 
-  const overrideMap = getIntakeReviewOverridesForMatcherLines(
+  const overrideMap = await getIntakeReviewOverridesForMatcherLines(
     rawLineSuggestions.map((s) => ({
       reviewLineFingerprint: s.reviewLineFingerprint,
       reviewLineContentKey: s.reviewLineContentKey,

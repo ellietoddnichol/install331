@@ -152,7 +152,7 @@ async function main() {
       installLaborFamily: null,
     },
   ];
-  const draft = buildIntakeEstimateDraft({
+  const draft = await buildIntakeEstimateDraft({
     reviewLines,
     catalog: dummyCatalog,
     modifiers: [],

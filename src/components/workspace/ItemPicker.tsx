@@ -346,6 +346,7 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
       await onAddItems(draftItems.map(({ id, ...item }) => item));
       setDraftItems([]);
       setSelectedIds([]);
+      onClose();
     } finally {
       setSaving(false);
     }
@@ -371,7 +372,9 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
               <h3 className="mt-1 text-base font-semibold text-slate-900">Add Items To Project Estimate</h3>
               <p className="mt-1 text-xs text-slate-600">Search the catalog, stage multiple items, assign rooms in bulk, add manual rows, and apply bundles without reopening the workflow.</p>
             </div>
-            <button className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium hover:bg-slate-50" onClick={onClose}>Close</button>
+            <button type="button" className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium hover:bg-slate-50" onClick={onClose}>
+              Close
+            </button>
           </div>
         </div>
         <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[minmax(0,1.25fr)_420px]">
@@ -430,8 +433,8 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
                           >
                             Options
                           </button>
-                          <button onClick={() => stageCatalogItem(item)} className="inline-flex h-8 items-center gap-1 rounded-md border border-blue-300 bg-blue-50 px-2.5 text-[11px] font-semibold text-blue-800 hover:bg-blue-100">
-                          <Plus className="h-3.5 w-3.5" />
+                          <button type="button" onClick={() => stageCatalogItem(item)} className="inline-flex h-8 items-center gap-1 rounded-md border border-blue-300 bg-blue-50 px-2.5 text-[11px] font-semibold text-blue-800 hover:bg-blue-100">
+                            <Plus className="h-3.5 w-3.5" />
                             {`Stage ${Math.max(1, Number(catalogQtyById[item.id] || 1))} ${Math.max(1, Number(catalogQtyById[item.id] || 1)) === 1 ? 'Item' : 'Items'}`}
                           </button>
                         </div>
@@ -459,7 +462,9 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
                       </select>
                     </div>
                     <textarea value={manualNotes} onChange={(e) => setManualNotes(e.target.value)} rows={2} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Optional notes" />
-                    <button onClick={addManualDraft} className="h-8 rounded-md border border-slate-300 px-3 text-[11px] font-semibold hover:bg-slate-50">{`Stage ${Math.max(1, manualQty)} Manual ${Math.max(1, manualQty) === 1 ? 'Item' : 'Items'}`}</button>
+                    <button type="button" onClick={addManualDraft} className="h-8 rounded-md border border-slate-300 px-3 text-[11px] font-semibold hover:bg-slate-50">
+                      {`Stage ${Math.max(1, manualQty)} Manual ${Math.max(1, manualQty) === 1 ? 'Item' : 'Items'}`}
+                    </button>
                   </div>
                 </div>
 
@@ -544,8 +549,8 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
 
             <div className="border-t border-slate-200 px-4 py-3">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-xs text-slate-600">The modal stays open after adding so you can keep building the estimate.</p>
-                <button onClick={() => void commitDraftItems()} disabled={draftItems.length === 0 || saving} className="inline-flex h-10 items-center rounded-md bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
+                <p className="text-xs text-slate-600">After adding, the modal closes so you return to the estimate.</p>
+                <button type="button" onClick={() => void commitDraftItems()} disabled={draftItems.length === 0 || saving} className="inline-flex h-10 items-center rounded-md bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
                   {saving ? 'Adding Items...' : `Add ${queuedUnits} Unit${queuedUnits === 1 ? '' : 's'} To Estimate`}
                 </button>
               </div>
@@ -564,7 +569,7 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
                   <p className="mt-1 text-sm font-semibold text-slate-900">Choose attributes (optional)</p>
                   <p className="mt-1 text-xs text-slate-600">Snapshot is stored on the new line; pricing preview updates as you toggle options.</p>
                 </div>
-                <button className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium hover:bg-slate-50" onClick={() => setAttributePickerItemId(null)}>
+                <button type="button" className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium hover:bg-slate-50" onClick={() => setAttributePickerItemId(null)}>
                   Close
                 </button>
               </div>

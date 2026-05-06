@@ -47,7 +47,7 @@ roomsRouter.post('/:roomId/duplicate', async (req, res) => {
   const sourceLines = await listTakeoffLines(source.projectId, source.id);
   await Promise.all(
     sourceLines.map(async (line) =>
-      createTakeoffLine({
+      await createTakeoffLine({
         projectId: source.projectId,
         roomId: room.id,
         sourceType: line.sourceType,

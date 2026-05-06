@@ -35,7 +35,7 @@ CREATE INDEX IF NOT EXISTS catalog_items_active_idx ON public.catalog_items (act
 
 CREATE TABLE IF NOT EXISTS public.catalog_aliases (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  catalog_item_id uuid NOT NULL REFERENCES public.catalog_items (id) ON DELETE CASCADE,
+  catalog_item_id text NOT NULL,
   alias_text text NOT NULL,
   alias_type text,
   created_at timestamptz NOT NULL DEFAULT now()
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS public.bundle_templates (
 CREATE TABLE IF NOT EXISTS public.bundle_template_items (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   bundle_template_id uuid NOT NULL REFERENCES public.bundle_templates (id) ON DELETE CASCADE,
-  catalog_item_id uuid REFERENCES public.catalog_items (id),
+  catalog_item_id text,
   quantity numeric NOT NULL,
   required boolean NOT NULL DEFAULT true,
   modifier_defaults jsonb,
@@ -144,7 +144,7 @@ CREATE TABLE IF NOT EXISTS public.estimate_examples (
   normalized_line_text text,
   section_context text,
   project_context jsonb,
-  chosen_catalog_item_id uuid REFERENCES public.catalog_items (id),
+  chosen_catalog_item_id text,
   accepted_modifiers text[],
   review_outcome text,
   estimator_notes text,

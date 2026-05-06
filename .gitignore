@@ -4,6 +4,11 @@ dist/
 coverage/
 .DS_Store
 *.log
+
+# Secrets and local overrides — never commit
+.env
+.env.local
+.env.*.local
 .env*
 !.env.example
 google-service-account.json

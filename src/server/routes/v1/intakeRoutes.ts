@@ -134,8 +134,8 @@ intakeRouter.post('/div10-training-capture', async (req, res) => {
   }
 });
 
-/** Durable, local (SQLite) persistence for intake review decisions (e.g. ignored lines). */
-intakeRouter.post('/review-override', (req, res) => {
+/** Durable persistence for intake review decisions (e.g. ignored lines) — SQLite or Postgres. */
+intakeRouter.post('/review-override', async (req, res) => {
   const body = req.body || {};
   const fingerprint = String(body.reviewLineFingerprint || '').trim();
   const contentKey = body.reviewLineContentKey != null ? String(body.reviewLineContentKey).trim() : '';
@@ -143,7 +143,7 @@ intakeRouter.post('/review-override', (req, res) => {
   if (!fingerprint || status !== 'ignored') {
     return res.status(400).json({ error: 'reviewLineFingerprint and status=ignored are required.' });
   }
-  upsertIntakeReviewOverride({
+  await upsertIntakeReviewOverride({
     reviewLineFingerprint: fingerprint,
     status: 'ignored',
     reviewLineContentKey: contentKey || null,

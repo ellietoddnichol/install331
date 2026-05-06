@@ -1,5 +1,9 @@
 import { getEstimatorDb } from '../db/connection.ts';
+import { isPgDriver } from '../db/driver.ts';
 import type { DbPersistenceStatusRecord } from '../../shared/types/estimator.ts';
+
+/** In-memory snapshot when SQLite persistence metadata table is not used (Postgres deployments). */
+let pgPersistenceMirror: DbPersistenceStatusRecord | null = null;
 
 type DbRow = {
   id: string;
@@ -16,7 +20,28 @@ type DbRow = {
   updated_at: string;
 };
 
+function pgPersistenceBaseline(): DbPersistenceStatusRecord {
+  const now = new Date().toISOString();
+  return {
+    id: 'db',
+    dbPath: '(Supabase Postgres — DATABASE_URL)',
+    mode: 'volume',
+    gcsBucket: null,
+    gcsObject: null,
+    restoreAttemptedAt: null,
+    restoreStatus: 'not_configured',
+    restoreMessage: 'SQLite file snapshot metadata is not used when DB_DRIVER=pg.',
+    lastBackupSuccessAt: null,
+    lastBackupFailureAt: null,
+    lastBackupError: null,
+    updatedAt: now,
+  };
+}
+
 export function getDbPersistenceStatus(): DbPersistenceStatusRecord {
+  if (isPgDriver()) {
+    return pgPersistenceMirror ?? pgPersistenceBaseline();
+  }
   const row = getEstimatorDb()
     .prepare(`SELECT * FROM db_persistence_status_v1 WHERE id = 'db'`)
     .get() as DbRow;
@@ -38,6 +63,17 @@ export function getDbPersistenceStatus(): DbPersistenceStatusRecord {
 }
 
 export function updateDbPersistenceStatus(patch: Partial<Omit<DbPersistenceStatusRecord, 'id'>>): DbPersistenceStatusRecord {
+  if (isPgDriver()) {
+    const current = getDbPersistenceStatus();
+    const next: DbPersistenceStatusRecord = {
+      ...current,
+      ...patch,
+      id: 'db',
+      updatedAt: new Date().toISOString(),
+    };
+    pgPersistenceMirror = next;
+    return next;
+  }
   const current = getDbPersistenceStatus();
   const next: DbPersistenceStatusRecord = {
     ...current,

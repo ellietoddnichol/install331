@@ -193,8 +193,8 @@ async function toLegacyIntakeResult(input: {
     }),
     proposalAssist,
     ...(matchCatalog && catalog.length
-      ? (() => {
-          const estimateDraft = buildIntakeEstimateDraft({
+      ? await (async () => {
+          const estimateDraft = await buildIntakeEstimateDraft({
             reviewLines,
             catalog,
             modifiers,

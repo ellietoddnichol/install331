@@ -1,6 +1,7 @@
-﻿import Database from 'better-sqlite3';
+﻿import { createRequire } from 'node:module';
 import fs from 'fs';
 import path from 'path';
+import type Database from 'better-sqlite3';
 import { initLegacyDb } from '../legacyInit.ts';
 import { initEstimatorSchema } from './schema.ts';
 import { resolveEstimatorDbPath } from './resolveEstimatorDbPath.ts';
@@ -17,6 +18,14 @@ import { getDurableSqliteSupabaseConfig, warnIfSupabaseBucketWithoutCredentials 
 import { getDbPersistenceStatus, updateDbPersistenceStatus } from '../repos/dbPersistenceRepo.ts';
 import type { DbPersistenceStatusRecord } from '../../shared/types/estimator.ts';
 
+const nodeRequire = createRequire(import.meta.url);
+
+/** Load native better-sqlite3 only in SQLite mode so `DB_DRIVER=pg` never dlopen's the wrong NODE_MODULE. */
+function openSqliteDatabase(dbPath: string): Database {
+  const BetterSqlite = nodeRequire('better-sqlite3') as typeof import('better-sqlite3').default;
+  return new BetterSqlite(dbPath);
+}
+
 let estimatorDb: Database | null = null;
 let backupStopper: { stop: () => Promise<void> } | null = null;
 let prepared = false;
@@ -32,7 +41,7 @@ export function getEstimatorDb(): Database {
     // Sync-safe fallback for tests/scripts; production should call prepareEstimatorDbForServer() first.
     const dbPath = resolveEstimatorDbPath();
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-    estimatorDb = new Database(dbPath);
+    estimatorDb = openSqliteDatabase(dbPath);
     estimatorDb.pragma('journal_mode = WAL');
     estimatorDb.pragma('foreign_keys = ON');
     initLegacyDb(estimatorDb);
@@ -108,7 +117,7 @@ export async function prepareEstimatorDbForServer(): Promise<void> {
   }
 
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-  estimatorDb = new Database(dbPath);
+  estimatorDb = openSqliteDatabase(dbPath);
   estimatorDb.pragma('journal_mode = WAL');
   estimatorDb.pragma('foreign_keys = ON');
   initLegacyDb(estimatorDb);

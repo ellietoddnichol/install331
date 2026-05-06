@@ -80,7 +80,7 @@ settingsRouter.get('/catalog-sync-runs', async (req, res) => {
  * Per-queue workbook-first review export from a sync run (`warnings_json` + optional `run_context_json`).
  * Query: `queue` (required enum), `runId` (optional UUID — defaults to latest run row).
  */
-settingsRouter.get('/catalog-sync-review-csv', (req, res) => {
+settingsRouter.get('/catalog-sync-review-csv', async (req, res) => {
   const queueRaw = String(req.query.queue ?? '').trim();
   if (!isCatalogReviewQueueKey(queueRaw)) {
     return res.status(400).json({
@@ -88,7 +88,7 @@ settingsRouter.get('/catalog-sync-review-csv', (req, res) => {
     });
   }
   const runIdArg = typeof req.query.runId === 'string' ? req.query.runId.trim() : '';
-  const runRow = getCatalogSyncRunRowForCsv(runIdArg || undefined);
+  const runRow = await getCatalogSyncRunRowForCsv(runIdArg || undefined);
   if (!runRow) {
     res.status(404);
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
@@ -113,7 +113,7 @@ settingsRouter.get('/catalog-inventory', async (_req, res) => {
 /** Post–CLEAN_ITEMS cutover: DB forward-facing counts, image gaps, vs last sync (for manual comparison to sheet META audit). */
 settingsRouter.get('/catalog-post-cutover-health', async (_req, res) => {
   const { fetch: itemsSourceTab } = resolveConfiguredAndFetchItemsTabs();
-  const sync = getCatalogSyncStatus();
+  const sync = await getCatalogSyncStatus();
   return res.json({ data: await getCatalogPostCutoverHealth({ itemsSourceTab, lastCatalogSync: sync }) });
 });
 

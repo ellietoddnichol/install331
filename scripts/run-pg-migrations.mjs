@@ -1,19 +1,30 @@
 /**
  * Run supabase/migrations/*.sql in lexical order against DATABASE_URL.
- * Usage: set DATABASE_URL=postgresql://... then npm run db:migrate
+ * Usage: set DATABASE_URL=postgresql://... or define it in .env.local, then npm run db:migrate
  */
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
 import pg from 'pg';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
 const migrationsDir = path.join(root, 'supabase', 'migrations');
 
-const databaseUrl = String(process.env.DATABASE_URL || '').trim();
+for (const [name, override] of [
+  ['.env', false],
+  ['.env.local', true],
+]) {
+  const full = path.join(root, name);
+  if (fs.existsSync(full)) dotenv.config({ path: full, override });
+}
+
+const databaseUrl = String(
+  process.env.DIRECT_URL || process.env.DATABASE_URL || ''
+).trim();
 if (!databaseUrl) {
-  console.error('DATABASE_URL is required for db:migrate');
+  console.error('DIRECT_URL or DATABASE_URL is required for db:migrate');
   process.exit(1);
 }
 

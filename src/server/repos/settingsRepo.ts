@@ -1,4 +1,6 @@
 import { getEstimatorDb } from '../db/connection.ts';
+import { isPgDriver } from '../db/driver.ts';
+import { dbAll, dbGet, dbRun } from '../db/query.ts';
 import { parseCatalogSyncWarningsPayload } from '../services/catalogSyncWorkbookValidation.ts';
 import {
   buildCatalogSyncLastAttemptSummary,
@@ -98,12 +100,14 @@ function mapSettingsRow(row: SettingsDbRow): SettingsRecord {
     proposalAcceptanceLabel: row.proposal_acceptance_label,
     intakeCatalogAutoApplyMode: coerceIntakeCatalogAutoApplyMode(row.intake_catalog_auto_apply_mode),
     intakeCatalogTierAMinScore: coerceIntakeTierAMinScore(row.intake_catalog_tier_a_min_score),
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
   }) as SettingsRecord;
 }
 
-export function getSettings(): SettingsRecord {
-  const row = getEstimatorDb().prepare('SELECT * FROM settings_v1 WHERE id = ?').get('global') as SettingsDbRow | undefined;
+export async function getSettings(): Promise<SettingsRecord> {
+  const row = isPgDriver()
+    ? ((await dbGet('SELECT * FROM settings_v1 WHERE id = ?', ['global'])) as SettingsDbRow | undefined)
+    : (getEstimatorDb().prepare('SELECT * FROM settings_v1 WHERE id = ?').get('global') as SettingsDbRow | undefined);
   if (!row) {
     return mapSettingsRow({
       id: 'global',
@@ -131,18 +135,18 @@ export function getSettings(): SettingsRecord {
   return mapSettingsRow(row);
 }
 
-export function updateSettings(input: Partial<SettingsRecord>): SettingsRecord {
-  const current = getSettings();
+export async function updateSettings(input: Partial<SettingsRecord>): Promise<SettingsRecord> {
+  const current = await getSettings();
   const merged: SettingsRecord = {
     ...current,
     ...input,
     id: 'global',
     updatedAt: new Date().toISOString(),
     intakeCatalogAutoApplyMode: coerceIntakeCatalogAutoApplyMode(
-      input.intakeCatalogAutoApplyMode ?? current.intakeCatalogAutoApplyMode
+      input.intakeCatalogAutoApplyMode ?? current.intakeCatalogAutoApplyMode,
     ),
     intakeCatalogTierAMinScore: coerceIntakeTierAMinScore(
-      input.intakeCatalogTierAMinScore ?? current.intakeCatalogTierAMinScore
+      input.intakeCatalogTierAMinScore ?? current.intakeCatalogTierAMinScore,
     ),
   };
   const next = sanitizeProposalSettings(merged) as SettingsRecord;
@@ -150,7 +154,6 @@ export function updateSettings(input: Partial<SettingsRecord>): SettingsRecord {
   next.intakeCatalogAutoApplyMode = merged.intakeCatalogAutoApplyMode;
   next.intakeCatalogTierAMinScore = merged.intakeCatalogTierAMinScore;
 
-  const db = getEstimatorDb();
   const params = [
     next.companyName,
     next.companyAddress,
@@ -173,22 +176,20 @@ export function updateSettings(input: Partial<SettingsRecord>): SettingsRecord {
     next.updatedAt,
   ] as const;
 
-  const updated = db
-    .prepare(
-      `
+  const updateSql = `
     UPDATE settings_v1 SET
       company_name = ?, company_address = ?, company_phone = ?, company_email = ?, logo_url = ?, default_labor_rate_per_hour = ?,
       default_overhead_percent = ?, default_profit_percent = ?, default_tax_percent = ?, default_labor_burden_percent = ?, default_labor_overhead_percent = ?,
       proposal_intro = ?, proposal_terms = ?, proposal_exclusions = ?, proposal_clarifications = ?, proposal_acceptance_label = ?,
       intake_catalog_auto_apply_mode = ?, intake_catalog_tier_a_min_score = ?, updated_at = ?
     WHERE id = 'global'
-  `
-    )
-    .run(...params);
+  `;
 
-  if (updated.changes === 0) {
-    db.prepare(
-      `
+  if (isPgDriver()) {
+    const updated = await dbRun(updateSql, [...params]);
+    if (updated.changes === 0) {
+      await dbRun(
+        `
       INSERT INTO settings_v1 (
         id, company_name, company_address, company_phone, company_email, logo_url,
         default_labor_rate_per_hour, default_overhead_percent, default_profit_percent, default_tax_percent,
@@ -196,8 +197,26 @@ export function updateSettings(input: Partial<SettingsRecord>): SettingsRecord {
         proposal_intro, proposal_terms, proposal_exclusions, proposal_clarifications, proposal_acceptance_label,
         intake_catalog_auto_apply_mode, intake_catalog_tier_a_min_score, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `
-    ).run('global', ...params);
+    `,
+        ['global', ...params],
+      );
+    }
+  } else {
+    const db = getEstimatorDb();
+    const updated = db.prepare(updateSql).run(...params);
+    if (updated.changes === 0) {
+      db.prepare(
+        `
+      INSERT INTO settings_v1 (
+        id, company_name, company_address, company_phone, company_email, logo_url,
+        default_labor_rate_per_hour, default_overhead_percent, default_profit_percent, default_tax_percent,
+        default_labor_burden_percent, default_labor_overhead_percent,
+        proposal_intro, proposal_terms, proposal_exclusions, proposal_clarifications, proposal_acceptance_label,
+        intake_catalog_auto_apply_mode, intake_catalog_tier_a_min_score, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+      ).run('global', ...params);
+    }
   }
 
   return next;
@@ -206,7 +225,7 @@ export function updateSettings(input: Partial<SettingsRecord>): SettingsRecord {
 /** Status row may lag run history: merge audit from latest `catalog_sync_runs_v1` when missing on `catalog_sync_status_v1`. */
 function mergeSyncWarningsForStatusView(
   statusParsed: { warnings: string[]; audit?: CatalogSyncRunAuditSummary },
-  latestRunParsed: { warnings: string[]; audit?: CatalogSyncRunAuditSummary }
+  latestRunParsed: { warnings: string[]; audit?: CatalogSyncRunAuditSummary },
 ): { warnings: string[]; audit?: CatalogSyncRunAuditSummary } {
   const audit = statusParsed.audit ?? latestRunParsed.audit;
   const ordered = [...statusParsed.warnings, ...latestRunParsed.warnings];
@@ -219,21 +238,38 @@ function mergeSyncWarningsForStatusView(
   return { warnings, audit };
 }
 
-export function getCatalogSyncStatus(): CatalogSyncStatusRecord {
-  const row = getEstimatorDb().prepare('SELECT * FROM catalog_sync_status_v1 WHERE id = ?').get('catalog') as CatalogSyncStatusDbRow;
+const EMPTY_SYNC_STATUS_ROW: CatalogSyncStatusDbRow = {
+  id: 'catalog',
+  last_attempt_at: null,
+  last_success_at: null,
+  status: 'never',
+  message: null,
+  items_synced: 0,
+  modifiers_synced: 0,
+  bundles_synced: 0,
+  bundle_items_synced: 0,
+  warnings_json: null,
+};
 
-  const parsed = parseCatalogSyncWarningsPayload(row.warnings_json);
+export async function getCatalogSyncStatus(): Promise<CatalogSyncStatusRecord> {
+  const row = isPgDriver()
+    ? ((await dbGet('SELECT * FROM catalog_sync_status_v1 WHERE id = ?', ['catalog'])) as CatalogSyncStatusDbRow | undefined)
+    : (getEstimatorDb().prepare('SELECT * FROM catalog_sync_status_v1 WHERE id = ?').get('catalog') as CatalogSyncStatusDbRow | undefined);
+  const baseRow = row ?? EMPTY_SYNC_STATUS_ROW;
+
+  const parsed = parseCatalogSyncWarningsPayload(baseRow.warnings_json);
   const serverConfigNow = buildCatalogSyncServerConfigNow();
-  const latestRun = getEstimatorDb()
-    .prepare(
-      `
+  const latestRunSql = `
     SELECT id, run_context_json, warnings_json
     FROM catalog_sync_runs_v1
     ORDER BY attempted_at DESC
     LIMIT 1
-  `
-    )
-    .get() as { id: string; run_context_json: string | null; warnings_json: string | null } | undefined;
+  `;
+  const latestRun = isPgDriver()
+    ? ((await dbGet(latestRunSql, [])) as { id: string; run_context_json: string | null; warnings_json: string | null } | undefined)
+    : (getEstimatorDb().prepare(latestRunSql).get() as
+        | { id: string; run_context_json: string | null; warnings_json: string | null }
+        | undefined);
   const historicalSyncRunContext = parseCatalogSyncRunContextJson(latestRun?.run_context_json);
   const workbook = historicalSyncRunContext
     ? toCatalogSyncWorkbookSnapshotFromRunContext(sliceCatalogSyncRunContextBody(historicalSyncRunContext))
@@ -243,17 +279,17 @@ export function getCatalogSyncStatus(): CatalogSyncStatusRecord {
   const merged = mergeSyncWarningsForStatusView(parsed, latestRunParsed);
 
   return {
-    id: row.id,
-    lastAttemptAt: row.last_attempt_at,
-    lastSuccessAt: row.last_success_at,
-    status: row.status as CatalogSyncStatusRecord['status'],
-    message: row.message,
-    itemsSynced: Number(row.items_synced || 0),
-    modifiersSynced: Number(row.modifiers_synced || 0),
-    bundlesSynced: Number(row.bundles_synced || 0),
-    bundleItemsSynced: Number(row.bundle_items_synced || 0),
-    aliasesSynced: Number((row as any).aliases_synced || 0),
-    attributesSynced: Number((row as any).attributes_synced || 0),
+    id: baseRow.id,
+    lastAttemptAt: baseRow.last_attempt_at,
+    lastSuccessAt: baseRow.last_success_at,
+    status: baseRow.status as CatalogSyncStatusRecord['status'],
+    message: baseRow.message,
+    itemsSynced: Number(baseRow.items_synced || 0),
+    modifiersSynced: Number(baseRow.modifiers_synced || 0),
+    bundlesSynced: Number(baseRow.bundles_synced || 0),
+    bundleItemsSynced: Number(baseRow.bundle_items_synced || 0),
+    aliasesSynced: Number((baseRow as any).aliases_synced || 0),
+    attributesSynced: Number((baseRow as any).attributes_synced || 0),
     warnings: merged.warnings,
     syncAudit: merged.audit,
     workbook,
@@ -265,29 +301,33 @@ export function getCatalogSyncStatus(): CatalogSyncStatusRecord {
 }
 
 /** Row slice needed for `/catalog-sync-review-csv` (warnings_json + optional run_context_json). */
-export function getCatalogSyncRunRowForCsv(runId?: string | null): CatalogSyncRunDbRow | undefined {
-  const db = getEstimatorDb();
+export async function getCatalogSyncRunRowForCsv(runId?: string | null): Promise<CatalogSyncRunDbRow | undefined> {
   if (runId?.trim()) {
-    return db.prepare(`SELECT * FROM catalog_sync_runs_v1 WHERE id = ?`).get(runId.trim()) as CatalogSyncRunDbRow | undefined;
+    const id = runId.trim();
+    return isPgDriver()
+      ? ((await dbGet('SELECT * FROM catalog_sync_runs_v1 WHERE id = ?', [id])) as CatalogSyncRunDbRow | undefined)
+      : (getEstimatorDb().prepare('SELECT * FROM catalog_sync_runs_v1 WHERE id = ?').get(id) as CatalogSyncRunDbRow | undefined);
   }
-  return db
-    .prepare(
-      `
+  const sql = `
     SELECT * FROM catalog_sync_runs_v1
     ORDER BY attempted_at DESC
     LIMIT 1
-  `
-    )
-    .get() as CatalogSyncRunDbRow | undefined;
+  `;
+  return isPgDriver()
+    ? ((await dbGet(sql, [])) as CatalogSyncRunDbRow | undefined)
+    : (getEstimatorDb().prepare(sql).get() as CatalogSyncRunDbRow | undefined);
 }
 
-export function listCatalogSyncRuns(limit = 10): CatalogSyncRunHistoryRecord[] {
-  const rows = getEstimatorDb().prepare(`
+export async function listCatalogSyncRuns(limit = 10): Promise<CatalogSyncRunHistoryRecord[]> {
+  const sql = `
     SELECT *
     FROM catalog_sync_runs_v1
     ORDER BY attempted_at DESC
     LIMIT ?
-  `).all(limit) as CatalogSyncRunDbRow[];
+  `;
+  const rows = isPgDriver()
+    ? ((await dbAll(sql, [limit])) as CatalogSyncRunDbRow[])
+    : (getEstimatorDb().prepare(sql).all(limit) as CatalogSyncRunDbRow[]);
 
   const serverConfigNow = buildCatalogSyncServerConfigNow();
   const workbookFallback = buildCatalogSyncWorkbookSnapshot();

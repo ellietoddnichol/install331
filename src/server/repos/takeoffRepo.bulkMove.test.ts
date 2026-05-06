@@ -49,7 +49,7 @@ test('bulkMoveTakeoffLinesToRoom assigns lines to target room; summary and propo
     ).run(rid, projectId, name);
   }
 
-  const l1 = createTakeoffLine({
+  const l1 = await createTakeoffLine({
     projectId,
     roomId: roomA,
     description: 'One',
@@ -59,7 +59,7 @@ test('bulkMoveTakeoffLinesToRoom assigns lines to target room; summary and propo
     materialCost: 100,
     laborMinutes: 0,
   });
-  const l2 = createTakeoffLine({
+  const l2 = await createTakeoffLine({
     projectId,
     roomId: roomA,
     description: 'Two',
@@ -70,23 +70,23 @@ test('bulkMoveTakeoffLinesToRoom assigns lines to target room; summary and propo
     laborMinutes: 0,
   });
 
-  const project = getProject(projectId);
+  const project = await getProject(projectId);
   assert.ok(project);
-  const allBefore = listTakeoffLines(projectId);
-  const summaryBefore = calculateEstimateSummary(project!, allBefore);
+  const allBefore = await listTakeoffLines(projectId);
+  const summaryBefore = await calculateEstimateSummary(project!, allBefore);
   const proposalBefore = buildProposalLineItems(allBefore);
 
-  const moved = bulkMoveTakeoffLinesToRoom([l1.id, l2.id], roomB);
+  const moved = await bulkMoveTakeoffLinesToRoom([l1.id, l2.id], roomB);
   assert.ok(!('error' in moved), 'error' in moved ? moved.error : '');
   assert.equal(moved.lines.length, 2);
 
-  const inA = listTakeoffLines(projectId, roomA);
-  const inB = listTakeoffLines(projectId, roomB);
+  const inA = await listTakeoffLines(projectId, roomA);
+  const inB = await listTakeoffLines(projectId, roomB);
   assert.equal(inA.length, 0);
   assert.equal(inB.length, 2);
 
-  const allAfter = listTakeoffLines(projectId);
-  const summaryAfter = calculateEstimateSummary(project!, allAfter);
+  const allAfter = await listTakeoffLines(projectId);
+  const summaryAfter = await calculateEstimateSummary(project!, allAfter);
   assert.ok(Math.abs(summaryAfter.baseBidTotal - summaryBefore.baseBidTotal) < 0.02);
 
   const proposalAfter = buildProposalLineItems(allAfter);
@@ -140,7 +140,7 @@ test('bulkMoveTakeoffLinesToRoom rejects room from another project', async () =>
      VALUES (?, ?, 'R2', 0, NULL, datetime('now'), datetime('now'))`
   ).run(r2, p2);
 
-  const line = createTakeoffLine({
+  const line = await createTakeoffLine({
     projectId: p1,
     roomId: r1,
     description: 'X',
@@ -151,7 +151,7 @@ test('bulkMoveTakeoffLinesToRoom rejects room from another project', async () =>
     laborMinutes: 0,
   });
 
-  const bad = bulkMoveTakeoffLinesToRoom([line.id], r2);
+  const bad = await bulkMoveTakeoffLinesToRoom([line.id], r2);
   assert.ok('error' in bad);
 });
 
@@ -198,7 +198,7 @@ test('updateTakeoffLine rejects roomId outside line project', async () => {
      VALUES (?, ?, 'R2', 0, NULL, datetime('now'), datetime('now'))`
   ).run(r2, p2);
 
-  const line = createTakeoffLine({
+  const line = await createTakeoffLine({
     projectId: p1,
     roomId: r1,
     description: 'X',
@@ -209,5 +209,5 @@ test('updateTakeoffLine rejects roomId outside line project', async () => {
     laborMinutes: 0,
   });
 
-  assert.equal(updateTakeoffLine(line.id, { roomId: r2 }), null);
+  assert.equal(await updateTakeoffLine(line.id, { roomId: r2 }), null);
 });

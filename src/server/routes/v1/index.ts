@@ -10,12 +10,15 @@ import { requireDiv10BrainAdmin } from '../../div10Brain/auth/requireDiv10BrainA
 import { div10BrainRouter } from './div10BrainRoutes.ts';
 import { readSessionHandler, requireSession } from '../../auth/requireSession.ts';
 import { authRouter } from './authRoutes.ts';
+import { catalogHealthRouter } from './catalogHealthRoutes.ts';
 
 export const v1Router = Router();
 
 v1Router.get('/health', (_req, res) => {
   res.json({ status: 'ok', version: 'v1' });
 });
+
+v1Router.use(catalogHealthRouter);
 
 v1Router.get('/session', (req, res, next) => {
   void readSessionHandler(req, res).catch(next);

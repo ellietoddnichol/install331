@@ -1,6 +1,12 @@
 import { isPgCatalogBackend } from './catalogBackend.ts';
 
-const ALLOWED_TABLES = new Set(['catalog_items', 'catalog_items_clean']);
+/** Whitelist for catalog item **read** relation (table or view), including optional `public.` schema. */
+const ALLOWED_CATALOG_ITEMS_READ = new Set([
+  'catalog_items',
+  'catalog_items_clean',
+  'public.catalog_items',
+  'public.catalog_items_clean',
+]);
 
 /** Physical base ↔ Postgres `_clean` view pairs — identifiers must stay whitelist-safe for interpolated reads only. */
 const MODIFIERS_V1_READ = new Set(['modifiers_v1', 'modifiers_v1_clean']);
@@ -40,16 +46,16 @@ export type CatalogSourceMode = 'supabase' | 'sqlite' | 'sheet_staging';
  *
  * Safety: only allows a small whitelist of identifiers to avoid SQL injection.
  */
-export function getCatalogItemsTableName(): 'catalog_items' | 'catalog_items_clean' {
+export function getCatalogItemsTableName(): string {
   const raw = String(process.env.CATALOG_ITEMS_TABLE || '').trim();
-  if (raw && ALLOWED_TABLES.has(raw)) return raw as 'catalog_items' | 'catalog_items_clean';
+  if (raw && ALLOWED_CATALOG_ITEMS_READ.has(raw)) return raw;
 
   if (isPgCatalogBackend()) return 'catalog_items_clean';
   return 'catalog_items';
 }
 
 /** Same as {@link getCatalogItemsTableName} — explicit name for workbook-first published read surface (see docs). */
-export function getCatalogItemsReadTableName(): 'catalog_items' | 'catalog_items_clean' {
+export function getCatalogItemsReadTableName(): string {
   return getCatalogItemsTableName();
 }
 
@@ -160,6 +166,8 @@ export function getCatalogSourceMode(): CatalogSourceMode {
  * Useful for guarding code paths that should never write in production.
  */
 export function isUsingCleanCatalogSource(): boolean {
-  return isPgCatalogBackend() && getCatalogItemsTableName() === 'catalog_items_clean';
+  if (!isPgCatalogBackend()) return false;
+  const t = getCatalogItemsTableName();
+  return t === 'catalog_items_clean' || t === 'public.catalog_items_clean';
 }
 

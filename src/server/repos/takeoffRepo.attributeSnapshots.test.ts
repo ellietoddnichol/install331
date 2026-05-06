@@ -66,7 +66,7 @@ test('createTakeoffLine snapshots exact base + applied attribute deltas (includi
         ('test-a2','test-c1','coating','ANTIMICROBIAL',NULL,NULL,'percent',10,1,0,datetime('now'),datetime('now'))`
     ).run();
 
-  const line = createTakeoffLine({
+  const line = await createTakeoffLine({
     projectId: 'p1',
     roomId: 'r1',
     description: 'Item',
@@ -101,7 +101,7 @@ test('createTakeoffLine snapshots exact base + applied attribute deltas (includi
   assert.ok(Math.abs(lab!.appliedAmount - 6) < 1e-9);
   assert.ok(Math.abs(line.laborMinutes - 66) < 1e-9);
 
-    const persisted = getTakeoffLineCore(line.id);
+    const persisted = await getTakeoffLineCore(line.id);
     assert.ok(persisted, 'expected line to be persisted');
     assert.equal(persisted!.baseMaterialCostSnapshot, 100);
     assert.equal(persisted!.baseLaborMinutesSnapshot, 60);
@@ -148,7 +148,7 @@ test('updateTakeoffLine does not retroactively populate option snapshots for old
      VALUES ('r2', 'p2', 'Room', 0, NULL, datetime('now'), datetime('now'))`
   ).run();
 
-  const line = createTakeoffLine({
+  const line = await createTakeoffLine({
     projectId: 'p2',
     roomId: 'r2',
     description: 'Legacy-ish line (no snapshot)',
@@ -165,12 +165,12 @@ test('updateTakeoffLine does not retroactively populate option snapshots for old
   assert.equal(line.attributeDeltaMaterialSnapshot ?? null, null);
   assert.equal(line.attributeDeltaLaborSnapshot ?? null, null);
 
-  updateTakeoffLine(line.id, {
+  await updateTakeoffLine(line.id, {
     materialCost: 60,
     laborMinutes: 12,
   });
 
-  const persisted = getTakeoffLineCore(line.id);
+  const persisted = await getTakeoffLineCore(line.id);
   assert.ok(persisted);
   assert.equal(persisted!.catalogAttributeSnapshot, null);
   assert.equal(persisted!.baseMaterialCostSnapshot ?? null, null);
