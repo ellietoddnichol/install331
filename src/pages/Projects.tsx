@@ -209,7 +209,7 @@ export function Projects() {
         ) : (
           <table className="w-full text-left">
             <thead>
-              <tr className="sticky top-0 z-10 border-b border-[var(--line)] bg-[var(--surface-soft)]/95 backdrop-blur-sm">
+              <tr className="sticky top-0 z-10 border-b border-app-line bg-app-surface-soft-95 backdrop-blur-sm">
                 <th className="ui-table-th px-5 py-3">Project</th>
                 <th className="ui-table-th px-5 py-3">Client</th>
                 <th className="ui-table-th px-5 py-3">Status</th>
@@ -227,7 +227,7 @@ export function Projects() {
                     role="button"
                     tabIndex={0}
                     title="Click row to open"
-                    className={`cursor-pointer border-l-[3px] ${tone.accent} outline-none hover:bg-[var(--surface-soft)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus-ring)]`}
+                    className={`cursor-pointer border-l-[3px] ${tone.accent} outline-none hover:bg-app-surface-soft focus-visible-ring-app-inset`}
                     onClick={() => navigate(`/project/${project.id}`)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {

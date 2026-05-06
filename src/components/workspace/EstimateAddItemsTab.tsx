@@ -82,7 +82,7 @@ export function EstimateAddItemsTab({
                   </div>
                   <div className="mt-1.5 flex items-center justify-between gap-2">
                     <input type="number" min={1} value={qty} onChange={(event) => setQtyById((prev) => ({ ...prev, [item.id]: Math.max(1, Number(event.target.value) || 1) }))} className="h-7 w-14 rounded-md border border-slate-300 bg-white px-2 text-[11px]" aria-label={`Quantity for ${item.description}`} />
-                    <button onClick={() => void onAddCatalogItem(item, qty, roomId)} className="inline-flex h-7 items-center gap-1 rounded-full bg-[linear-gradient(135deg,var(--primary)_0%,#164fa8_100%)] px-2.5 text-[10px] font-semibold text-white shadow-[0_8px_18px_rgba(11,61,145,0.16)] transition hover:brightness-[1.03]">
+                    <button onClick={() => void onAddCatalogItem(item, qty, roomId)} className="inline-flex h-7 items-center gap-1 rounded-full bg-app-primary-gradient px-2.5 text-[10px] font-semibold text-white shadow-[0_8px_18px_rgba(11,61,145,0.16)] transition hover:brightness-[1.03]">
                       <Plus className="h-3 w-3" /> Add
                     </button>
                   </div>

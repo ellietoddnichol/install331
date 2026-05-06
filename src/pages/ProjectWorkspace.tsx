@@ -23,6 +23,7 @@ import {
   RoomRecord,
   SettingsRecord,
   TakeoffLineRecord,
+  EstimateSummary,
   isMaterialOnlyMainBid,
 } from '../shared/types/estimator';
 import { CatalogItem } from '../types';
@@ -88,37 +89,6 @@ import { useTransientNumericField } from '../hooks/useTransientNumericField';
 import { buildProposalScheduleSections, splitProposalTextLines } from '../shared/utils/proposalDocument';
 import { calculateWorkDuration, formatWorkWeeksLabel } from '../shared/utils/workDuration';
 
-interface Summary {
-  materialSubtotal: number;
-  laborSubtotal: number;
-  adjustedLaborSubtotal: number;
-  /** Present on newer API; falls back to hours Ã— 60 in UI when missing. */
-  totalLaborMinutes?: number;
-  totalLaborHours: number;
-  durationDays: number;
-  durationWeeks?: number;
-  lineSubtotal: number;
-  conditionAdjustmentAmount: number;
-  conditionLaborMultiplier: number;
-  conditionLaborHoursMultiplier?: number;
-  burdenAmount: number;
-  overheadAmount: number;
-  profitAmount: number;
-  taxAmount: number;
-  laborOverheadAmount?: number;
-  laborProfitAmount?: number;
-  subLaborManagementFeeAmount?: number;
-  materialLoadedSubtotal?: number;
-  laborLoadedSubtotal?: number;
-  laborCompanionProposalTotal?: number;
-  baseBidTotal: number;
-  conditionAssumptions: string[];
-  productiveCrewHoursPerDay?: number;
-  materialWasteAllowanceAmount?: number;
-  installerFieldSuppliesAmount?: number;
-  laborLearningCurveAllowanceAmount?: number;
-}
-
 interface RoomCreationDraft {
   roomName: string;
   addStarterLine: boolean;
@@ -163,7 +133,7 @@ export function ProjectWorkspace() {
   const [rooms, setRooms] = useState<RoomRecord[]>([]);
   const [lines, setLines] = useState<TakeoffLineRecord[]>([]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
-  const [summary, setSummary] = useState<Summary | null>(null);
+  const [summary, setSummary] = useState<EstimateSummary | null>(null);
   const [settings, setSettings] = useState<SettingsRecord | null>(null);
   const [modifiers, setModifiers] = useState<ModifierRecord[]>([]);
   const [bundles, setBundles] = useState<BundleRecord[]>([]);
@@ -313,7 +283,7 @@ export function ProjectWorkspace() {
     });
   }, [id, loading, activeRoomId, takeoffRoomFilter, selectedLineId, pricingOrganizeMode, pricingCategoryFilter]);
 
-  /** Empty scope review is a dead-end â€” send estimators straight to the estimate with a clear status flag. */
+  /** Empty scope review is a dead-end — send estimators straight to the estimate with a clear status flag. */
   useEffect(() => {
     if (loading) return;
     if (activeTab !== 'scope-review') return;
@@ -406,10 +376,10 @@ export function ProjectWorkspace() {
             lastPersistedFingerprintRef.current = serverFp;
             setProject(saved);
             setLastSavedAt(saved.updatedAt);
-            /** Project-only save: refresh summary only so the line grid doesnâ€™t reload from the server. */
+            /** Project-only save: refresh summary only so the line grid doesn't reload from the server. */
             const summaryData = await api.getV1Summary(saved.id);
             if (gen !== autosaveGenerationRef.current) return;
-            setSummary(summaryData as Summary);
+            setSummary(summaryData);
           } else {
             lastPersistedFingerprintRef.current = serverFp;
           }
@@ -1184,7 +1154,7 @@ export function ProjectWorkspace() {
     };
 
     // `noopener` in the features string makes `window.open` return `null` in Chromium 88+ and
-    // Firefox 79+ even when popups are allowed â€” do not use it here; we need the Window handle.
+    // Firefox 79+ even when popups are allowed — do not use it here; we need the Window handle.
     const printWindow = window.open('about:blank', '_blank', 'popup=yes,width=1100,height=900');
     if (printWindow) {
       printWindow.document.open();
@@ -1686,9 +1656,9 @@ export function ProjectWorkspace() {
     },
   });
   /**
-   * Labor minutes per unit field â€” lets the estimator adjust the install timer
+   * Labor minutes per unit field — lets the estimator adjust the install timer
    * directly rather than only through labor dollars. Clearing this to a new
-   * number re-drives labor cost via the server's labor-rate Ã— minutes rule on
+   * number re-drives labor cost via the server's labor-rate × minutes rule on
    * the next persist (takeoffRepo.updateTakeoffLine re-derives labor cost from
    * minutes when the caller omits a labor-cost override or provides zero).
    */
@@ -2058,7 +2028,7 @@ export function ProjectWorkspace() {
   }
 
   if (loading) {
-    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspaceâ€¦</div>;
+    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspace…</div>;
   }
 
   if (workspaceLoadError) {
@@ -2082,7 +2052,7 @@ export function ProjectWorkspace() {
   }
 
   if (!project) {
-    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspaceâ€¦</div>;
+    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspace…</div>;
   }
 
   return (
@@ -2199,7 +2169,7 @@ export function ProjectWorkspace() {
           /**
            * Line detail (Properties Context + Modifier add-ins) now lives in the
            * modifiersModalOpen popup only. The previous persistent right-rail was
-           * removed per estimator feedback â€” it crowded the grid; clicking a row
+           * removed per estimator feedback — it crowded the grid; clicking a row
            * opens the same editor as a modal on demand.
            */
           const estimateGridClass = 'isolate grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4';
@@ -2218,7 +2188,7 @@ export function ProjectWorkspace() {
                       disabled={rooms.length < 2}
                       aria-label="Target room for bulk move"
                     >
-                      <option value="">Roomâ€¦</option>
+                      <option value="">Room…</option>
                       {rooms.map((r) => (
                         <option key={r.id} value={r.id}>
                           {r.roomName}
@@ -2240,7 +2210,7 @@ export function ProjectWorkspace() {
                   className="rounded-md bg-red-600 px-2.5 py-1 font-semibold text-white shadow-sm hover:bg-red-700"
                   onClick={() => void bulkDeleteSelectedLines()}
                 >
-                  Delete selectedâ€¦
+                  Delete selected…
                 </button>
                 <button
                   type="button"
@@ -2399,8 +2369,8 @@ export function ProjectWorkspace() {
                 <div>
                   <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                     <div className="min-w-0">
-                      <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Group by</p>
-                      <div className="inline-flex rounded-lg border border-[var(--line)] bg-[var(--surface)] p-0.5">
+                      <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-wide text-app-muted">Group by</p>
+                      <div className="inline-flex rounded-lg border border-app-line bg-app-surface p-0.5">
                         <button
                           type="button"
                           onClick={() => {
@@ -2409,8 +2379,8 @@ export function ProjectWorkspace() {
                           }}
                           className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition ${
                             pricingOrganizeMode === 'rooms'
-                              ? 'bg-[var(--brand-deep)] text-white'
-                              : 'text-[var(--text)] hover:bg-[var(--surface-soft)]'
+                              ? 'bg-app-brand-deep text-white'
+                              : 'text-app hover:bg-app-surface-soft'
                           }`}
                         >
                           Rooms
@@ -2423,14 +2393,14 @@ export function ProjectWorkspace() {
                           }}
                           className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition ${
                             pricingOrganizeMode === 'categories'
-                              ? 'bg-[var(--brand-deep)] text-white'
-                              : 'text-[var(--text)] hover:bg-[var(--surface-soft)]'
+                              ? 'bg-app-brand-deep text-white'
+                              : 'text-app hover:bg-app-surface-soft'
                           }`}
                         >
                           Categories
                         </button>
                       </div>
-                      <p className="mt-1.5 text-[11px] leading-snug text-[var(--text-muted)]">
+                      <p className="mt-1.5 text-[11px] leading-snug text-app-muted">
                         {pricingOrganizeMode === 'rooms'
                           ? 'Jump between rooms (same as the room chips below).'
                           : 'Filter the table by catalog category for this room; All keeps every line.'}
@@ -2455,13 +2425,13 @@ export function ProjectWorkspace() {
                               key={room.id}
                               type="button"
                               onClick={() => selectWorkspaceRoom(room.id)}
-                              title={`${metric.count} lines Â· ${formatCurrencySafe(metric.subtotal)}`}
+                              title={`${metric.count} lines · ${formatCurrencySafe(metric.subtotal)}`}
                               className={`shrink-0 rounded-lg px-3 py-2 text-left transition-all ${
                                 active
                                   ? 'text-white shadow-md ring-1 ring-blue-900/30'
                                   : 'bg-white text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50'
                               }`}
-                              style={active ? { background: 'var(--brand)' } : undefined}
+                              style={active ? { background: 'var(--brand, #1d4ed8)' } : undefined}
                             >
                               <div className="min-w-[118px]">
                                 <div className={`text-xs font-semibold ${active ? 'text-white' : 'text-slate-900'}`}>{room.roomName}</div>
@@ -2484,7 +2454,7 @@ export function ProjectWorkspace() {
                                   ? 'text-white shadow-md ring-1 ring-blue-900/30'
                                   : 'bg-white text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50'
                               }`}
-                              style={pricingCategoryFilter === PRICING_ALL_CATEGORIES ? { background: 'var(--brand)' } : undefined}
+                              style={pricingCategoryFilter === PRICING_ALL_CATEGORIES ? { background: 'var(--brand, #1d4ed8)' } : undefined}
                             >
                               <div className="min-w-[132px]">
                                 <div
@@ -2511,13 +2481,13 @@ export function ProjectWorkspace() {
                                   key={cat}
                                   type="button"
                                   onClick={() => setPricingCategoryFilter(cat)}
-                                  title={`${metric.count} lines Â· ${formatCurrencySafe(metric.subtotal)}`}
+                                  title={`${metric.count} lines · ${formatCurrencySafe(metric.subtotal)}`}
                                   className={`shrink-0 rounded-lg px-3 py-2 text-left transition-all ${
                                     active
                                       ? 'text-white shadow-md ring-1 ring-blue-900/30'
                                       : 'bg-white text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50'
                                   }`}
-                                  style={active ? { background: 'var(--brand)' } : undefined}
+                                  style={active ? { background: 'var(--brand, #1d4ed8)' } : undefined}
                                 >
                                   <div className="min-w-[118px] max-w-[14rem]">
                                     <div className={`truncate text-xs font-semibold ${active ? 'text-white' : 'text-slate-900'}`}>{cat}</div>
@@ -2534,11 +2504,11 @@ export function ProjectWorkspace() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-[var(--line)] pt-1.5 text-[11px] text-[var(--text)]">
-                  <span className="inline-flex items-center gap-1 rounded-md bg-[var(--surface-soft)] px-2 py-1 font-medium ring-1 ring-[color-mix(in_srgb,var(--line)_65%,white)]">
-                    <Sparkles className="h-3 w-3 text-[var(--text-muted)]" aria-hidden />
-                    <span className="text-[var(--text-muted)]">Markup / tax stack</span>
-                    <span className="font-semibold tabular-nums text-[var(--text)]">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-app-line pt-1.5 text-[11px] text-app">
+                  <span className="inline-flex items-center gap-1 rounded-md bg-app-surface-soft px-2 py-1 font-medium ring-app-line-muted">
+                    <Sparkles className="h-3 w-3 text-app-muted" aria-hidden />
+                    <span className="text-app-muted">Markup / tax stack</span>
+                    <span className="font-semibold tabular-nums text-app">
                       {formatCurrencySafe(
                         (summary?.taxAmount || 0) +
                           (summary?.overheadAmount || 0) +
@@ -2551,9 +2521,9 @@ export function ProjectWorkspace() {
                     </span>
                   </span>
                   {isMaterialOnlyMainBid(pricingMode) && (summary?.laborCompanionProposalTotal ?? 0) > 0 ? (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-[var(--surface-soft)] px-2 py-1 font-medium ring-1 ring-[color-mix(in_srgb,var(--line)_65%,white)]">
-                      <Hammer className="h-3 w-3 text-[var(--text-muted)]" aria-hidden />
-                      <span className="text-[var(--text-muted)]">
+                    <span className="inline-flex items-center gap-1 rounded-md bg-app-surface-soft px-2 py-1 font-medium ring-app-line-muted">
+                      <Hammer className="h-3 w-3 text-app-muted" aria-hidden />
+                      <span className="text-app-muted">
                         {pricingMode === 'material_with_optional_install_quote'
                           ? 'Install (quoted separately)'
                           : 'Sub labor (companion)'}
@@ -2564,7 +2534,7 @@ export function ProjectWorkspace() {
                   {fieldScheduleHint ? (
                     <span className="inline-flex items-center gap-1 rounded-md border border-blue-200/70 bg-blue-50/60 px-2 py-1 font-medium text-blue-900">
                       <CalendarClock className="h-3 w-3 text-blue-700/80" aria-hidden />
-                      Field hint: {fieldScheduleHint.fieldCrew} crew Â· ~{formatNumberSafe(fieldScheduleHint.fieldDays, 1)} d (advisory)
+                      Field hint: {fieldScheduleHint.fieldCrew} crew · ~{formatNumberSafe(fieldScheduleHint.fieldDays, 1)} d (advisory)
                     </span>
                   ) : null}
                   {(summary?.conditionAssumptions?.length || 0) > 0 ? (
@@ -2652,7 +2622,7 @@ export function ProjectWorkspace() {
                   </div>
                   <h3 className="mt-1.5 text-[22px] font-semibold leading-tight tracking-tight text-slate-950 sm:text-[26px]">Review, edit, export</h3>
                   <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.06em] text-slate-500">
-                    What you see is what prints Â· Export HTML â†’ Print â†’ Save as PDF
+                    What you see is what prints · Export HTML → Print → Save as PDF
                   </p>
                 </div>
                 <div className="flex flex-shrink-0 flex-wrap items-center gap-2 lg:justify-end">
@@ -2673,7 +2643,7 @@ export function ProjectWorkspace() {
                   <button
                     type="button"
                     onClick={exportProposal}
-                    title="Downloads HTML. Open the file in a browser, then Print â†’ Save as PDF if you need a PDF."
+                    title="Downloads HTML. Open the file in a browser, then Print → Save as PDF if you need a PDF."
                     className="ui-btn-cta inline-flex items-center gap-1.5"
                   >
                     <Download className="h-3.5 w-3.5" />
@@ -2694,7 +2664,7 @@ export function ProjectWorkspace() {
                   </span>
                   <div>
                     <p className="text-sm font-semibold text-slate-900">Internal install email</p>
-                    <p className="text-[11px] text-slate-500">Crew-facing draft â€” not shown on the client proposal</p>
+                    <p className="text-[11px] text-slate-500">Crew-facing draft — not shown on the client proposal</p>
                   </div>
                 </div>
                 <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition group-open:rotate-180" />
@@ -2715,13 +2685,16 @@ export function ProjectWorkspace() {
                 <div className="flex min-w-0 items-center gap-2.5">
                   <span
                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ring-blue-200/70"
-                    style={{ background: 'color-mix(in srgb, var(--brand) 12%, white)', color: 'var(--brand-strong)' }}
+                    style={{
+                      background: 'color-mix(in srgb, var(--brand, #1d4ed8) 12%, white)',
+                      color: 'var(--brand-strong, #1e40af)',
+                    }}
                   >
                     <Sparkles className="h-4 w-4" />
                   </span>
                   <div>
                     <p className="text-sm font-semibold text-slate-900">AI writing assist</p>
-                    <p className="text-[11px] text-slate-500">Optional â€” confirms before replacing existing text</p>
+                    <p className="text-[11px] text-slate-500">Optional — confirms before replacing existing text</p>
                   </div>
                 </div>
                 <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition group-open:rotate-180" />
@@ -2734,7 +2707,7 @@ export function ProjectWorkspace() {
                     disabled={proposalDrafting !== null}
                     className="inline-flex h-9 flex-1 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:min-w-[10rem]"
                   >
-                    {proposalDrafting === 'scope_summary' ? 'Generatingâ€¦' : 'Scope summary'}
+                    {proposalDrafting === 'scope_summary' ? 'Generating…' : 'Scope summary'}
                   </button>
                   <button
                     type="button"
@@ -2742,7 +2715,7 @@ export function ProjectWorkspace() {
                     disabled={proposalDrafting !== null}
                     className="inline-flex h-9 flex-1 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:min-w-[10rem]"
                   >
-                    {proposalDrafting === 'default_short' ? 'Draftingâ€¦' : 'Short proposal pack'}
+                    {proposalDrafting === 'default_short' ? 'Drafting…' : 'Short proposal pack'}
                   </button>
                   <button
                     type="button"
@@ -2750,7 +2723,7 @@ export function ProjectWorkspace() {
                     disabled={proposalDrafting !== null}
                     className="inline-flex h-9 flex-1 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:min-w-[10rem]"
                   >
-                    {proposalDrafting === 'terms_and_conditions' ? 'Workingâ€¦' : 'Terms & conditions'}
+                    {proposalDrafting === 'terms_and_conditions' ? 'Working…' : 'Terms & conditions'}
                   </button>
                 </div>
               </div>
@@ -2780,7 +2753,7 @@ export function ProjectWorkspace() {
                       onResetAll={() => resetProposalDefaults('all')}
                     />
                   ) : (
-                    <p className="text-sm text-slate-500">Loading proposal defaultsâ€¦</p>
+                    <p className="text-sm text-slate-500">Loading proposal defaults…</p>
                   )}
                 </div>
               </section>
@@ -2982,7 +2955,7 @@ export function ProjectWorkspace() {
                               onClick={() => void createCatalogItemFromSelectedLine()}
                               disabled={addToCatalogBusy}
                             >
-                              {addToCatalogBusy ? 'Creatingâ€¦' : 'Create & Match'}
+                              {addToCatalogBusy ? 'Creating…' : 'Create & Match'}
                             </button>
                           </div>
                         </div>
@@ -3069,12 +3042,12 @@ export function ProjectWorkspace() {
                             {Number(selectedLine.qty || 0) !== 1 ? (
                               <span className="text-slate-500">
                                 {' '}
-                                ({formatNumberSafe(selectedLine.qty, 0)} Ã— {formatNumberSafe(selectedLine.laborMinutes, 1)} min)
+                                ({formatNumberSafe(selectedLine.qty, 0)} × {formatNumberSafe(selectedLine.laborMinutes, 1)} min)
                               </span>
                             ) : null}
-                            <span className="ml-1 text-slate-400">Â·</span>
+                            <span className="ml-1 text-slate-400">·</span>
                             <span className="ml-1 text-[10px] text-slate-500">
-                              Saving re-drives labor cost from minutes Ã— subcontractor rate.
+                              Saving re-drives labor cost from minutes × subcontractor rate.
                             </span>
                           </p>
                         </label>
@@ -3149,7 +3122,7 @@ export function ProjectWorkspace() {
       ) : null}
 
       {roomCreateModalOpen && (
-        <div className="fixed inset-0 z-[60] bg-slate-900/45 p-3 sm:p-6" onClick={closeCreateRoomModal}>
+        <div className="fixed inset-0 z-[60] bg-slate-900/45 p-3 sm:p-6" onClick={() => closeCreateRoomModal()}>
           <div className="mx-auto max-w-xl rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="border-b border-slate-200 bg-gradient-to-r from-blue-50 to-white px-5 py-4">
               <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-blue-700">Add Room</p>
@@ -3218,8 +3191,8 @@ export function ProjectWorkspace() {
             </div>
 
             <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-4">
-              <button onClick={closeCreateRoomModal} disabled={creatingRoom} className="h-9 px-3 rounded-md border border-slate-300 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
-              <button onClick={() => void createRoom()} disabled={creatingRoom || !roomCreationDraft.roomName.trim()} className="h-9 px-4 rounded-md bg-blue-700 text-[11px] font-semibold text-white hover:bg-blue-800 disabled:opacity-50">
+              <button type="button" onClick={() => closeCreateRoomModal()} disabled={creatingRoom} className="h-9 px-3 rounded-md border border-slate-300 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={() => void createRoom()} disabled={creatingRoom || !roomCreationDraft.roomName.trim()} className="h-9 px-4 rounded-md bg-blue-700 text-[11px] font-semibold text-white hover:bg-blue-800 disabled:opacity-50">
                 {creatingRoom ? 'Creating...' : roomCreationDraft.addStarterLine ? 'Create Room + Item' : 'Create Room'}
               </button>
             </div>

@@ -196,6 +196,58 @@ test('sheet sync updates by primary key when sheetDerivedId exists but sku looku
   assert.equal(row?.description, 'Updated by sheet sync');
 });
 
+/** CLEAN_ITEMS `Canonical_SKU` must land in DB and match BUNDLES / ALIASES tokens (not only the `SKU` column). */
+test('ITEMS Canonical_SKU column: bundle lines resolve included SKU to correct catalog row', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'install331-sheet-sync-canon-'));
+  process.env.DATABASE_PATH = path.join(tmpDir, 'estimator.sheet-sync-canon.db');
+  process.env.DB_DRIVER = 'sqlite';
+  process.env.CATALOG_SYNC_SKIP_STAGING = '1';
+
+  const { getEstimatorDb } = await import('../db/connection.ts');
+  const { withCatalogSyncWriteTransaction } = await import('./catalogSyncTransaction.ts');
+  const { upsertItems, upsertBundles } = await import('./googleSheetsCatalogSync.ts');
+  const { preflightCatalogWorkbookSync } = await import('./catalogSyncWorkbookValidation.ts');
+
+  const db = getEstimatorDb();
+  const warnings: string[] = [];
+
+  const itemRows = [
+    ['SKU', 'Canonical_SKU', 'Description', 'Unit', 'Material Cost', 'Base Labor Minutes', 'Active', 'Scope Category'],
+    ['internal-row-99', 'PUB-CANON-1', 'Row keyed by public canonical', 'EA', '11', '6', 'TRUE', 'Fixtures'],
+  ];
+  const bundleRows = [
+    ['BundleName', 'IncludedSKUs', 'Active'],
+    ['Canon bundle', 'PUB-CANON-1', 'TRUE'],
+  ];
+
+  await withCatalogSyncWriteTransaction(async (ex) => {
+    await upsertItems(ex, itemRows, warnings, false, { batchId: 'canon-batch', itemsTab: 'CLEAN_ITEMS' });
+    const bundleData = await upsertBundles(ex, 'catalog_items', bundleRows, warnings, false);
+    assert.equal(bundleData.bundleItemsSynced, 1);
+  });
+
+  const row = db
+    .prepare('SELECT id, sku, canonical_sku FROM catalog_items WHERE sku = ?')
+    .get('internal-row-99') as { id: string; sku: string; canonical_sku: string | null };
+  assert.ok(row);
+  assert.equal(row.canonical_sku, 'PUB-CANON-1');
+
+  const bi = db
+    .prepare('SELECT catalog_item_id, sku FROM bundle_items_v1 WHERE sku = ?')
+    .get('internal-row-99') as { catalog_item_id: string; sku: string };
+  assert.ok(bi);
+  assert.equal(bi.catalog_item_id, row.id);
+
+  const pre = await preflightCatalogWorkbookSync({
+    itemRows,
+    modifierRows: [['ModifierKey', 'Name', 'Active'], ['K', 'N', 'TRUE']],
+    bundleRows,
+    aliasRows: null,
+    attributeRows: null,
+  });
+  assert.equal(pre.blocking.length, 0, pre.blocking.join('\n'));
+});
+
 /** Regression: failed attempts must update status/message without clobbering count columns (`updateSyncStatus` omits counts on failure). */
 test('catalog_sync_status_v1 retains last successful counts when only status and message fail', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'install331-sheet-sync-pres-'));

@@ -148,7 +148,7 @@ export function Dashboard() {
               <button
                 key={project.id}
                 onClick={() => navigate(getNavigateTo ? getNavigateTo(project) : `/project/${project.id}`)}
-                className="group flex w-full items-center justify-between gap-3 rounded-md border border-[color-mix(in_srgb,var(--line)_75%,white)] bg-[var(--surface)] px-3 py-2 text-left transition-colors hover:border-[var(--focus-border)] hover:bg-[var(--brand-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                className="group flex w-full items-center justify-between gap-3 rounded-md border border-app-line-mix-75 bg-app-surface px-3 py-2 text-left transition-colors hover:border-app-focus hover:bg-app-brand-soft focus-visible-ring-app"
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-slate-900">{project.projectName}</p>

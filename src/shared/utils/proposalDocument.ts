@@ -34,6 +34,8 @@ export interface ProposalScheduleItem {
   /** Model #, ratings, size — shown under the friendly title on client proposals */
   subtitle: string | null;
   quantity: number;
+  /** UOM for the aggregated schedule row (from takeoff line `unit`). */
+  unit: string;
   materialCost: number;
   laborCost: number;
   laborHours: number;
@@ -381,6 +383,7 @@ export function buildProposalScheduleSections(
       description: display.title,
       subtitle: display.subtitle,
       quantity: 0,
+      unit,
       materialCost: 0,
       laborCost: 0,
       laborHours: 0,

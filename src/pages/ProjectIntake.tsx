@@ -3340,7 +3340,7 @@ function applyRoomToVisible(roomName: string) {
       ) : null}
 
       {step === 1 && (
-        <section className="ui-surface mx-auto w-full max-w-[1600px] space-y-4 p-5">
+        <section className="ui-surface mx-auto w-full max-w-[1600px] space-y-4 p-5 pb-0">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Step 1</p>
             <h2 className="mt-1 text-lg font-semibold text-slate-900">How do you want to start?</h2>
@@ -3373,8 +3373,8 @@ function applyRoomToVisible(roomName: string) {
             })}
           </div>
 
-          <div className="flex justify-end pt-1">
-            <button type="button" onClick={() => setStep(2)} className="ui-btn-primary h-9 px-4">
+          <div className="sticky bottom-0 z-20 -mx-5 flex justify-end border-t border-slate-200/90 bg-app-surface px-5 py-4 shadow-[0_-8px_24px_rgba(15,23,42,0.06)]">
+            <button type="button" onClick={() => setStep(2)} className="ui-btn-primary h-9 min-w-[7.5rem] px-4">
               Next
             </button>
           </div>
@@ -3433,7 +3433,7 @@ function applyRoomToVisible(roomName: string) {
                   />
                   {takeoffFileName && (
                     <p
-                      className={`mt-3 text-xs ${takeoffUploadState === 'error' ? 'text-red-700' : takeoffUploadState === 'ready' ? 'text-[var(--success)]' : 'text-[var(--warn)]'}`}
+                      className={`mt-3 text-xs ${takeoffUploadState === 'error' ? 'text-red-700' : takeoffUploadState === 'ready' ? 'text-app-success' : 'text-app-warn'}`}
                     >
                       {takeoffUploadState === 'processing' ? `Processing file: ${takeoffFileName}` : takeoffUploadState === 'error' ? `File needs attention: ${takeoffFileName}` : `Source file loaded: ${takeoffFileName}`}
                     </p>
@@ -4551,9 +4551,9 @@ function applyRoomToVisible(roomName: string) {
                 parserReviewSummary.recommendedAction === 'manual-template'
                   ? 'border-red-200 bg-red-50/80'
                   : parserReviewSummary.validationErrors.length === 0 && parserReviewDisplayConfidence.overall >= 0.82
-                    ? 'border-blue-200/70 bg-[var(--brand-soft)]/70'
+                    ? 'border-blue-200/70 bg-app-brand-soft-muted'
                     : parserReviewSummary.recommendedAction === 'auto-import'
-                      ? 'border-blue-200/70 bg-[var(--brand-soft)]/70'
+                      ? 'border-blue-200/70 bg-app-brand-soft-muted'
                       : 'border-slate-200 bg-slate-50/90'
               }`}
             >
@@ -4570,7 +4570,7 @@ function applyRoomToVisible(roomName: string) {
                     <span className="text-slate-400"> · </span>
                     <span className="font-semibold text-slate-900">{formatConfidencePercent(parserReviewDisplayConfidence.overall)}</span>
                     {parserReviewDisplayConfidence.adjustedFromReview ? (
-                      <span className="ml-1 font-normal text-[var(--brand-strong)]">after catalog picks</span>
+                      <span className="ml-1 font-normal text-app-brand-strong">after catalog picks</span>
                     ) : null}
                     <span className="text-slate-400"> · </span>
                     Qty <span className="font-medium">{formatNumberSafe(parsedQuantityTotal)}</span>
@@ -4751,7 +4751,7 @@ function applyRoomToVisible(roomName: string) {
                         group.tone === 'danger'
                           ? 'border-red-200 bg-red-50/60 text-red-900'
                           : group.tone === 'warning'
-                            ? 'border border-[rgba(234,179,8,0.35)] bg-[var(--warn-soft)] text-[var(--warn)]'
+                            ? 'border border-[rgba(234,179,8,0.35)] bg-app-warn-soft text-app-warn'
                             : 'border-slate-200 bg-slate-50/80 text-slate-800';
                       const toneLabel = group.tone === 'danger' ? 'Error' : group.tone === 'warning' ? 'Warning' : 'Info';
                       return (
@@ -4835,7 +4835,7 @@ function applyRoomToVisible(roomName: string) {
                 <p className="text-xs text-slate-500 mb-3">These items were auto-linked to your catalog first. Suggested matches are prefilled but labeled for quick review.</p>
                 <div className="space-y-2 max-h-[36vh] overflow-y-auto pr-1">
                   {matchedSuggestions.map((line) => (
-                    <div key={line.id} className="rounded-md border border-blue-200/50 bg-[var(--brand-soft)]/35 p-2">
+                    <div key={line.id} className="rounded-md border border-blue-200/50 bg-app-brand-soft-wash p-2">
                       <div className="flex items-start gap-2">
                         <input
                           type="checkbox"
@@ -4971,7 +4971,7 @@ function applyRoomToVisible(roomName: string) {
                             <input className="ui-input mt-1 h-8" value={line.notes || ''} onChange={(e) => patchLineSuggestion(line.id, { notes: e.target.value })} />
                           </label>
                         </div>
-                        {!line.include && <p className="font-semibold text-[var(--warn)]">Ignored</p>}
+                        {!line.include && <p className="font-semibold text-app-warn">Ignored</p>}
                       </div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[11px] text-slate-500 mr-auto">Source {line.sourceReference || 'unknown'}</span>
@@ -5001,7 +5001,7 @@ function applyRoomToVisible(roomName: string) {
                           <button
                             type="button"
                             onClick={() => reincludeLine(line.id)}
-                            className="h-7 rounded border border-blue-200 bg-white px-2 text-xs text-[var(--brand-strong)] hover:bg-[var(--brand-soft)]"
+                            className="h-7 rounded border border-blue-200 bg-white px-2 text-xs text-app-brand-strong hover:bg-app-brand-soft"
                           >
                             Include
                           </button>

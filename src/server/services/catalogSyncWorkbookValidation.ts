@@ -64,10 +64,11 @@ function collectNormalizedItemSkusFromSheet(itemRows: string[][]): Set<string> {
   const headers = itemRows[0].map(normalizeHeader);
   const skuCol = columnIndex(headers, ITEM_SHEET_SKU_HEADER_ALIASES);
   const canonCol = columnIndex(headers, ['canonical sku', 'canonical_sku']);
+  const itemKeyCol = columnIndex(headers, ['item id', 'itemid', 'item key', 'search key', 'search_key', 'key']);
   for (let i = 1; i < itemRows.length; i += 1) {
     const row = itemRows[i];
     if (!row) continue;
-    for (const col of [skuCol, canonCol]) {
+    for (const col of [skuCol, canonCol, itemKeyCol]) {
       if (col === null) continue;
       const n = normalizeSku(getCell(row, col));
       if (n) sheet.add(n);

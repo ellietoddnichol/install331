@@ -272,7 +272,7 @@ export function Settings() {
           <>
             {(persistenceStatus.mode === 'ephemeral_gcs' || persistenceStatus.mode === 'ephemeral_supabase' || persistenceStatus.mode === 'ephemeral') ? (
               <div className="ui-callout-warn">
-                <p className="ui-label mb-1 !normal-case tracking-normal text-[var(--warn)]">Durability warning</p>
+                <p className="ui-label mb-1 !normal-case tracking-normal text-app-warn">Durability warning</p>
                 <p className="text-xs text-slate-700">
                   This deployment is using an <span className="font-semibold">ephemeral filesystem</span>. If running with Supabase Storage or GCS backups, recent edits can be lost between backup intervals.
                   A <span className="font-semibold">persistent volume</span> (or a database service) is the preferred long-term setup.
@@ -310,7 +310,7 @@ export function Settings() {
             </div>
 
             {persistenceStatus.gcsObjectMeta ? (
-              <div className="ui-panel-muted p-3 text-xs text-[var(--text)]">
+              <div className="ui-panel-muted p-3 text-xs text-app">
                 <p className="font-semibold text-slate-800">Remote backup object</p>
                 <p className="mt-1 font-mono text-[11px] break-all">
                   {(persistenceStatus.gcsBucket && persistenceStatus.gcsObject)
@@ -368,14 +368,14 @@ export function Settings() {
           </div>
         </div>
         {!!syncStatus?.message && (
-          <div className="ui-panel-muted p-3 text-xs text-[var(--text)]">{syncStatus.message}</div>
+          <div className="ui-panel-muted p-3 text-xs text-app">{syncStatus.message}</div>
         )}
         <p className="text-xs text-slate-500">
           Use <span className="font-medium text-slate-700">Backfill Takeoff Registry</span> to mirror the app-side takeoff model registry into the Google Sheets ITEMS tab.
         </p>
         {!!syncStatus?.warnings?.length && (
           <div className="ui-callout-warn">
-            <p className="ui-label mb-1 !normal-case tracking-normal text-[var(--warn)]">Warnings</p>
+            <p className="ui-label mb-1 !normal-case tracking-normal text-app-warn">Warnings</p>
             <ul className="mt-1 list-disc pl-4 text-xs">
               {syncStatus.warnings.slice(0, 6).map((warning, idx) => (
                 <li key={`${warning}-${idx}`}>{warning}</li>
@@ -504,7 +504,7 @@ export function Settings() {
                     <td className="py-2 text-slate-700">
                       {run.message || 'No message'}
                       {run.warnings.length > 0 && (
-                        <span className="text-[var(--warn)]"> ({run.warnings.length} warning{run.warnings.length === 1 ? '' : 's'})</span>
+                        <span className="text-app-warn"> ({run.warnings.length} warning{run.warnings.length === 1 ? '' : 's'})</span>
                       )}
                     </td>
                   </tr>

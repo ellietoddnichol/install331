@@ -30,6 +30,18 @@ supabase db push
 
 ## 4. Cloud Run service
 
+### Startup / health checks
+
+The Node process **listens on `PORT` before** `prepareEstimatorDbForServer()` finishes (SQLite restore from Supabase/GCS can take tens of seconds). That way Supabase Preview, Cloud Run, and Docker health checks can get HTTP responses immediately.
+
+| Path | When it works | Use |
+|------|----------------|-----|
+| `GET /healthz` | Immediately after listen | **Startup probes**, Docker `HEALTHCHECK`, quick “is the process up?” |
+| `GET /` and static assets | Immediately in production (`dist/`) | Preview UIs that fetch the deployed URL |
+| `GET /api/v1/health` | After DB preparation completes | Full stack “API + DB path” check |
+
+If a preview still fails on a short timeout, point its health URL at **`/healthz`** (or `/` for the SPA shell), not `/api/v1/health`.
+
 Set environment variables (use **Secrets** for keys):
 
 | Variable | Notes |

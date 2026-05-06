@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Wrench } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext.tsx';
 
 export function SignIn() {
   const { isAuthenticated, signIn } = useAuth();
@@ -61,29 +61,37 @@ export function SignIn() {
           <p className="text-sm text-slate-500 mt-1">Access your estimates, takeoffs, and proposals.</p>
 
           <form onSubmit={onSubmit} className="mt-6 space-y-4">
-          <label className="block text-xs font-medium text-slate-600">
+          <label className="block text-xs font-medium text-slate-600" htmlFor="signin-email">
             Email
             <input
+              id="signin-email"
+              name="email"
               type="email"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="ui-input mt-1 h-10"
               placeholder="you@company.com"
+              required
             />
           </label>
 
-          <label className="block text-xs font-medium text-slate-600">
+          <label className="block text-xs font-medium text-slate-600" htmlFor="signin-password">
             Password
             <input
+              id="signin-password"
+              name="password"
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="ui-input mt-1 h-10"
               placeholder="Enter password"
+              required
             />
           </label>
 
-          <div className="flex items-center justify-between text-xs">
+          <div className="flex flex-col gap-2 text-xs sm:flex-row sm:items-start sm:justify-between sm:gap-3">
             <label className="text-slate-600 flex items-center gap-2">
               <input
                 type="checkbox"
@@ -92,7 +100,9 @@ export function SignIn() {
               />
               Remember me
             </label>
-            <Link to="#" className="text-blue-700 hover:text-blue-800">Forgot password?</Link>
+            <p className="text-slate-500 sm:max-w-[14rem] sm:text-right">
+              Forgot password or need an account? Contact your administrator.
+            </p>
           </div>
 
           {error && <p className="text-xs text-red-600">{error}</p>}
@@ -105,9 +115,6 @@ export function SignIn() {
             {saving ? 'Signing In...' : 'Sign In'}
           </button>
 
-          <p className="text-xs text-slate-500 text-center">
-            Need access? <Link to="#" className="text-blue-700 hover:text-blue-800">Create account</Link>
-          </p>
           </form>
         </section>
       </div>

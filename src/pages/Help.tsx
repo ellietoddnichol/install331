@@ -64,7 +64,7 @@ export function Help() {
             <article key={step.title} className="ui-surface p-5">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div className="flex items-start gap-4">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--brand-soft)] text-[var(--brand)] ring-1 ring-blue-200/80">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-app-brand-soft text-app-brand ring-1 ring-blue-200/80">
                     <step.icon className="h-5 w-5" />
                   </div>
                   <div>

@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import type { RequestHandler } from 'express';
 import { syncCatalogFromGoogleSheets } from './src/server/services/googleSheetsCatalogSync.ts';
 import { v1Router } from './src/server/routes/v1/index.ts';
 import { legacyRouter } from './src/server/routes/legacyRouter.ts';
@@ -34,11 +35,21 @@ function shouldAutoSyncCatalogOnStart(): boolean {
   return prodRuntime;
 }
 
-async function startServer() {
-  // Ensure SQLite persistence is prepared before any requests hit the repos.
-  await prepareEstimatorDbForServer();
-  logCatalogRuntimeHints();
+/**
+ * SPA fallback: skip `/api` so REST routes registered later still run.
+ * (Registered before listen; API is mounted after `prepareEstimatorDbForServer`.)
+ */
+const spaFallbackHandler: RequestHandler = (req, res, next) => {
+  if (req.path.startsWith('/api')) {
+    next();
+    return;
+  }
+  const distDir = path.join(__dirname, 'dist');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  res.sendFile(path.join(distDir, 'index.html'));
+};
 
+async function startServer() {
   const app = express();
   const rawPort = process.env.PORT?.trim();
   const PORT = rawPort
@@ -49,6 +60,58 @@ async function startServer() {
   if (!Number.isFinite(PORT) || PORT <= 0) {
     throw new Error(`Invalid PORT: ${process.env.PORT}`);
   }
+
+  const runningOnCloudRun = Boolean(process.env.K_SERVICE || process.env.K_REVISION);
+  const isProdRuntime = runningOnCloudRun || process.env.NODE_ENV === 'production';
+
+  // Always available — use for Cloud Run startup probe / Docker HEALTHCHECK (no DB required).
+  app.get('/healthz', (_req, res) => {
+    res.status(200).type('text/plain').send('ok');
+  });
+
+  if (!isProdRuntime) {
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distDir = path.join(__dirname, 'dist');
+
+    app.use(
+      express.static(distDir, {
+        setHeaders(res, filePath) {
+          const normalized = filePath.replace(/\\/g, '/');
+          if (normalized.endsWith('/index.html')) {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+            return;
+          }
+          if (normalized.includes('/assets/')) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+            return;
+          }
+          res.setHeader('Cache-Control', 'no-cache');
+        },
+      })
+    );
+
+    app.get('*', spaFallbackHandler);
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    try {
+      app.listen(PORT, '0.0.0.0', () => {
+        console.log(`Server listening on port ${PORT} (API mounts after database ready)`);
+        resolve();
+      });
+    } catch (e) {
+      reject(e);
+    }
+  });
+
+  await prepareEstimatorDbForServer();
+  logCatalogRuntimeHints();
 
   app.use(express.json({ limit: '12mb' }));
 
@@ -61,56 +124,16 @@ async function startServer() {
 
   app.use(expressErrorHandler);
 
-  // Cloud Run injects K_SERVICE / K_REVISION; treat that as authoritative production runtime.
-  // This prevents accidentally booting Vite middleware (which blocks unknown hosts) in Cloud Run.
-  const runningOnCloudRun = Boolean(process.env.K_SERVICE || process.env.K_REVISION);
-  const isProdRuntime = runningOnCloudRun || process.env.NODE_ENV === 'production';
+  console.log('API routes ready');
 
-  if (!isProdRuntime) {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distDir = path.join(__dirname, 'dist');
-
-    // Serve hashed assets with long-lived caching; avoid caching index.html so
-    // redeploys don't strand clients with stale chunk references.
-    app.use(express.static(distDir, {
-      setHeaders(res, filePath) {
-        const normalized = filePath.replace(/\\/g, '/');
-        if (normalized.endsWith('/index.html')) {
-          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
-          return;
-        }
-        if (normalized.includes('/assets/')) {
-          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-          return;
-        }
-        res.setHeader('Cache-Control', 'no-cache');
-      },
-    }));
-
-    app.get('*', (_req, res) => {
-      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
-      res.sendFile(path.join(distDir, 'index.html'));
-    });
+  if (shouldAutoSyncCatalogOnStart()) {
+    setTimeout(() => {
+      syncCatalogFromGoogleSheets().catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[catalog] startup sync failed: ${message}`);
+      });
+    }, 2500);
   }
-
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT}`);
-
-    if (shouldAutoSyncCatalogOnStart()) {
-      setTimeout(() => {
-        syncCatalogFromGoogleSheets().catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : String(err);
-          console.warn(`[catalog] startup sync failed: ${message}`);
-        });
-      }, 2500);
-    }
-  });
 }
 
 startServer().catch((err: unknown) => {

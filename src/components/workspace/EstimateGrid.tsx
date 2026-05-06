@@ -1142,7 +1142,7 @@ export function EstimateGrid({
                         <td colSpan={columnCount} className="px-3 py-2">
                           <div className="flex flex-wrap items-center gap-2 text-xs">
                             <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-300/80 bg-white px-2 py-0.5 font-semibold text-slate-900 shadow-sm">
-                              <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'var(--brand)' }} aria-hidden />
+                              <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'var(--brand, #1d4ed8)' }} aria-hidden />
                               {currentCategory}
                             </span>
                             <span className="text-slate-500">

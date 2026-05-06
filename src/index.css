@@ -44,9 +44,12 @@
     --brand-soft: #eff6ff;
     --brand-deep: #0b2a6f;
 
-    /** Primary CTAs (`.ui-btn-*`, `bg-[var(--primary)]`) — was undefined, so buttons rendered white-on-white. */
-    --primary: var(--brand);
-    --primary-strong: var(--brand-strong);
+    /**
+     * Primary CTAs — alias brand with hex fallbacks so a missing/invalid `var(--brand)` chain
+     * never yields empty `background` + white text (invisible buttons).
+     */
+    --primary: var(--brand, #1d4ed8);
+    --primary-strong: var(--brand-strong, #1e40af);
 
     /* Accents (kept for charts/callouts, not primary UI) */
     --accent-teal: #0f766e;
@@ -246,15 +249,108 @@
     box-shadow: 0 0 0 3px var(--focus-ring);
   }
 
+  /* Last wins: explicit background-color + hex fallback so preflight/build never yields white-on-white CTAs */
   .ui-btn-primary {
-    background: var(--primary);
+    @apply inline-flex h-9 shrink-0 items-center justify-center rounded-md px-3 text-sm font-semibold transition;
     color: #fff;
-    @apply h-9 rounded-md px-3 text-sm font-semibold transition;
     box-shadow: none;
+    background-color: var(--primary, #1d4ed8);
   }
 
   .ui-btn-primary:hover {
-    background: var(--primary-strong);
+    background-color: var(--primary-strong, #1e40af);
+  }
+
+  /** Solid / gradient primary fills — use instead of `bg-[var(--primary)]` in TSX (JIT-safe). */
+  .bg-app-primary {
+    background-color: var(--primary, #1d4ed8);
+  }
+  .bg-app-primary-gradient {
+    background-image: linear-gradient(135deg, var(--primary, #1d4ed8) 0%, #164fa8 100%);
+  }
+  .bg-app-brand-deep {
+    background-color: var(--brand-deep, #0b2a6f);
+  }
+  /** 1px ring matching primary (replaces `ring-[var(--primary)]`). */
+  .ring-app-primary {
+    box-shadow: 0 0 0 1px var(--primary, #1d4ed8);
+  }
+
+  /** Brand text/surfaces with hex fallbacks (replaces fragile `text-[var(--brand)]` arbitrary values). */
+  .text-app-brand {
+    color: var(--brand, #1d4ed8);
+  }
+  .text-app-brand-strong {
+    color: var(--brand-strong, #1e40af);
+  }
+  .bg-app-brand-soft {
+    background-color: var(--brand-soft, #eff6ff);
+  }
+  .bg-app-brand-soft-muted {
+    background-color: color-mix(in srgb, var(--brand-soft, #eff6ff) 70%, transparent);
+  }
+  .bg-app-brand-soft-wash {
+    background-color: color-mix(in srgb, var(--brand-soft, #eff6ff) 35%, transparent);
+  }
+  .bg-app-surface {
+    background-color: var(--surface, #ffffff);
+  }
+  .text-app-success {
+    color: var(--success, #166534);
+  }
+  .text-app-warn {
+    color: var(--warn, #9a3412);
+  }
+  .bg-app-warn-soft {
+    background-color: var(--warn-soft, #fff7ed);
+  }
+
+  /**
+   * Neutrals (text / borders / surfaces) — same pattern as brand utilities: hex fallbacks
+   * so Tailwind arbitrary `text-[var(--text-muted)]` etc. are not required.
+   */
+  .text-app {
+    color: var(--text, #0b1220);
+  }
+  .text-app-muted {
+    color: var(--text-muted, #475569);
+  }
+  .text-app-subtle {
+    color: var(--text-subtle, #64748b);
+  }
+  .bg-app-bg {
+    background-color: var(--bg-app, #ffffff);
+  }
+  .bg-app-surface-soft {
+    background-color: var(--surface-soft, #f8fafc);
+  }
+  /** Table header scrim (replaces `bg-[var(--surface-soft)]/95`). */
+  .bg-app-surface-soft-95 {
+    background-color: color-mix(in srgb, var(--surface-soft, #f8fafc) 95%, transparent);
+  }
+  .border-app-line {
+    border-color: var(--line, #cbd5e1);
+  }
+  .border-app-line-soft {
+    border-color: var(--line-soft, #e2e8f0);
+  }
+  .border-app-line-mix-75 {
+    border-color: color-mix(in srgb, var(--line, #cbd5e1) 75%, white);
+  }
+  .border-app-focus {
+    border-color: var(--focus-border, rgba(29, 78, 216, 0.55));
+  }
+  /** Replaces `ring-1 ring-[color-mix(in_srgb,var(--line)_65%,white)]`. */
+  .ring-app-line-muted {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--line, #cbd5e1) 65%, white);
+  }
+  .focus-visible-ring-app {
+    @apply focus-visible:outline-none focus-visible:ring-2;
+    --tw-ring-color: var(--focus-ring, rgba(29, 78, 216, 0.18));
+  }
+  .focus-visible-ring-app-inset {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset;
+    --tw-ring-color: var(--focus-ring, rgba(29, 78, 216, 0.18));
   }
 
   .ui-btn-secondary {
@@ -307,8 +403,8 @@
   }
 
   .ui-status-info {
-    color: var(--brand-strong);
-    background: var(--brand-soft);
+    color: var(--brand-strong, #1e40af);
+    background: var(--brand-soft, #eff6ff);
     border: 1px solid rgba(59, 130, 246, 0.25);
   }
 
@@ -357,7 +453,7 @@
   }
 
   .ui-tab-active {
-    background: var(--primary);
+    background-color: var(--primary, #1d4ed8);
     color: #fff;
     box-shadow: 0 8px 16px rgba(11, 61, 145, 0.22);
   }
@@ -367,8 +463,8 @@
   }
 
   .ui-ghost-btn:hover {
-    background: var(--brand-soft);
-    color: var(--brand);
+    background: var(--brand-soft, #eff6ff);
+    color: var(--brand, #1d4ed8);
   }
 
   .ui-ghost-btn:focus-visible {
@@ -543,7 +639,7 @@
   }
   .ui-dashed-card:hover {
     border-color: rgba(37, 99, 235, 0.55);
-    color: var(--brand);
+    color: var(--brand, #1d4ed8);
     background: rgba(231, 239, 255, 0.35);
   }
 
@@ -596,8 +692,8 @@
     border-color: rgba(22, 101, 52, 0.25);
   }
   .ui-mono-chip--info {
-    color: var(--brand-strong);
-    background: var(--brand-soft);
+    color: var(--brand-strong, #1e40af);
+    background: var(--brand-soft, #eff6ff);
     border-color: rgba(37, 99, 235, 0.28);
   }
   .ui-mono-chip--warn {

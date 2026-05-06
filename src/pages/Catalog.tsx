@@ -26,7 +26,7 @@ function CatalogItemThumb({ url }: { url: string | undefined }) {
   if (!url || !isDisplayableCatalogImageUrl(url) || broken) {
     return (
       <div
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded border border-dashed border-[var(--line)] bg-[var(--surface-soft)] text-[9px] text-[var(--text-muted)]"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded border border-dashed border-app-line bg-app-surface-soft text-[9px] text-app-muted"
         title={url && !isDisplayableCatalogImageUrl(url) ? 'URL not shown as image' : undefined}
       >
         —
@@ -37,7 +37,7 @@ function CatalogItemThumb({ url }: { url: string | undefined }) {
     <img
       src={url}
       alt=""
-      className="h-10 w-10 shrink-0 rounded border border-[var(--line)] bg-[var(--surface)] object-contain"
+      className="h-10 w-10 shrink-0 rounded border border-app-line bg-app-surface object-contain"
       loading="lazy"
       onError={() => setBroken(true)}
     />
@@ -212,7 +212,7 @@ function statusClass(status: CatalogSyncStatusRecord['status']): string {
   if (status === 'success') return 'ui-status-ok';
   if (status === 'running') return 'ui-status-info';
   if (status === 'failed') return 'ui-status-error';
-  return 'ui-chip-soft text-[var(--text-muted)]';
+  return 'ui-chip-soft text-app-muted';
 }
 
 const CATALOG_SYNC_UI_REVIEW_CAP = 50;
@@ -257,7 +257,7 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
 
   function renderList(label: string, items: string[], emptyHint: string) {
     if (!items.length) {
-      return emptyHint ? <p className="text-[var(--text-muted)]">{emptyHint}</p> : null;
+      return emptyHint ? <p className="text-app-muted">{emptyHint}</p> : null;
     }
     return (
       <ul className="mt-1 list-inside list-disc space-y-1 text-[11px] leading-snug">
@@ -293,11 +293,11 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
   const mergedReviewLines = mergeCatalogReviewSources(syncStatus.warnings || [], syncStatus.message);
 
   return (
-    <details className="rounded-lg border border-dashed border-[var(--line)] bg-[var(--surface)] px-3 py-2">
+    <details className="rounded-lg border border-dashed border-app-line bg-app-surface px-3 py-2">
       <summary className="cursor-pointer select-none text-xs font-semibold text-slate-800">
         Sync publish review
       </summary>
-      <div className="mt-2 space-y-2 border-t border-[var(--line)] pt-2">
+      <div className="mt-2 space-y-2 border-t border-app-line pt-2">
         <div className="flex flex-wrap items-center gap-2">
           {hist ? (
             <span className="ui-mono-chip ui-mono-chip--ok text-[10px]">Historical workbook</span>
@@ -305,21 +305,21 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
             <span className="ui-mono-chip ui-mono-chip--mute text-[10px]">Current server workbook</span>
           )}
           {hist ? (
-            <span className="text-[10px] text-[var(--text-muted)]">
+            <span className="text-[10px] text-app-muted">
               Review sample cap at run: {hist.validation.catalogSyncReviewMaxSamples} · Preflight blocking cap:{' '}
               {hist.validation.preflightMaxBlockingIssues}
             </span>
           ) : null}
         </div>
         {syncStatus.workbook ? (
-          <div className="rounded bg-[var(--surface-soft)] px-2 py-1.5 text-[10px] font-mono text-slate-700">
+          <div className="rounded bg-app-surface-soft px-2 py-1.5 text-[10px] font-mono text-slate-700">
             <div>
               Spreadsheet ID:{' '}
               {syncStatus.workbook.spreadsheetIdConfigured && syncStatus.workbook.spreadsheetId
                 ? syncStatus.workbook.spreadsheetId
                 : '(not configured)'}
             </div>
-            <div className="mt-0.5 text-[var(--text-muted)]">
+            <div className="mt-0.5 text-app-muted">
               Tabs — items read: {syncStatus.workbook.tabs.itemsFetch}
               {syncStatus.workbook.tabs.itemsConfigured !== syncStatus.workbook.tabs.itemsFetch
                 ? ` (GOOGLE_SHEETS_TAB_ITEMS ${syncStatus.workbook.tabs.itemsConfigured})`
@@ -352,31 +352,31 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
           <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] sm:grid-cols-3">
             {sum.skippedDuplicateItemRows != null ? (
               <>
-                <dt className="text-[var(--text-muted)]">Skipped dup rows</dt>
+                <dt className="text-app-muted">Skipped dup rows</dt>
                 <dd className="font-mono">{sum.skippedDuplicateItemRows}</dd>
               </>
             ) : null}
             {sum.failedValidationRows != null ? (
               <>
-                <dt className="text-[var(--text-muted)]">Failed cell validation</dt>
+                <dt className="text-app-muted">Failed cell validation</dt>
                 <dd className="font-mono">{sum.failedValidationRows}</dd>
               </>
             ) : null}
             {sum.bundleUnknownSkuReferences != null ? (
               <>
-                <dt className="text-[var(--text-muted)]">Unknown bundle SKUs (preflight)</dt>
+                <dt className="text-app-muted">Unknown bundle SKUs (preflight)</dt>
                 <dd className="font-mono">{sum.bundleUnknownSkuReferences}</dd>
               </>
             ) : null}
             {sum.bundleUnknownModifierReferences != null ? (
               <>
-                <dt className="text-[var(--text-muted)]">Unknown bundle modifiers</dt>
+                <dt className="text-app-muted">Unknown bundle modifiers</dt>
                 <dd className="font-mono">{sum.bundleUnknownModifierReferences}</dd>
               </>
             ) : null}
             {sum.persistedSyncCounts ? (
               <>
-                <dt className="text-[var(--text-muted)]">Last persisted rows</dt>
+                <dt className="text-app-muted">Last persisted rows</dt>
                 <dd className="col-span-2 font-mono text-[9px] leading-tight">
                   items {sum.persistedSyncCounts.itemsSynced} · mod {sum.persistedSyncCounts.modifiersSynced} · bnd{' '}
                   {sum.persistedSyncCounts.bundlesSynced} · bi {sum.persistedSyncCounts.bundleItemsSynced} · al{' '}
@@ -393,10 +393,10 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
           </div>
         ) : null}
 
-        <div className="rounded-lg border border-[var(--line)] bg-[var(--surface-soft)] px-2 py-2">
+        <div className="rounded-lg border border-app-line bg-app-surface-soft px-2 py-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-[11px] font-semibold text-slate-800">Manual review queues</p>
-            <p className="max-w-[28rem] text-[10px] text-[var(--text-muted)]">
+            <p className="max-w-[28rem] text-[10px] text-app-muted">
               Preview matches the latest sync snapshot below. CSV exports read the selected sync run (
               <span className="font-mono">{syncStatus.latestCatalogSyncRunId ?? 'latest row'}</span>
               ); open items via curator links (
@@ -409,7 +409,7 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
               const preview = lines.slice(0, MANUAL_REVIEW_TABLE_CAP);
               const runIdArg = syncStatus.latestCatalogSyncRunId ?? undefined;
               return (
-                <div key={queue} className="rounded border border-[var(--line)] bg-[var(--surface)] px-2 py-1.5">
+                <div key={queue} className="rounded border border-app-line bg-app-surface px-2 py-1.5">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-[11px] font-medium text-slate-800">
                       {MANUAL_REVIEW_QUEUE_LABELS[queue]} ({lines.length})
@@ -430,7 +430,7 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
                     <div className="mt-2 overflow-x-auto">
                       <table className="w-full border-collapse text-left text-[10px]">
                         <thead>
-                          <tr className="border-b border-[var(--line)] text-[var(--text-muted)]">
+                          <tr className="border-b border-app-line text-app-muted">
                             <th className="py-1 pr-2 font-medium">Detail</th>
                             <th className="py-1 pr-2 font-medium">Open in Catalog</th>
                             <th className="py-1 font-medium">Copy link</th>
@@ -441,7 +441,7 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
                             const token = guessCatalogReviewSkuToken(line);
                             const to = catalogCuratorPath(token, queue);
                             return (
-                              <tr key={`${queue}-${idx}`} className="border-b border-[var(--line)] last:border-b-0">
+                              <tr key={`${queue}-${idx}`} className="border-b border-app-line last:border-b-0">
                                 <td className="max-w-[min(420px,55vw)] py-1 pr-2 align-top">
                                   <span className="block truncate font-mono" title={line}>
                                     {line}
@@ -449,18 +449,18 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
                                 </td>
                                 <td className="whitespace-nowrap py-1 pr-2 align-top">
                                   {token ? (
-                                    <Link to={to} className="text-[var(--brand-strong)] underline">
+                                    <Link to={to} className="text-app-brand-strong underline">
                                       Search &quot;{token}&quot;
                                     </Link>
                                   ) : (
-                                    <span className="text-[var(--text-muted)]">—</span>
+                                    <span className="text-app-muted">—</span>
                                   )}
                                 </td>
                                 <td className="py-1 align-top">
                                   {token ? (
                                     <button
                                       type="button"
-                                      className="inline-flex items-center gap-1 text-[10px] font-medium text-[var(--brand-strong)] underline"
+                                      className="inline-flex items-center gap-1 text-[10px] font-medium text-app-brand-strong underline"
                                       onClick={() =>
                                         void copyTextToClipboard(
                                           typeof window !== 'undefined' ? `${window.location.origin}${to}` : to,
@@ -471,7 +471,7 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
                                       Copy
                                     </button>
                                   ) : (
-                                    <span className="text-[var(--text-muted)]">—</span>
+                                    <span className="text-app-muted">—</span>
                                   )}
                                 </td>
                               </tr>
@@ -480,13 +480,13 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
                         </tbody>
                       </table>
                       {lines.length > preview.length ? (
-                        <p className="mt-1 text-[10px] text-[var(--text-muted)]">
+                        <p className="mt-1 text-[10px] text-app-muted">
                           Showing first {preview.length} of {lines.length}. Use CSV for the full queue.
                         </p>
                       ) : null}
                     </div>
                   ) : (
-                    <p className="mt-1 text-[10px] text-[var(--text-muted)]">No rows in this queue for the current snapshot.</p>
+                    <p className="mt-1 text-[10px] text-app-muted">No rows in this queue for the current snapshot.</p>
                   )}
                 </div>
               );
@@ -495,7 +495,7 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
         </div>
 
         <div className="space-y-1.5">
-          <details className="rounded border border-[var(--line)] bg-[var(--surface)] px-2 py-1.5" open>
+          <details className="rounded border border-app-line bg-app-surface px-2 py-1.5" open>
             <summary className="cursor-pointer text-[11px] font-medium text-slate-800">
               Duplicate SKU hints ({dupCount})
             </summary>
@@ -507,19 +507,19 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
               )}
             </div>
           </details>
-          <details className="rounded border border-[var(--line)] bg-[var(--surface)] px-2 py-1.5">
+          <details className="rounded border border-app-line bg-app-surface px-2 py-1.5">
             <summary className="cursor-pointer text-[11px] font-medium text-slate-800">
               Alias conflicts ({aliasCount})
             </summary>
             <div className="mt-1 pl-1">{renderList('alias', aliasItems.map(String), 'No alias conflict samples for this sync.')}</div>
           </details>
-          <details className="rounded border border-[var(--line)] bg-[var(--surface)] px-2 py-1.5">
+          <details className="rounded border border-app-line bg-app-surface px-2 py-1.5">
             <summary className="cursor-pointer text-[11px] font-medium text-slate-800">
               Labor outliers ({laborCount})
             </summary>
             <div className="mt-1 pl-1">{renderList('labor', laborItems.map(String), 'No suspicious labor hints for this sync.')}</div>
           </details>
-          <details className="rounded border border-[var(--line)] bg-[var(--surface)] px-2 py-1.5">
+          <details className="rounded border border-app-line bg-app-surface px-2 py-1.5">
             <summary className="cursor-pointer text-[11px] font-medium text-slate-800">
               Orphan bundles — SKUs ({bundleSkuCount}) / modifiers ({bundleModCount})
             </summary>
@@ -531,7 +531,7 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
                 : null}
             </div>
           </details>
-          <details className="rounded border border-[var(--line)] bg-[var(--surface)] px-2 py-1.5">
+          <details className="rounded border border-app-line bg-app-surface px-2 py-1.5">
             <summary className="cursor-pointer text-[11px] font-medium text-slate-800">
               Orphan attrs / aliases ({orphanAttrCount + orphanAliasCount})
             </summary>
@@ -543,15 +543,15 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
                 : null}
             </div>
           </details>
-          <details className="rounded border border-[var(--line)] bg-[var(--surface)] px-2 py-1.5">
+          <details className="rounded border border-app-line bg-app-surface px-2 py-1.5">
             <summary className="cursor-pointer text-[11px] font-medium text-slate-800">Raw audit JSON</summary>
             <div className="mt-1 pl-1">
               {syncStatus.syncAudit ? (
-                <pre className="max-h-56 overflow-auto rounded border border-[var(--line)] bg-[var(--surface-soft)] p-2 text-[10px] leading-tight">
+                <pre className="max-h-56 overflow-auto rounded border border-app-line bg-app-surface-soft p-2 text-[10px] leading-tight">
                   {JSON.stringify(syncStatus.syncAudit, null, 2)}
                 </pre>
               ) : (
-                <p className="text-[var(--text-muted)]">No structured audit on the last attempt. Run sync again.</p>
+                <p className="text-app-muted">No structured audit on the last attempt. Run sync again.</p>
               )}
             </div>
           </details>
@@ -1401,11 +1401,11 @@ export function Catalog() {
                 </span>
               ) : null}
               {lastSynced ? (
-                <span className="rounded-md border border-[var(--line)] bg-[var(--surface-soft)] px-2.5 py-1 text-[var(--text-muted)]">
+                <span className="rounded-md border border-app-line bg-app-surface-soft px-2.5 py-1 text-app-muted">
                   Last sheet sync {new Date(lastSynced).toLocaleString()}
                 </span>
               ) : (
-                <span className="rounded-md border border-dashed border-[var(--line)] px-2.5 py-1 text-[var(--text-muted)]">
+                <span className="rounded-md border border-dashed border-app-line px-2.5 py-1 text-app-muted">
                   No sync timestamp yet — run sheet sync below
                 </span>
               )}
@@ -1651,7 +1651,7 @@ export function Catalog() {
 
         {activeTab === 'items' ? (
           <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-            <label className="inline-flex items-center gap-2 text-[var(--text-muted)]">
+            <label className="inline-flex items-center gap-2 text-app-muted">
               <span className="shrink-0">Sheet tab</span>
               <select
                 value={sourceTabFilter}
@@ -1671,8 +1671,8 @@ export function Catalog() {
 
         {activeTab === 'items' ? (
           <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-            <label className="inline-flex items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--surface)] px-2 py-1">
-              <span className="text-[var(--text-muted)]">Canonical</span>
+            <label className="inline-flex items-center gap-2 rounded-md border border-app-line bg-app-surface px-2 py-1">
+              <span className="text-app-muted">Canonical</span>
               <select value={canonFilter} onChange={(e) => setCanonFilter(e.target.value as typeof canonFilter)} className="ui-input h-7 px-2 text-[11px]">
                 <option value="all">All</option>
                 <option value="canonical">Only canonical</option>
@@ -1680,27 +1680,27 @@ export function Catalog() {
               </select>
             </label>
 
-            <label className="inline-flex items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--surface)] px-2 py-1 text-[11px] text-[var(--text)]">
+            <label className="inline-flex items-center gap-2 rounded-md border border-app-line bg-app-surface px-2 py-1 text-[11px] text-app">
               <input type="checkbox" checked={duplicatesOnly} onChange={(e) => setDuplicatesOnly(e.target.checked)} />
               Duplicates only
             </label>
 
-            <label className="inline-flex items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--surface)] px-2 py-1 text-[11px] text-[var(--text)]">
+            <label className="inline-flex items-center gap-2 rounded-md border border-app-line bg-app-surface px-2 py-1 text-[11px] text-app">
               <input type="checkbox" checked={deprecatedOnly} onChange={(e) => setDeprecatedOnly(e.target.checked)} />
               Deprecated only
             </label>
 
-            <label className="ml-auto inline-flex items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--surface)] px-2 py-1 text-[11px] text-[var(--text)]">
+            <label className="ml-auto inline-flex items-center gap-2 rounded-md border border-app-line bg-app-surface px-2 py-1 text-[11px] text-app">
               <input type="checkbox" checked={showDuplicateReview} onChange={(e) => setShowDuplicateReview(e.target.checked)} />
               Duplicate review
             </label>
 
-            <label className="inline-flex items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--surface)] px-2 py-1 text-[11px] text-[var(--text)]">
+            <label className="inline-flex items-center gap-2 rounded-md border border-app-line bg-app-surface px-2 py-1 text-[11px] text-app">
               <input type="checkbox" checked={showQualityReport} onChange={(e) => setShowQualityReport(e.target.checked)} />
               Quality report
             </label>
 
-            <label className="inline-flex items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--surface)] px-2 py-1 text-[11px] text-[var(--text)]">
+            <label className="inline-flex items-center gap-2 rounded-md border border-app-line bg-app-surface px-2 py-1 text-[11px] text-app">
               <input type="checkbox" checked={imageSprintOnly} onChange={(e) => setImageSprintOnly(e.target.checked)} />
               Image sprint (mfr-backed, missing photo)
             </label>
@@ -1774,7 +1774,7 @@ export function Catalog() {
                   <div className="mt-3 overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead>
-                        <tr className="border-b border-[var(--line)] text-[10px] uppercase tracking-[0.08em] text-slate-500">
+                        <tr className="border-b border-app-line text-[10px] uppercase tracking-[0.08em] text-slate-500">
                           <th className="py-2 pr-2 text-left">SKU</th>
                           <th className="py-2 pr-2 text-left">Canonical</th>
                           <th className="py-2 pr-2 text-left">Finish</th>
@@ -1870,7 +1870,7 @@ export function Catalog() {
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-[var(--line)] text-[10px] uppercase tracking-[0.08em] text-slate-500">
+                <tr className="border-b border-app-line text-[10px] uppercase tracking-[0.08em] text-slate-500">
                   <th className="py-2 pr-2 text-left">Category</th>
                   <th className="py-2 pr-2 text-right">Total</th>
                   <th className="py-2 pr-2 text-right">Active</th>
@@ -2028,7 +2028,7 @@ export function Catalog() {
                             </span>
                           ) : null}
                           {item.adaFlag ? (
-                            <span className="inline-flex items-center gap-0.5 text-[var(--success)]" title="ADA flagged">
+                            <span className="inline-flex items-center gap-0.5 text-app-success" title="ADA flagged">
                               <ShieldCheck className="h-3 w-3" aria-hidden />
                               ADA
                             </span>
@@ -2305,7 +2305,7 @@ export function Catalog() {
       {editingItem ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 sm:p-6">
           <form onSubmit={handleSaveItem} className="ui-panel w-full max-w-2xl overflow-hidden p-0 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3.5">
+            <div className="flex items-center justify-between border-b border-app-line px-4 py-3.5">
               <div>
                 <p className="ui-mono-kicker">Module 01 / Catalog Record</p>
                 <h2 className="mt-1 text-base font-semibold text-slate-900">Edit Catalog Item</h2>
@@ -2669,21 +2669,21 @@ export function Catalog() {
                       <span className="underline decoration-dotted underline-offset-2 group-open:no-underline">
                         Sheet provenance and extra API fields
                       </span>
-                      <span className="ml-2 font-normal text-[var(--text-muted)]">(read-only)</span>
+                      <span className="ml-2 font-normal text-app-muted">(read-only)</span>
                     </summary>
                     {(() => {
                       const ro = catalogItemReadOnlyRows(editingItem);
                       return ro.length ? (
-                        <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 border-t border-[var(--line)] pt-2 text-[11px] sm:grid-cols-2">
+                        <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 border-t border-app-line pt-2 text-[11px] sm:grid-cols-2">
                           {ro.map((row) => (
                             <div key={row.label} className="min-w-0">
-                              <dt className="text-[var(--text-muted)]">{row.label}</dt>
+                              <dt className="text-app-muted">{row.label}</dt>
                               <dd className="break-words font-mono text-slate-800">{row.value}</dd>
                             </div>
                           ))}
                         </dl>
                       ) : (
-                        <p className="mt-2 border-t border-[var(--line)] pt-2 text-[11px] text-[var(--text-muted)]">
+                        <p className="mt-2 border-t border-app-line pt-2 text-[11px] text-app-muted">
                           No extra provenance fields on this row (they usually appear after a sheet sync).
                         </p>
                       );
@@ -2738,7 +2738,7 @@ export function Catalog() {
                       <div className="overflow-x-auto">
                         <table className="w-full text-xs">
                           <thead>
-                            <tr className="border-b border-[var(--line)] text-[10px] uppercase tracking-[0.08em] text-slate-500">
+                            <tr className="border-b border-app-line text-[10px] uppercase tracking-[0.08em] text-slate-500">
                               <th className="py-2 pr-2 text-left">Type</th>
                               <th className="py-2 pr-2 text-left">Value</th>
                               <th className="py-2 text-right">Action</th>
@@ -2864,7 +2864,7 @@ export function Catalog() {
                       <div className="overflow-x-auto">
                         <table className="w-full text-xs">
                           <thead>
-                            <tr className="border-b border-[var(--line)] text-[10px] uppercase tracking-[0.08em] text-slate-500">
+                            <tr className="border-b border-app-line text-[10px] uppercase tracking-[0.08em] text-slate-500">
                               <th className="py-2 pr-2 text-left">Type</th>
                               <th className="py-2 pr-2 text-left">Value</th>
                               <th className="py-2 pr-2 text-left">Effect</th>
@@ -2917,7 +2917,7 @@ export function Catalog() {
       {editingModifier ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 sm:p-6">
           <form onSubmit={handleSaveModifier} className="ui-panel w-full max-w-2xl overflow-hidden p-0 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3.5">
+            <div className="flex items-center justify-between border-b border-app-line px-4 py-3.5">
               <div>
                 <p className="ui-mono-kicker">Catalog / Modifier</p>
                 <h2 className="mt-1 text-base font-semibold text-slate-900">Edit Modifier</h2>
@@ -2978,7 +2978,7 @@ export function Catalog() {
                   Active
                 </label>
               </div>
-              <p className="text-[11px] text-[var(--text-muted)]">
+              <p className="text-[11px] text-app-muted">
                 <span className="font-medium text-slate-600">Record id:</span>{' '}
                 <span className="font-mono text-slate-800">{editingModifier.id}</span>
                 <span className="mx-2 text-slate-300">·</span>
@@ -2986,7 +2986,7 @@ export function Catalog() {
                 {editingModifier.updatedAt ? new Date(editingModifier.updatedAt).toLocaleString() : '—'}
               </p>
             </div>
-            <div className="flex items-center justify-end gap-2 border-t border-[var(--line)] px-4 py-3.5">
+            <div className="flex items-center justify-end gap-2 border-t border-app-line px-4 py-3.5">
               <button type="button" onClick={() => setEditingModifier(null)} className="ui-btn-secondary" disabled={savingModifier}>
                 Cancel
               </button>
@@ -3001,7 +3001,7 @@ export function Catalog() {
       {editingBundle ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 sm:p-6">
           <form onSubmit={handleSaveBundle} className="ui-panel w-full max-w-xl overflow-hidden p-0 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3.5">
+            <div className="flex items-center justify-between border-b border-app-line px-4 py-3.5">
               <div>
                 <p className="ui-mono-kicker">Catalog / Bundle</p>
                 <h2 className="mt-1 text-base font-semibold text-slate-900">Edit Bundle</h2>
@@ -3011,13 +3011,13 @@ export function Catalog() {
               </button>
             </div>
             <div className="p-4 space-y-3">
-              <div className="rounded-lg border border-[var(--line)] bg-[var(--surface-soft)] px-3 py-2 text-[11px] text-slate-700">
+              <div className="rounded-lg border border-app-line bg-app-surface-soft px-3 py-2 text-[11px] text-slate-700">
                 <div>
-                  <span className="text-[var(--text-muted)]">Bundle id</span>{' '}
+                  <span className="text-app-muted">Bundle id</span>{' '}
                   <span className="break-all font-mono text-slate-900">{editingBundle.id}</span>
                 </div>
                 <div className="mt-1">
-                  <span className="text-[var(--text-muted)]">Last updated</span>{' '}
+                  <span className="text-app-muted">Last updated</span>{' '}
                   {editingBundle.updatedAt ? new Date(editingBundle.updatedAt).toLocaleString() : '—'}
                 </div>
               </div>
@@ -3034,7 +3034,7 @@ export function Catalog() {
                 Active
               </label>
             </div>
-            <div className="flex items-center justify-end gap-2 border-t border-[var(--line)] px-4 py-3.5">
+            <div className="flex items-center justify-end gap-2 border-t border-app-line px-4 py-3.5">
               <button type="button" onClick={() => setEditingBundle(null)} className="ui-btn-secondary" disabled={savingBundle}>
                 Cancel
               </button>

@@ -24,7 +24,7 @@ export function SetupStepper({ activeStep = 0 }: SetupStepperProps) {
               {i > 0 ? <span className="hidden text-slate-300 sm:inline" aria-hidden>/</span> : null}
               <span
                 className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold ${
-                  current ? 'bg-[var(--brand-soft)] text-[var(--brand-strong)] ring-1 ring-blue-200/80' : done ? 'bg-slate-100 text-slate-600' : 'bg-slate-50 text-slate-500'
+                  current ? 'bg-app-brand-soft text-app-brand-strong ring-1 ring-blue-200/80' : done ? 'bg-slate-100 text-slate-600' : 'bg-slate-50 text-slate-500'
                 }`}
               >
                 <span className="tabular-nums opacity-70">{i + 1}</span>

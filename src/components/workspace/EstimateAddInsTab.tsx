@@ -214,7 +214,7 @@ export function EstimateAddInsTab({
             <p>Selected Line</p>
             <p className={`mt-1 text-[10px] ${scope === 'line' ? 'text-slate-300' : 'text-slate-500'}`}>{selectedLine ? selectedLine.description : 'Select a line first'}</p>
           </button>
-          <button onClick={() => setScope('room')} disabled={!canApplyToRoom} className={`rounded-lg px-2.5 py-2 text-left text-[11px] font-semibold transition ${scope === 'room' ? 'bg-[var(--primary)] text-white shadow-sm' : 'bg-slate-50 text-slate-600 ring-1 ring-slate-200'} disabled:cursor-not-allowed disabled:opacity-45`}>
+          <button onClick={() => setScope('room')} disabled={!canApplyToRoom} className={`rounded-lg px-2.5 py-2 text-left text-[11px] font-semibold transition ${scope === 'room' ? 'bg-app-primary text-white shadow-sm' : 'bg-slate-50 text-slate-600 ring-1 ring-slate-200'} disabled:cursor-not-allowed disabled:opacity-45`}>
             <p>Active Room</p>
             <p className={`mt-1 text-[10px] ${scope === 'room' ? 'text-blue-100' : 'text-slate-500'}`}>{activeRoomName} • {activeRoomLineCount} lines</p>
           </button>
@@ -228,7 +228,7 @@ export function EstimateAddInsTab({
             <p className="text-[10px] text-slate-500">Per-item or room-scoped upgrades and add-ons.</p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ring-1 ${scope === 'line' ? 'bg-slate-950 text-white ring-slate-950' : 'bg-[var(--primary)] text-white ring-[var(--primary)]'}`}>{scope === 'line' ? 'Line Scope' : 'Room Scope'}</span>
+            <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${scope === 'line' ? 'bg-slate-950 text-white ring-1 ring-slate-950' : 'bg-app-primary text-white ring-app-primary'}`}>{scope === 'line' ? 'Line Scope' : 'Room Scope'}</span>
             {scope === 'line' && selectedLine ? <span className="rounded-full bg-slate-50 px-2.5 py-1 text-[10px] font-medium text-slate-600 ring-1 ring-slate-200">{selectedLine.category || 'All categories'}</span> : null}
           </div>
         </div>

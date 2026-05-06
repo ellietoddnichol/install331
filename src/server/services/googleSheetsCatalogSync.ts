@@ -293,7 +293,8 @@ function splitList(input: unknown): string[] {
 
 /** Same as catalog `normalizeSku`: must match preflight + `catalog_items` duplicate logic. */
 function normalizeSkuToken(input: unknown): string {
-  return normalizeSku(input);
+  const value = typeof input === 'string' ? input : String(input ?? '');
+  return normalizeSku(value);
 }
 
 function normalizeModifierToken(input: unknown): string {
@@ -1407,6 +1408,8 @@ export async function upsertItems(
     'default modifier',
     'catalog modifiers',
   ]);
+  /** When set (CLEAN_ITEMS), must match BUNDLES / ALIASES / ATTRIBUTES canonical references — not the same as `sku` column. */
+  const sheetCanonicalSkuCol = columnIndex(headers, ['canonical sku', 'canonical_sku']);
 
   if (descriptionCol === null && itemCol === null) {
     throw new Error('ITEMS tab is missing required headers. Expected Item, Name, Description, or similar columns.');
@@ -1510,7 +1513,6 @@ export async function upsertItems(
     const series = getCell(row, seriesCol) || null;
     const imageUrl = getCell(row, imageUrlCol) || null;
     const uomEff = normalizeUnit(getCell(row, uomCol));
-    const skuNorm = normalizeSku(sku);
     const mfrKey = manufacturerNormalizedKey(manufacturer);
     const catMain = mapCategoryMain(category);
     const itemType = inferItemType({
@@ -1519,7 +1521,9 @@ export async function upsertItems(
       description,
       tags: tagTokens,
     });
-    const canonicalSku = sku || null;
+    const sheetCanonRaw = sheetCanonicalSkuCol != null ? String(getCell(row, sheetCanonicalSkuCol) ?? '').trim() : '';
+    const canonicalSku = sheetCanonRaw || (sku.trim() ? sku : null) || null;
+    const skuNorm = normalizeSku(sku || sheetCanonRaw || '');
 
     const insertParams: unknown[] = [
       id,
@@ -1747,15 +1751,17 @@ export async function upsertBundles(
 
   const catalogSkuRows = await ex.all<{
     id: string;
-    sku: string;
+    sku: string | null;
+    canonical_sku: string | null;
     description: string;
     base_material_cost: number;
     base_labor_minutes: number;
   }>(
     `
-    SELECT id, sku, description, base_material_cost, base_labor_minutes
+    SELECT id, sku, canonical_sku, description, base_material_cost, base_labor_minutes
     FROM ${writeTable}
-    WHERE sku IS NOT NULL AND trim(sku) <> ''
+    WHERE (sku IS NOT NULL AND trim(sku) <> '')
+       OR (canonical_sku IS NOT NULL AND trim(canonical_sku) <> '')
   `,
     []
   );
@@ -1768,17 +1774,21 @@ export async function upsertBundles(
     baseLaborMinutes: number;
   }>();
 
-  catalogSkuRows.forEach((row) => {
-    const normalized = normalizeSkuToken(row.sku);
-    if (!normalized || catalogBySku.has(normalized)) return;
-    catalogBySku.set(normalized, {
+  for (const row of catalogSkuRows) {
+    const displaySku = String(row.sku || row.canonical_sku || '').trim();
+    const pack = {
       id: row.id,
-      sku: row.sku,
+      sku: displaySku,
       description: row.description,
       baseMaterialCost: Number(row.base_material_cost || 0),
       baseLaborMinutes: Number(row.base_labor_minutes || 0),
-    });
-  });
+    };
+    for (const raw of [row.sku, row.canonical_sku]) {
+      const normalized = normalizeSkuToken(String(raw ?? ''));
+      if (!normalized || catalogBySku.has(normalized)) continue;
+      catalogBySku.set(normalized, pack);
+    }
+  }
 
   const modifierRows = await ex.all<{ modifier_key: string }>(
     `SELECT modifier_key FROM ${getCatalogModifiersReadTableName()}`,

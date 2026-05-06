@@ -282,7 +282,7 @@ export function ItemPicker({ open, rooms, bundles, activeRoomId, categories, sea
           unit: 'EA',
           qty: Math.max(1, Number(item.qty || 1)),
           notes: [bundle.bundleName, item.notes || ''].filter(Boolean).join(' · '),
-          sourceType: item.catalogItemId ? 'catalog' : 'manual',
+          sourceType: item.catalogItemId ? ('catalog' as const) : ('manual' as const),
           sku: item.sku,
           category: bundle.category,
           subcategory: null,

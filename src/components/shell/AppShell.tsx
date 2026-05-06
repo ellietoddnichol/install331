@@ -11,7 +11,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="h-screen w-screen flex overflow-hidden p-0 m-0 bg-white">
       <SidebarNav />
       <main className="flex-1 min-w-0 overflow-hidden">
-        <div className="h-full rounded-xl border border-[var(--line-soft)] bg-[var(--bg-app)] shadow-[inset_0_1px_0_rgba(255,255,255,0.75),0_1px_3px_rgba(15,23,42,0.04)] overflow-y-auto scroll-smooth">
+        <div className="h-full rounded-xl border border-app-line-soft bg-app-bg shadow-[inset_0_1px_0_rgba(255,255,255,0.75),0_1px_3px_rgba(15,23,42,0.04)] overflow-y-auto scroll-smooth">
           {children}
         </div>
       </main>

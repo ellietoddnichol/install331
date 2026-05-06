@@ -63,6 +63,8 @@ steps:
           --image="$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_IMAGE_NAME:$COMMIT_SHA" \
           --service-account="$_RUN_SERVICE_ACCOUNT" \
           --port=8080 \
+          --cpu-boost \
+          --timeout=300 \
           --quiet
     waitFor:
       - push
