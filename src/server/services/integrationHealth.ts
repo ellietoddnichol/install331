@@ -60,7 +60,15 @@ export function getIntegrationHealthSnapshot(): IntegrationHealthSnapshot {
       String(process.env.GEMINI_API_KEY || '').trim() || String(process.env.GOOGLE_GEMINI_API_KEY || '').trim()
     ),
     googleSheets: sheets,
-    supabaseAnon: Boolean(String(process.env.SUPABASE_URL || '').trim() && String(process.env.SUPABASE_ANON_KEY || '').trim()),
+    supabaseAnon: Boolean(
+      String(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim() &&
+        String(
+          process.env.SUPABASE_ANON_KEY ||
+            process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+            ''
+        ).trim()
+    ),
     supabaseServiceRole: Boolean(String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()),
     publicSupabaseClient,
     supabaseStorageBucket: Boolean(String(process.env.SUPABASE_STORAGE_BUCKET || '').trim()),

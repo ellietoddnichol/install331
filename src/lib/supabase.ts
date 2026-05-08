@@ -16,11 +16,16 @@ function readRuntimeConfig(): RuntimePublicSupabaseConfig | null {
 }
 
 function readBundledViteUrl(): string {
-  return String(import.meta.env.VITE_SUPABASE_URL ?? '').trim();
+  return String(import.meta.env.VITE_SUPABASE_URL ?? import.meta.env.NEXT_PUBLIC_SUPABASE_URL ?? '').trim();
 }
 
 function readBundledViteAnonKey(): string {
-  return String(import.meta.env.VITE_SUPABASE_ANON_KEY ?? '').trim();
+  return String(
+    import.meta.env.VITE_SUPABASE_ANON_KEY ??
+      import.meta.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+      import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+      ''
+  ).trim();
 }
 
 function readViteUrl(): string {
@@ -74,13 +79,13 @@ export function assertSupabaseViteEnv(): void {
 
   if (!url) {
     throw new Error(
-      '[Div 10 Catalog Hub] Missing VITE_SUPABASE_URL. Copy `.env.example` to `.env.local` and set your Supabase project URL.'
+      '[Div 10 Catalog Hub] Missing VITE_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL. Copy `.env.example` to `.env.local` and set your Supabase project URL.'
     );
   }
 
   if (!anon || anon === ANON_PLACEHOLDER) {
     throw new Error(
-      '[Div 10 Catalog Hub] Missing VITE_SUPABASE_ANON_KEY. Paste the anon (public) key from Supabase Dashboard → Project Settings → API. Do not use the service_role key in VITE_* variables.'
+      '[Div 10 Catalog Hub] Missing VITE_SUPABASE_ANON_KEY or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY. Paste the anon/publishable key from Supabase Dashboard → Project Settings → API. Do not use the service_role key in browser-exposed variables.'
     );
   }
 }

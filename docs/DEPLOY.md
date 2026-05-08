@@ -61,9 +61,9 @@ Use **Backup now** for an on-demand snapshot (only works when `DATABASE_GCS_BUCK
 
 The app now exposes a runtime-safe browser config endpoint:
 
-- `GET /api/v1/public-config.js` — publishes only public Supabase browser values (URL + anon key)
+- `GET /api/v1/public-config.js` — publishes only public Supabase browser values (URL + publishable/anon key)
 
-That endpoint lets the SPA authenticate even if `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` were not baked into the image at build time.
+That endpoint lets the SPA authenticate even if `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` (or `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`) were not baked into the image at build time.
 
 In **Settings → Environment readiness**, verify:
 

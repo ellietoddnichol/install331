@@ -74,9 +74,9 @@ Set environment variables (use **Secrets** for keys):
 
 ### SPA public config
 
-The browser can read Supabase URL + anon key from either:
+The browser can read Supabase URL + publishable/anon key from either:
 
-1. build-time `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`, or
+1. build-time `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` (or `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`), or
 2. runtime-safe server output at `GET /api/v1/public-config.js`
 
 That runtime fallback means Cloud Run can serve a working sign-in flow even when the
@@ -99,7 +99,7 @@ npm run migrate:sqlite-to-pg
 ## 6. Auth
 
 - Users must exist in **Supabase Auth** (email/password or SSO).
-- Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (same values as `SUPABASE_URL` / `SUPABASE_ANON_KEY`) if you want them baked into the bundle; otherwise the SPA falls back to `/api/v1/public-config.js`.
+- Set `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` (or `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`) if you want them baked into the bundle; otherwise the SPA falls back to `/api/v1/public-config.js`.
 - With `AUTH_REQUIRED=1`, the API accepts either `Authorization: Bearer <access_token>` or Supabase auth cookies on same-origin requests (`credentials` are enabled in `apiFetch`).
 - `GET /api/v1/session` returns `{ data: { user } }` without requiring auth (useful for bootstrapping the client).
 

@@ -32,8 +32,13 @@ function parseCookieHeader(cookieHeader: string | undefined): { name: string; va
  * Supabase auth cookies (same-origin), using the anon key for verification.
  */
 export async function getSupabaseSessionForRequest(req: Request, _res: Response): Promise<Session | null> {
-  const url = String(process.env.SUPABASE_URL || '').trim();
-  const anonKey = String(process.env.SUPABASE_ANON_KEY || '').trim();
+  const url = String(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim();
+  const anonKey = String(
+    process.env.SUPABASE_ANON_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+      '',
+  ).trim();
   if (!url || !anonKey) return null;
 
   const authHeader = String(req.headers.authorization || '');
@@ -84,8 +89,13 @@ export async function requireSession(req: Request, res: Response, next: NextFunc
     return;
   }
 
-  const url = String(process.env.SUPABASE_URL || '').trim();
-  const anonKey = String(process.env.SUPABASE_ANON_KEY || '').trim();
+  const url = String(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim();
+  const anonKey = String(
+    process.env.SUPABASE_ANON_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+      '',
+  ).trim();
   const supabaseConfigured = Boolean(url && anonKey);
 
   if (supabaseConfigured) {
@@ -111,7 +121,7 @@ export async function requireSession(req: Request, res: Response, next: NextFunc
   if (!supabaseConfigured && !isPasswordLoginConfigured()) {
     res.status(503).json({
       error:
-        'Server auth is required (AUTH_REQUIRED=1) but neither Supabase (SUPABASE_URL / SUPABASE_ANON_KEY) nor password login (AUTH_LOGIN_PASSWORD) is configured.',
+        'Server auth is required (AUTH_REQUIRED=1) but neither Supabase (SUPABASE_URL + SUPABASE_ANON_KEY or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) nor password login (AUTH_LOGIN_PASSWORD) is configured.',
     });
     return;
   }

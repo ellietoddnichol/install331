@@ -23,7 +23,11 @@ export function readDiv10BrainEnv(): Div10BrainEnv | null {
     appEnv: String(process.env.APP_ENV || process.env.NODE_ENV || 'development'),
     supabaseUrl,
     supabaseServiceRoleKey,
-    supabaseAnonKey: process.env.SUPABASE_ANON_KEY?.trim() || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() || undefined,
+    supabaseAnonKey:
+      process.env.SUPABASE_ANON_KEY?.trim() ||
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ||
+      undefined,
     openaiApiKey,
     openaiModelClassify: process.env.OPENAI_MODEL_CLASSIFY?.trim() || 'gpt-4o-mini',
     openaiModelDraft: process.env.OPENAI_MODEL_DRAFT?.trim() || 'gpt-4o-mini',

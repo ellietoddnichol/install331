@@ -23,7 +23,7 @@ After `npm run import:div10-starter`, run ingestion for each `knowledge_document
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `SUPABASE_ANON_KEY` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` | — | Reserved if you later add user-scoped Supabase clients |
+| `SUPABASE_ANON_KEY` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or `NEXT_PUBLIC_SUPABASE_ANON_KEY`) | — | Reserved if you later add user-scoped Supabase clients |
 | `OPENAI_MODEL_CLASSIFY` | `gpt-4o-mini` | Model for classify / match / modifiers |
 | `OPENAI_MODEL_DRAFT` | `gpt-4o-mini` | Model for proposal drafting |
 | `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | Embeddings (DB column is `vector(1536)`) |
@@ -41,4 +41,3 @@ After sign-in, open `/admin/div10-brain` and paste `DIV10_BRAIN_ADMIN_SECRET` to
 
 - `npm run import:div10 -- catalog ./data/div10-brain/samples/catalog.csv`
 - `npm run eval:div10`
-
