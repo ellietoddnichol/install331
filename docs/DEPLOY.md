@@ -6,6 +6,17 @@ On every process start, **`server.ts`** calls `initDb()` then **`initEstimatorSc
 
 **Production:** The same `tsx server.ts` (or `npm start`) entrypoint must run on Cloud Run (or your host) so existing databases pick up new columns before the v1 API reads or writes those fields.
 
+## Postgres / Supabase migrations
+
+When deploying with `DB_DRIVER=pg`, apply every file under [`supabase/migrations/`](../supabase/migrations) before cutting traffic to the new revision.
+
+Options:
+
+- `npm run db:migrate` — runs all SQL files in lexical order against `DIRECT_URL` or `DATABASE_URL`
+- `supabase db push` — if your local repo is linked to the target project
+
+Verify `public.catalog_items_clean` exists after migration because it is the default read relation for the Postgres catalog backend.
+
 ## Durable project persistence (Cloud Run)
 
 Cloud Run does **not** preserve the container filesystem across deploys/revisions. If SQLite is stored inside the container (for example `./estimator.db` under `/app`), **projects and takeoff lines will be lost on deploy**.
@@ -45,6 +56,23 @@ The app surfaces SQLite persistence health in **Settings → Project Durability*
 - the current GCS object metadata (updated time / size) when configured
 
 Use **Backup now** for an on-demand snapshot (only works when `DATABASE_GCS_BUCKET` is configured).
+
+## Deployment readiness checks
+
+The app now exposes a runtime-safe browser config endpoint:
+
+- `GET /api/v1/public-config.js` — publishes only public Supabase browser values (URL + anon key)
+
+That endpoint lets the SPA authenticate even if `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` were not baked into the image at build time.
+
+In **Settings → Environment readiness**, verify:
+
+- database driver + `DATABASE_URL`
+- catalog backend + auto-sync status
+- Google Sheets credentials + spreadsheet ID
+- Supabase server keys + browser-safe config
+- PDF provider / Document AI flags
+- default labor rate per hour
 
 ## Secrets
 

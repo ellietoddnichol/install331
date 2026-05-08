@@ -9,3 +9,10 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+interface Window {
+  __INSTALL331_PUBLIC_CONFIG__?: {
+    supabaseUrl?: string;
+    supabaseAnonKey?: string;
+  };
+}

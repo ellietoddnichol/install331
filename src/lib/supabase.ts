@@ -3,14 +3,24 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 const ANON_PLACEHOLDER = 'PASTE_SUPABASE_ANON_PUBLIC_KEY_HERE';
 
+type RuntimePublicSupabaseConfig = {
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
+};
+
 let cachedClient: SupabaseClient | null = null;
 
+function readRuntimeConfig(): RuntimePublicSupabaseConfig | null {
+  if (typeof window === 'undefined') return null;
+  return window.__INSTALL331_PUBLIC_CONFIG__ ?? null;
+}
+
 function readViteUrl(): string {
-  return String(import.meta.env.VITE_SUPABASE_URL ?? '').trim();
+  return String(import.meta.env.VITE_SUPABASE_URL ?? readRuntimeConfig()?.supabaseUrl ?? '').trim();
 }
 
 function readViteAnonKey(): string {
-  return String(import.meta.env.VITE_SUPABASE_ANON_KEY ?? '').trim();
+  return String(import.meta.env.VITE_SUPABASE_ANON_KEY ?? readRuntimeConfig()?.supabaseAnonKey ?? '').trim();
 }
 
 /** True when URL and anon key look configured (does not validate JWT with Supabase). */

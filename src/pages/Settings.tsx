@@ -180,6 +180,14 @@ export function Settings() {
               <dd className="font-mono text-slate-900">{integrationHealth.dbDriver}</dd>
             </div>
             <div className="flex justify-between gap-2 border-b border-slate-100 pb-1">
+              <dt className="text-slate-500">DATABASE_URL</dt>
+              <dd>{integrationHealth.databaseUrl ? 'configured' : 'missing'}</dd>
+            </div>
+            <div className="flex justify-between gap-2 border-b border-slate-100 pb-1">
+              <dt className="text-slate-500">Catalog backend</dt>
+              <dd className="font-mono">{integrationHealth.catalogBackend}</dd>
+            </div>
+            <div className="flex justify-between gap-2 border-b border-slate-100 pb-1">
               <dt className="text-slate-500">AUTH_REQUIRED</dt>
               <dd>{integrationHealth.authRequired ? 'yes' : 'no'}</dd>
             </div>
@@ -192,6 +200,14 @@ export function Settings() {
               <dd>{integrationHealth.googleSheets ? 'configured' : 'missing'}</dd>
             </div>
             <div className="flex justify-between gap-2 border-b border-slate-100 pb-1">
+              <dt className="text-slate-500">Sheets spreadsheet ID</dt>
+              <dd>{integrationHealth.googleSheetsSpreadsheetId ? 'configured' : 'missing'}</dd>
+            </div>
+            <div className="flex justify-between gap-2 border-b border-slate-100 pb-1">
+              <dt className="text-slate-500">Catalog auto-sync on start</dt>
+              <dd>{integrationHealth.catalogAutoSyncOnStart ? 'enabled' : 'off'}</dd>
+            </div>
+            <div className="flex justify-between gap-2 border-b border-slate-100 pb-1">
               <dt className="text-slate-500">Supabase (anon)</dt>
               <dd>{integrationHealth.supabaseAnon ? 'configured' : 'missing'}</dd>
             </div>
@@ -200,12 +216,24 @@ export function Settings() {
               <dd>{integrationHealth.supabaseServiceRole ? 'configured' : 'missing'}</dd>
             </div>
             <div className="flex justify-between gap-2 border-b border-slate-100 pb-1">
+              <dt className="text-slate-500">Browser Supabase config</dt>
+              <dd>{integrationHealth.publicSupabaseClient ? 'configured' : 'missing'}</dd>
+            </div>
+            <div className="flex justify-between gap-2 border-b border-slate-100 pb-1">
+              <dt className="text-slate-500">Supabase Storage bucket</dt>
+              <dd>{integrationHealth.supabaseStorageBucket ? 'configured' : 'missing'}</dd>
+            </div>
+            <div className="flex justify-between gap-2 border-b border-slate-100 pb-1">
               <dt className="text-slate-500">PDF provider</dt>
               <dd className="font-mono">{integrationHealth.pdfProvider}</dd>
             </div>
             <div className="flex justify-between gap-2 border-b border-slate-100 pb-1">
               <dt className="text-slate-500">Document AI env</dt>
               <dd>{integrationHealth.googleDocumentAi ? 'configured' : 'missing'}</dd>
+            </div>
+            <div className="flex justify-between gap-2 border-b border-slate-100 pb-1">
+              <dt className="text-slate-500">Default labor rate / hr</dt>
+              <dd className="font-mono">${integrationHealth.defaultLaborRatePerHour}</dd>
             </div>
             <div className="flex justify-between gap-2 border-b border-slate-100 pb-1">
               <dt className="text-slate-500">Password login</dt>

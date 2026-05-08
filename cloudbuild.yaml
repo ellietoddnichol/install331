@@ -14,6 +14,13 @@ substitutions:
   _IMAGE_NAME: install331/cwainstall-git
   _DEPLOY_REGION: europe-west1
   _SERVICE_NAME: install58
+  _MIN_INSTANCES: '1'
+  _MEMORY: 1Gi
+  _CONCURRENCY: '80'
+  # Optional build-time public values for the SPA bundle. Safe to leave blank because
+  # the app also reads runtime-safe public config from /api/v1/public-config.js.
+  _VITE_SUPABASE_URL: ''
+  _VITE_SUPABASE_ANON_KEY: ''
   # Same runtime SA as your existing Cloud Run revision (act-as permission required on builder SA).
   _RUN_SERVICE_ACCOUNT: '353363250924-compute@developer.gserviceaccount.com'
 
@@ -36,6 +43,10 @@ steps:
     name: gcr.io/cloud-builders/docker
     args:
       - build
+      - --build-arg
+      - VITE_SUPABASE_URL=$_VITE_SUPABASE_URL
+      - --build-arg
+      - VITE_SUPABASE_ANON_KEY=$_VITE_SUPABASE_ANON_KEY
       - -t
       - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_IMAGE_NAME:$COMMIT_SHA
       - .
@@ -63,6 +74,9 @@ steps:
           --image="$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_IMAGE_NAME:$COMMIT_SHA" \
           --service-account="$_RUN_SERVICE_ACCOUNT" \
           --port=8080 \
+          --min-instances="$_MIN_INSTANCES" \
+          --memory="$_MEMORY" \
+          --concurrency="$_CONCURRENCY" \
           --cpu-boost \
           --timeout=300 \
           --quiet

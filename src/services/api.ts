@@ -433,12 +433,19 @@ export const api = {
   },
   async getV1IntegrationHealth(): Promise<{
     dbDriver: string;
+    databaseUrl: boolean;
+    catalogBackend: string;
+    catalogAutoSyncOnStart: boolean;
+    googleSheetsSpreadsheetId: boolean;
     gemini: boolean;
     googleSheets: boolean;
     supabaseAnon: boolean;
     supabaseServiceRole: boolean;
+    publicSupabaseClient: boolean;
+    supabaseStorageBucket: boolean;
     pdfProvider: string;
     googleDocumentAi: boolean;
+    defaultLaborRatePerHour: number;
     passwordLogin: boolean;
     authRequired: boolean;
     div10BrainAdmin: boolean;
@@ -446,12 +453,19 @@ export const api = {
     const res = await apiFetch(`${API_BASE}/v1/settings/integration-health`);
     const payload = await handleResponse<{ data: {
       dbDriver: string;
+      databaseUrl: boolean;
+      catalogBackend: string;
+      catalogAutoSyncOnStart: boolean;
+      googleSheetsSpreadsheetId: boolean;
       gemini: boolean;
       googleSheets: boolean;
       supabaseAnon: boolean;
       supabaseServiceRole: boolean;
+      publicSupabaseClient: boolean;
+      supabaseStorageBucket: boolean;
       pdfProvider: string;
       googleDocumentAi: boolean;
+      defaultLaborRatePerHour: number;
       passwordLogin: boolean;
       authRequired: boolean;
       div10BrainAdmin: boolean;

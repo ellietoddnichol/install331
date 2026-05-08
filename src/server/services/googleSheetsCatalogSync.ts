@@ -276,7 +276,7 @@ function parseNumber(input: unknown, defaultValue = 0): number {
 }
 
 function unitLaborCostFromMinutes(laborMinutes: number): number {
-  const hourlyRate = Number(process.env.DEFAULT_LABOR_RATE_PER_HOUR || 30);
+  const hourlyRate = Number(process.env.DEFAULT_LABOR_RATE_PER_HOUR || 100);
   if (!Number.isFinite(laborMinutes) || laborMinutes <= 0) return 0;
   if (!Number.isFinite(hourlyRate) || hourlyRate <= 0) return 0;
   return Number(((laborMinutes / 60) * hourlyRate).toFixed(2));
