@@ -19,6 +19,7 @@ import { getErrorMessage } from '../../../shared/utils/errorMessage.ts';
 import { getDbPersistenceStatusSnapshot, runDbBackupNow } from '../../db/connection.ts';
 import { getActiveRemoteDurableKind, getRemoteDurableSqliteObjectMetadata } from '../../db/durableSqliteRemote.ts';
 import { getIntegrationHealthSnapshot } from '../../services/integrationHealth.ts';
+import { isCatalogSheetsWorkbookPushEnabled } from '../../services/catalogSheetsSyncPolicy.ts';
 import { buildCatalogReviewCsv } from '../../services/catalogSyncReviewCsv.ts';
 import { isCatalogReviewQueueKey } from '../../../shared/catalogReviewQueues.ts';
 
@@ -135,6 +136,12 @@ settingsRouter.post('/sync-catalog', async (_req, res) => {
 });
 
 settingsRouter.post('/backfill-takeoff-registry', async (_req, res) => {
+  if (!isCatalogSheetsWorkbookPushEnabled()) {
+    return res.status(503).json({
+      error:
+        'Google Sheets workbook push is disabled (CATALOG_SHEETS_SYNC_ENABLED). Edit the catalog in Supabase Postgres, or set the flag to 1 only if you need spreadsheet backfill.',
+    });
+  }
   try {
     const result = await backfillTakeoffRegistryToGoogleSheets();
     return res.json({ data: result });

@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import type { RequestHandler } from 'express';
 import { syncCatalogFromGoogleSheets } from './src/server/services/googleSheetsCatalogSync.ts';
+import { isCatalogSheetsWorkbookPushEnabled } from './src/server/services/catalogSheetsSyncPolicy.ts';
 import { v1Router } from './src/server/routes/v1/index.ts';
 import { legacyRouter } from './src/server/routes/legacyRouter.ts';
 import { expressErrorHandler } from './src/server/http/jsonErrors.ts';
@@ -25,7 +26,7 @@ for (const [fileName, override] of envFiles) {
   }
 }
 
-/** Google Sheets → DB sync on boot — opt-in only (`AUTO_SYNC_CATALOG_ON_START=1`). Supabase-first deploys read the catalog from Postgres and should leave this off unless operators intentionally sync a workbook. */
+/** Google Sheets → DB sync on boot — requires `CATALOG_SHEETS_SYNC_ENABLED=1` and `AUTO_SYNC_CATALOG_ON_START=1`. Default Supabase deploys read Postgres only. */
 function shouldAutoSyncCatalogOnStart(): boolean {
   const raw = String(process.env.AUTO_SYNC_CATALOG_ON_START ?? '').trim().toLowerCase();
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
@@ -146,7 +147,7 @@ async function startServer() {
 
   console.log('API routes ready');
 
-  if (shouldAutoSyncCatalogOnStart()) {
+  if (shouldAutoSyncCatalogOnStart() && isCatalogSheetsWorkbookPushEnabled()) {
     setTimeout(() => {
       syncCatalogFromGoogleSheets().catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);

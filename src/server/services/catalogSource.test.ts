@@ -12,6 +12,7 @@ test('buildCatalogSourcePayload reflects env (tabs, spreadsheet flag, clean-tabl
     'DB_DRIVER',
     'CATALOG_SOURCE',
     'CATALOG_BACKEND',
+    'CATALOG_SHEETS_SYNC_ENABLED',
   ] as const;
   const snap: Partial<Record<(typeof keys)[number], string | undefined>> = {};
   for (const k of keys) snap[k] = process.env[k];
@@ -23,6 +24,7 @@ test('buildCatalogSourcePayload reflects env (tabs, spreadsheet flag, clean-tabl
     delete process.env.CATALOG_BACKEND;
     delete process.env.GOOGLE_SHEETS_TAB_MODIFIERS;
     delete process.env.GOOGLE_SHEETS_TAB_CLEAN_MODIFIERS;
+    delete process.env.CATALOG_SHEETS_SYNC_ENABLED;
     process.env.CATALOG_ITEMS_TABLE = 'catalog_items_clean';
     process.env.GOOGLE_SHEETS_TAB_ITEMS = 'CLEAN_ITEMS';
     process.env.DB_DRIVER = 'sqlite';
@@ -47,7 +49,7 @@ test('buildCatalogSourcePayload reflects env (tabs, spreadsheet flag, clean-tabl
   }
 });
 
-test('Supabase Postgres catalog: no scary Sheets-missing warning; optional Sheets note only', async () => {
+test('Supabase Postgres catalog: Sheets import off by default; no blocking spreadsheet warning', async () => {
   const keys = [
     'GOOGLE_SHEETS_SPREADSHEET_ID',
     'GOOGLE_SHEETS_ID',
@@ -55,6 +57,7 @@ test('Supabase Postgres catalog: no scary Sheets-missing warning; optional Sheet
     'CATALOG_SOURCE',
     'CATALOG_BACKEND',
     'CATALOG_ITEMS_TABLE',
+    'CATALOG_SHEETS_SYNC_ENABLED',
   ] as const;
   const snap: Partial<Record<(typeof keys)[number], string | undefined>> = {};
   for (const k of keys) snap[k] = process.env[k];
@@ -62,6 +65,7 @@ test('Supabase Postgres catalog: no scary Sheets-missing warning; optional Sheet
     delete process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
     delete process.env.GOOGLE_SHEETS_ID;
     delete process.env.CATALOG_ITEMS_TABLE;
+    delete process.env.CATALOG_SHEETS_SYNC_ENABLED;
     process.env.DB_DRIVER = 'pg';
     process.env.CATALOG_SOURCE = 'supabase';
     process.env.CATALOG_BACKEND = 'pg';
@@ -72,7 +76,7 @@ test('Supabase Postgres catalog: no scary Sheets-missing warning; optional Sheet
     assert.equal(p.dbDriver, 'pg');
     assert.equal(p.catalogSource, 'supabase');
     assert.equal(p.spreadsheetIdConfigured, false);
-    assert.ok(p.notes.some((n) => /Supabase Postgres/i.test(n) && /optional/i.test(n)));
+    assert.ok(p.notes.some((n) => /Supabase Postgres/i.test(n) && /CATALOG_SHEETS_SYNC_ENABLED/i.test(n)));
     assert.ok(!p.notes.some((n) => /will fail until set/i.test(n)));
   } finally {
     for (const k of keys) {

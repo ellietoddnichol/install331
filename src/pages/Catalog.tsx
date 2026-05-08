@@ -583,6 +583,11 @@ export function Catalog() {
   const [activatingAll, setActivatingAll] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncActionError, setSyncActionError] = useState<string | null>(null);
+  const [catalogSheetsPushEnabled, setCatalogSheetsPushEnabled] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    void api.getV1IntegrationHealth().then((h) => setCatalogSheetsPushEnabled(h.catalogSheetsSyncEnabled));
+  }, []);
 
   const [search, setSearch] = useState(initialUrlFilters.search);
   const [categoryFilter, setCategoryFilter] = useState(initialUrlFilters.categoryFilter);
@@ -774,7 +779,9 @@ export function Catalog() {
   async function handleActivateAllCatalogItems() {
     if (!inventory || inventory.inactive === 0) return;
     const ok = window.confirm(
-      `Set all ${inventory.total} catalog rows to Active? This fixes items hidden after a Google Sheet sync that listed fewer rows than your database.`
+      catalogSheetsPushEnabled === true
+        ? `Set all ${inventory.total} catalog rows to Active? This fixes items hidden after a Google Sheet sync that listed fewer rows than your database.`
+        : `Set all ${inventory.total} catalog rows to Active? Use this if bulk edits left rows inactive unintentionally.`
     );
     if (!ok) return;
     setActivatingAll(true);
@@ -1366,12 +1373,13 @@ export function Catalog() {
     }
   }
 
+  const workbookPushEnabled = catalogSheetsPushEnabled === true;
   const lastSynced = syncStatus?.lastSuccessAt || syncStatus?.lastAttemptAt;
   const displayedSyncFailure =
     syncActionError ||
-    (syncStatus?.status === 'failed' && syncStatus.message?.trim() ? syncStatus.message.trim() : null);
+    (workbookPushEnabled && syncStatus?.status === 'failed' && syncStatus.message?.trim() ? syncStatus.message.trim() : null);
   const itemsSyncedLabelHint =
-    syncStatus?.status === 'failed' ? 'Last successful sheet import' : 'Last sheet sync';
+    syncStatus?.status === 'failed' ? 'Last successful sheet import' : 'Last workbook import';
 
   return (
     <div className="ui-page space-y-5">
@@ -1386,7 +1394,9 @@ export function Catalog() {
             </div>
             <h1 className="mt-2 text-[24px] font-semibold leading-tight tracking-tight text-slate-950 md:text-[28px]">Catalog</h1>
             <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.06em] text-slate-500">
-              Items, modifiers, and bundles loaded from your workspace (sheet sync keeps them current).
+              {workbookPushEnabled
+                ? 'Items, modifiers, and bundles from your workspace; workbook import can refresh Postgres.'
+                : 'Items, modifiers, and bundles from Supabase Postgres (live database).'}
             </p>
             <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
               <span className="ui-chip-soft inline-flex items-center gap-1.5 px-2.5 py-1 font-medium text-slate-700">
@@ -1402,11 +1412,12 @@ export function Catalog() {
               ) : null}
               {lastSynced ? (
                 <span className="rounded-md border border-app-line bg-app-surface-soft px-2.5 py-1 text-app-muted">
-                  Last sheet sync {new Date(lastSynced).toLocaleString()}
+                  {workbookPushEnabled ? 'Last workbook import ' : 'Last catalog run '}
+                  {new Date(lastSynced).toLocaleString()}
                 </span>
               ) : (
                 <span className="rounded-md border border-dashed border-app-line px-2.5 py-1 text-app-muted">
-                  No sync timestamp yet — run sheet sync below
+                  {workbookPushEnabled ? 'No import yet — run sync below' : 'No workbook import history (Supabase is source)'}
                 </span>
               )}
             </div>
@@ -1418,17 +1429,19 @@ export function Catalog() {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 id="catalog-sync-heading" className="text-sm font-semibold text-slate-900">
-              Google Sheets sync
+              {workbookPushEnabled ? 'Google Sheets → database import' : 'Catalog source'}
             </h2>
-            <p className="ui-mono-kicker mt-1">Module 01 / Sync Status</p>
+            <p className="ui-mono-kicker mt-1">Module 01 / {workbookPushEnabled ? 'Workbook import' : 'Supabase'}</p>
             <p className="mt-1 max-w-[52rem] text-xs leading-snug text-slate-500">
-              Rows missing from the sheet are deactivated after sync; use Activate all after a bulk import if counts look wrong.
+              {workbookPushEnabled
+                ? 'Rows missing from the sheet are deactivated after import; use Activate all after a bulk import if counts look wrong.'
+                : 'The app reads catalog tables in Postgres. Edit in Supabase (Table Editor or SQL). Set CATALOG_SHEETS_SYNC_ENABLED=1 on the server only if you need spreadsheet imports again.'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="ui-chip-soft inline-flex items-center gap-1">
               <Database className="w-3.5 h-3.5" aria-hidden />
-              Source: Google Sheets
+              Source: {workbookPushEnabled ? 'workbook import → Postgres' : 'Supabase Postgres'}
             </span>
             <span className={`rounded px-2 py-1 text-xs font-medium ${statusClass(syncStatus?.status || 'never')}`}>
               {syncStatus?.status === 'running'
@@ -1439,31 +1452,40 @@ export function Catalog() {
                     ? 'Failed'
                     : 'Never synced'}
             </span>
-            <button
-              type="button"
-              onClick={() => void handleSyncCatalog()}
-              disabled={syncing}
-              className="ui-btn-primary h-8 px-3 text-xs inline-flex items-center gap-1.5 disabled:opacity-60"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} aria-hidden />
-              {syncing ? 'Syncing…' : 'Sync catalog'}
-            </button>
+            {workbookPushEnabled ? (
+              <button
+                type="button"
+                onClick={() => void handleSyncCatalog()}
+                disabled={syncing}
+                className="ui-btn-primary h-8 px-3 text-xs inline-flex items-center gap-1.5 disabled:opacity-60"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} aria-hidden />
+                {syncing ? 'Syncing…' : 'Import from Sheets'}
+              </button>
+            ) : null}
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2 text-xs">
-          <div className="ui-surface-soft px-2 py-1.5 text-slate-700" title="Resolved from server env (GOOGLE_SHEETS_TAB_*)">
-            {syncStatus?.workbook ? (
-              <>
-                Sheet tabs: {syncStatus.workbook.tabs.itemsFetch}, {syncStatus.workbook.tabs.modifiersFetch},{' '}
-                {syncStatus.workbook.tabs.bundles}, {syncStatus.workbook.tabs.aliases},{' '}
-                {syncStatus.workbook.tabs.attributes}
-              </>
+          <div
+            className="ui-surface-soft px-2 py-1.5 text-slate-700"
+            title={workbookPushEnabled ? 'Resolved from server env (GOOGLE_SHEETS_TAB_*)' : undefined}
+          >
+            {workbookPushEnabled ? (
+              syncStatus?.workbook ? (
+                <>
+                  Sheet tabs: {syncStatus.workbook.tabs.itemsFetch}, {syncStatus.workbook.tabs.modifiersFetch},{' '}
+                  {syncStatus.workbook.tabs.bundles}, {syncStatus.workbook.tabs.aliases},{' '}
+                  {syncStatus.workbook.tabs.attributes}
+                </>
+              ) : (
+                <>Default tabs: CLEAN_ITEMS, CLEAN_MODIFIERS, BUNDLES, ALIASES, ATTRIBUTES</>
+              )
             ) : (
-              <>Syncing CLEAN_ITEMS, CLEAN_MODIFIERS, BUNDLES, ALIASES, ATTRIBUTES (defaults)</>
+              <>Workbook import disabled — no sheet tabs in use</>
             )}
           </div>
-          <div className="ui-surface-soft px-2 py-1.5 text-slate-700">Last synced: {lastSynced ? new Date(lastSynced).toLocaleString() : 'Never'}</div>
+          <div className="ui-surface-soft px-2 py-1.5 text-slate-700">Last import: {lastSynced ? new Date(lastSynced).toLocaleString() : 'Never'}</div>
           <div className="ui-surface-soft px-2 py-1.5 text-slate-700">
             DB rows: {inventory ? `${inventory.total} total · ${inventory.active} active · ${inventory.inactive} inactive` : '—'}
           </div>
@@ -1486,7 +1508,9 @@ export function Catalog() {
           <div className="ui-callout-warn flex flex-wrap items-center justify-between gap-2 text-xs">
             <p>
               <span className="font-semibold">{inventory.inactive} catalog row(s) are inactive</span> — hidden from estimates and intake unless you filter “Inactive” here.
-              Often caused by syncing Google Sheets when the sheet has fewer rows than this database.
+              {workbookPushEnabled
+                ? 'Often caused by importing from a workbook that listed fewer rows than this database.'
+                : 'Often caused by deactivating rows in the database or legacy imports.'}
             </p>
             <button
               type="button"
@@ -1937,7 +1961,15 @@ export function Catalog() {
                     <div>
                       <p className="text-sm font-semibold text-slate-800">No catalog items in the database yet</p>
                       <p className="mt-2 max-w-md text-xs leading-relaxed text-slate-600">
-                        Run <strong>Google Sheets sync</strong> above (configure workbook tabs first). Until rows sync in, Items stays empty — modifiers and bundles populate from the same run.
+                        {workbookPushEnabled ? (
+                          <>
+                            Run <strong>Import from Sheets</strong> above (configure workbook tabs first). Until rows import, Items stays empty — modifiers and bundles follow the same run.
+                          </>
+                        ) : (
+                          <>
+                            Add rows in <strong>Supabase</strong> (e.g. <code className="rounded bg-slate-100 px-1">catalog_items</code>) or use a migration script. The UI can create items here once the table has data.
+                          </>
+                        )}
                       </p>
                     </div>
                   </>
@@ -2149,8 +2181,10 @@ export function Catalog() {
                 </div>
                 <p className="max-w-md text-xs leading-relaxed text-slate-600">
                   {modifiers.length === 0
-                    ? 'Run Google Sheets sync above after your workbook MODIFIERS tab is populated. Modifier rows drive labor/material deltas on estimates.'
-                    : 'Clear search or switch activation filter to “All activation”. Sync warnings above sometimes list unknown modifier keys referenced by bundles.'}
+                    ? workbookPushEnabled
+                      ? 'Import from Sheets above after your workbook MODIFIERS tab is populated. Modifier rows drive labor/material deltas on estimates.'
+                      : 'Add modifier rows in Supabase (modifiers table) or use Add controls in this UI once the catalog backend has tables ready.'
+                    : 'Clear search or switch activation filter to “All activation”. Import warnings above sometimes list unknown modifier keys referenced by bundles.'}
                 </p>
               </div>
             ) : (
@@ -2236,8 +2270,10 @@ export function Catalog() {
               </div>
               <p className="max-w-md text-xs leading-relaxed text-slate-600">
                 {bundles.length === 0
-                  ? 'Run Google Sheets sync above once your workbook BUNDLES tab has rows. Bundles reference catalog SKUs and modifiers — orphan SKU/modifier hints appear under sync warnings when something does not resolve.'
-                  : 'Clear search or widen the activation filter. Use Manual review queues in the sync panel to export orphan bundle SKU references.'}
+                  ? workbookPushEnabled
+                    ? 'Import from Sheets once your workbook BUNDLES tab has rows. Bundles reference catalog SKUs and modifiers — orphan hints appear under import warnings when something does not resolve.'
+                    : 'Create bundle rows in Supabase or with bundle tools in this UI. Bundles reference existing item SKUs and modifier keys.'
+                  : 'Clear search or widen the activation filter. Use Manual review queues in the panel above to export orphan bundle SKU references.'}
               </p>
             </div>
           ) : (
@@ -2684,7 +2720,8 @@ export function Catalog() {
                         </dl>
                       ) : (
                         <p className="mt-2 border-t border-app-line pt-2 text-[11px] text-app-muted">
-                          No extra provenance fields on this row (they usually appear after a sheet sync).
+                          No extra provenance fields on this row
+                          {workbookPushEnabled ? ' (they often appear after a workbook import).' : '.'}
                         </p>
                       );
                     })()}

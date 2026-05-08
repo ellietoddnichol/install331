@@ -150,6 +150,8 @@ export function Settings() {
     return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading settings…</div>;
   }
 
+  const workbookPushEnabled = integrationHealth?.catalogSheetsSyncEnabled === true;
+
   if (loadError || !settings) {
     return (
       <div className="ui-page-narrow space-y-4">
@@ -188,8 +190,12 @@ export function Settings() {
               <dd>{integrationHealth.gemini ? 'configured' : 'missing'}</dd>
             </div>
             <div className="flex justify-between gap-2 border-b border-slate-100 pb-1">
-              <dt className="text-slate-500">Google Sheets</dt>
+              <dt className="text-slate-500">Sheets service account</dt>
               <dd>{integrationHealth.googleSheets ? 'configured' : 'missing'}</dd>
+            </div>
+            <div className="flex justify-between gap-2 border-b border-slate-100 pb-1">
+              <dt className="text-slate-500">Workbook → DB import</dt>
+              <dd>{integrationHealth.catalogSheetsSyncEnabled ? 'enabled' : 'off (Supabase-only)'}</dd>
             </div>
             <div className="flex justify-between gap-2 border-b border-slate-100 pb-1">
               <dt className="text-slate-500">Supabase (anon)</dt>
@@ -229,19 +235,23 @@ export function Settings() {
           </div>
           <h1 className="mt-1.5 text-[24px] font-semibold leading-tight tracking-tight text-slate-950 md:text-[28px]">Settings</h1>
           <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.06em] text-slate-500">
-            Company Profile · Proposal Defaults · Catalog Sync Administration
+            Company Profile · Proposal Defaults · Catalog (Supabase; optional workbook import)
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => void loadAll()} disabled={saving || syncing || backfillingRegistry} className="ui-btn-secondary disabled:opacity-50">
             Refresh
           </button>
-          <button type="button" onClick={() => void backfillTakeoffRegistry()} disabled={backfillingRegistry || syncing} className="ui-btn-secondary disabled:opacity-50">
-            {backfillingRegistry ? 'Backfilling...' : 'Backfill Takeoff Registry'}
-          </button>
-          <button type="button" onClick={() => void syncGoogleSheetsCatalog()} disabled={syncing} className="ui-btn-secondary disabled:opacity-50">
-            {syncing ? 'Syncing...' : 'Sync Google Sheets'}
-          </button>
+          {workbookPushEnabled ? (
+            <>
+              <button type="button" onClick={() => void backfillTakeoffRegistry()} disabled={backfillingRegistry || syncing} className="ui-btn-secondary disabled:opacity-50">
+                {backfillingRegistry ? 'Backfilling...' : 'Backfill Takeoff Registry'}
+              </button>
+              <button type="button" onClick={() => void syncGoogleSheetsCatalog()} disabled={syncing} className="ui-btn-secondary disabled:opacity-50">
+                {syncing ? 'Syncing...' : 'Sync Google Sheets'}
+              </button>
+            </>
+          ) : null}
           <button type="button" onClick={() => void saveSettings()} disabled={saving} className="ui-btn-cta disabled:opacity-60">
             {saving ? 'Saving...' : 'Save Settings'}
           </button>
@@ -370,9 +380,16 @@ export function Settings() {
         {!!syncStatus?.message && (
           <div className="ui-panel-muted p-3 text-xs text-app">{syncStatus.message}</div>
         )}
-        <p className="text-xs text-slate-500">
-          Use <span className="font-medium text-slate-700">Backfill Takeoff Registry</span> to mirror the app-side takeoff model registry into the Google Sheets ITEMS tab.
-        </p>
+        {workbookPushEnabled ? (
+          <p className="text-xs text-slate-500">
+            Use <span className="font-medium text-slate-700">Backfill Takeoff Registry</span> to mirror the takeoff registry into the Google Sheets ITEMS tab.
+          </p>
+        ) : (
+          <p className="text-xs text-slate-500">
+            Catalog changes are made in Supabase Postgres. Workbook import and takeoff backfill to Sheets are hidden until{' '}
+            <span className="font-mono text-[11px]">CATALOG_SHEETS_SYNC_ENABLED=1</span> is set on the server.
+          </p>
+        )}
         {!!syncStatus?.warnings?.length && (
           <div className="ui-callout-warn">
             <p className="ui-label mb-1 !normal-case tracking-normal text-app-warn">Warnings</p>

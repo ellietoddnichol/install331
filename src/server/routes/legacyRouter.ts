@@ -5,6 +5,7 @@ import {
   upsertItemInGoogleSheet,
   upsertModifierInGoogleSheet,
 } from '../services/googleSheetsCatalogSync.ts';
+import { isCatalogSheetsWorkbookPushEnabled } from '../services/catalogSheetsSyncPolicy.ts';
 import { dbCatalogAll, dbCatalogGet, dbCatalogRun } from '../db/query.ts';
 import { getBundlesReadTableNames, getCatalogModifiersReadTableName } from '../db/catalogTable.ts';
 import { listCatalogItemsForApi, searchCatalogItemsForApi } from '../repos/catalogRepo.ts';
@@ -29,6 +30,7 @@ import { z } from 'zod';
 
 /** Google Sheets sync is best-effort and must not block saves. */
 async function syncCatalogToGoogleSheetOptional(label: string, fn: () => Promise<void>): Promise<void> {
+  if (!isCatalogSheetsWorkbookPushEnabled()) return;
   try {
     await fn();
   } catch (err: unknown) {

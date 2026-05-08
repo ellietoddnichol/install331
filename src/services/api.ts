@@ -435,6 +435,7 @@ export const api = {
     dbDriver: string;
     gemini: boolean;
     googleSheets: boolean;
+    catalogSheetsSyncEnabled: boolean;
     supabaseAnon: boolean;
     supabaseServiceRole: boolean;
     pdfProvider: string;
@@ -448,6 +449,7 @@ export const api = {
       dbDriver: string;
       gemini: boolean;
       googleSheets: boolean;
+      catalogSheetsSyncEnabled: boolean;
       supabaseAnon: boolean;
       supabaseServiceRole: boolean;
       pdfProvider: string;

@@ -21,6 +21,7 @@ import {
   buildCatalogSyncWarningsPayload,
   preflightCatalogWorkbookSync,
 } from './catalogSyncWorkbookValidation.ts';
+import { isCatalogSheetsWorkbookPushEnabled } from './catalogSheetsSyncPolicy.ts';
 import type { CatalogSyncRunAuditSummary, CatalogSyncRunContext } from '../../shared/types/catalogSyncAudit.ts';
 import { CATALOG_SYNC_REVIEW_MAX_SAMPLES, CATALOG_SYNC_RUN_CONTEXT_SCHEMA_VERSION } from '../../shared/types/catalogSyncAudit.ts';
 import { CATALOG_SYNC_PREFLIGHT_MAX_BLOCKING } from './catalogSyncWorkbookValidation.ts';
@@ -1137,6 +1138,11 @@ export async function upsertItemInGoogleSheet(input: {
 }
 
 export async function backfillTakeoffRegistryToGoogleSheets(): Promise<TakeoffRegistryBackfillResult> {
+  if (!isCatalogSheetsWorkbookPushEnabled()) {
+    throw new Error(
+      'Google Sheets workbook push is disabled. Set CATALOG_SHEETS_SYNC_ENABLED=1 only if you intentionally write catalog rows to a spreadsheet; otherwise edit the catalog in Supabase Postgres.'
+    );
+  }
   const runContextRecord = buildCatalogSyncRunContextRecord('takeoff_registry_backfill');
   const cfg = getSpreadsheetConfig();
   const warnings: string[] = [];
@@ -1919,8 +1925,36 @@ export function isGoogleSheetsCredentialsConfigured(): boolean {
 }
 
 export async function syncCatalogFromGoogleSheets(): Promise<CatalogSyncResult> {
-  /** Catalog ships from Supabase Postgres in this deployment; Sheets sync is opt-in.
-   * If no Google creds are configured, return a clean "skipped" result instead of
+  /** Workbook → Postgres import is opt-in (`CATALOG_SHEETS_SYNC_ENABLED`). Default: Supabase-only catalog. */
+  if (!isCatalogSheetsWorkbookPushEnabled()) {
+    const cfg = getSpreadsheetConfig();
+    return {
+      itemsSynced: 0,
+      modifiersSynced: 0,
+      bundlesSynced: 0,
+      bundleItemsSynced: 0,
+      aliasesSynced: 0,
+      attributesSynced: 0,
+      message:
+        'Google Sheets catalog sync is disabled. The live catalog is read from Postgres (Supabase). ' +
+        'Set CATALOG_SHEETS_SYNC_ENABLED=1 only if you need to import from a workbook again.',
+      spreadsheetId: cfg.spreadsheetId,
+      tabs: {
+        items: cfg.itemsTab,
+        modifiers: cfg.modifiersTab,
+        bundles: cfg.bundlesTab,
+        aliases: cfg.aliasesTab,
+        attributes: cfg.attributesTab,
+      },
+      itemsTabConfigured: undefined,
+      modifiersTabConfigured: undefined,
+      warnings: [],
+      audit: undefined,
+      syncedAt: new Date().toISOString(),
+    };
+  }
+
+  /** If no Google creds are configured, return a clean "skipped" result instead of
    * throwing — avoids spamming logs and persisting a `failed` row on every call. */
   if (!isGoogleSheetsCredentialsConfigured()) {
     const cfg = getSpreadsheetConfig();
@@ -1933,8 +1967,7 @@ export async function syncCatalogFromGoogleSheets(): Promise<CatalogSyncResult> 
       attributesSynced: 0,
       message:
         'Google Sheets sync skipped: no Google service-account credentials configured. ' +
-        'Install331 reads the catalog directly from Supabase, so this is fine for local/dev. ' +
-        'Set GOOGLE_SERVICE_ACCOUNT (or _BASE64) to re-enable Sheets sync.',
+        'With CATALOG_SHEETS_SYNC_ENABLED=1, set GOOGLE_SERVICE_ACCOUNT (or _BASE64) and workbook env vars to import from Sheets.',
       spreadsheetId: cfg.spreadsheetId,
       tabs: {
         items: cfg.itemsTab,

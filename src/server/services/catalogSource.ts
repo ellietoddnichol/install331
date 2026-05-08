@@ -5,6 +5,7 @@ import {
   resolveConfiguredAndFetchModifiersTabs,
   buildCatalogSyncRunContextRecord,
 } from './googleSheetsCatalogSync.ts';
+import { isCatalogSheetsWorkbookPushEnabled } from './catalogSheetsSyncPolicy.ts';
 import type {
   CatalogSyncWorkbookSnapshot,
   CatalogSyncServerConfigNow,
@@ -47,12 +48,18 @@ export function buildCatalogSourcePayload(): CatalogSourcePayload {
   /** Postgres + supabase intent: catalog rows live in Supabase; Sheets sync is optional. */
   const supabasePostgresCatalog = dbDriver === 'pg' && catalogSource === 'supabase';
 
+  if (supabasePostgresCatalog && !isCatalogSheetsWorkbookPushEnabled()) {
+    notes.push(
+      'Catalog reads from Supabase Postgres. Google Sheets → Postgres import is off (CATALOG_SHEETS_SYNC_ENABLED unset/false); edit data in Supabase. Set the flag to 1 only if you need workbook imports again.'
+    );
+  }
+
   if (!spreadsheetIdConfigured) {
-    if (supabasePostgresCatalog) {
+    if (supabasePostgresCatalog && isCatalogSheetsWorkbookPushEnabled()) {
       notes.push(
-        'Catalog reads from Supabase Postgres (CATALOG_SOURCE=supabase). Google Sheets sync is optional — set GOOGLE_SHEETS_SPREADSHEET_ID and service-account env vars only if you push from a workbook.'
+        'Workbook import is enabled but GOOGLE_SHEETS_SPREADSHEET_ID / GOOGLE_SHEETS_ID is not set — add it (and service-account env vars) before running sync.'
       );
-    } else {
+    } else if (!supabasePostgresCatalog) {
       notes.push(
         'Google Sheets spreadsheet id is not configured (GOOGLE_SHEETS_SPREADSHEET_ID / GOOGLE_SHEETS_ID). Catalog sync will fail until set.'
       );

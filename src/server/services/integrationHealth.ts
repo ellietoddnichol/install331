@@ -1,3 +1,5 @@
+import { isCatalogSheetsWorkbookPushEnabled } from './catalogSheetsSyncPolicy.ts';
+
 /**
  * Non-secret integration readiness flags for Settings / diagnostics.
  * Never include API keys or tokens in responses.
@@ -6,6 +8,8 @@ export type IntegrationHealthSnapshot = {
   dbDriver: string;
   gemini: boolean;
   googleSheets: boolean;
+  /** When true, POST /sync-catalog may pull a workbook into Postgres (`CATALOG_SHEETS_SYNC_ENABLED`). */
+  catalogSheetsSyncEnabled: boolean;
   supabaseAnon: boolean;
   supabaseServiceRole: boolean;
   pdfProvider: string;
@@ -26,6 +30,7 @@ export function getIntegrationHealthSnapshot(): IntegrationHealthSnapshot {
       String(process.env.GEMINI_API_KEY || '').trim() || String(process.env.GOOGLE_GEMINI_API_KEY || '').trim()
     ),
     googleSheets: sheets,
+    catalogSheetsSyncEnabled: isCatalogSheetsWorkbookPushEnabled(),
     supabaseAnon: Boolean(String(process.env.SUPABASE_URL || '').trim() && String(process.env.SUPABASE_ANON_KEY || '').trim()),
     supabaseServiceRole: Boolean(String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()),
     pdfProvider: String(process.env.UPLOAD_PDF_PROVIDER || 'fallback-text').trim() || 'fallback-text',

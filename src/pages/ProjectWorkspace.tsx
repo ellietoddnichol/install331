@@ -153,6 +153,7 @@ export function ProjectWorkspace() {
   const [lineModifiersByLineId, setLineModifiersByLineId] = useState<Record<string, LineModifierRecord[]>>({});
 
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'ok' | 'error'>('idle');
+  const [catalogSheetsPushEnabled, setCatalogSheetsPushEnabled] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<{ tone: 'success' | 'error' | 'info' | 'warning'; message: string } | null>(null);
 
@@ -231,6 +232,10 @@ export function ProjectWorkspace() {
     ],
     [exceptionCount]
   );
+
+  useEffect(() => {
+    void api.getV1IntegrationHealth().then((h) => setCatalogSheetsPushEnabled(h.catalogSheetsSyncEnabled));
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -2088,13 +2093,15 @@ export function ProjectWorkspace() {
           projectId={project.id}
           items={stepNavItems}
           trailing={
-            <button
-              type="button"
-              onClick={() => void syncCatalogFromSheets()}
-              className="ui-btn-secondary h-8 px-2.5 text-[10px] font-semibold uppercase tracking-[0.06em]"
-            >
-              Sync catalog
-            </button>
+            catalogSheetsPushEnabled ? (
+              <button
+                type="button"
+                onClick={() => void syncCatalogFromSheets()}
+                className="ui-btn-secondary h-8 px-2.5 text-[10px] font-semibold uppercase tracking-[0.06em]"
+              >
+                Sync catalog
+              </button>
+            ) : null
           }
         />
         <div className="flex flex-col gap-3">
