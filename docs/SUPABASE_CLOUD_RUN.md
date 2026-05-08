@@ -75,3 +75,48 @@ npm run migrate:sqlite-to-pg
 - Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (same values as `SUPABASE_URL` / `SUPABASE_ANON_KEY`) so the SPA can call `signInWithPassword`.
 - With `AUTH_REQUIRED=1`, the API accepts either `Authorization: Bearer <access_token>` or Supabase auth cookies on same-origin requests (`credentials` are enabled in `apiFetch`).
 - `GET /api/v1/session` returns `{ data: { user } }` without requiring auth (useful for bootstrapping the client).
+
+## 7. Cloud Build + Cloud Run (Gemini, Supabase, Google APIs)
+
+The Docker image **does not** contain your API keys. Runtime env vars and **Secret Manager** bindings are applied at **`gcloud run deploy`** (see `cloudbuild.yaml`).
+
+### Non-sensitive env vars (`_CLOUDRUN_ENV_VARS`)
+
+Override the `substitutions._CLOUDRUN_ENV_VARS` value in your **Cloud Build trigger** (or manual build) with comma-separated `KEY=VALUE` pairs, for example:
+
+- `NODE_ENV=production,DB_DRIVER=pg,AUTH_REQUIRED=1,SUPABASE_STORAGE_BUCKET=project-files`
+- `GOOGLE_CLOUD_PROJECT_ID=your-gcp-project` and `DOCUMENT_AI_PROCESSOR_ID=...` if you use Document AI (`UPLOAD_PDF_PROVIDER` must match how you configure the app)
+
+Use **Secret Manager** for passwords and API keys (next section), not plain text in `_CLOUDRUN_ENV_VARS`, unless the value is intentionally public (e.g. Supabase project URL).
+
+### Secrets (`_CLOUDRUN_SECRETS`)
+
+1. In **Google Cloud Console → Security → Secret Manager**, create secrets. Use the **same secret id as the environment variable name** (e.g. secret id `GEMINI_API_KEY`) so bindings stay obvious.
+2. Add a **new version** for each secret with the value from your filled `.env.local`.
+3. Grant **`roles/secretmanager.secretAccessor`** on each secret to:
+   - the **Cloud Build** service account that runs the deploy step (so deploy can attach secrets to the service), and
+   - the **Cloud Run runtime** service account (`_RUN_SERVICE_ACCOUNT` in `cloudbuild.yaml`, e.g. `353363250924-compute@developer.gserviceaccount.com`) so the container can read them at runtime.
+
+4. In the Cloud Build trigger, set substitution **`_CLOUDRUN_SECRETS`** to a comma-separated list of **`ENV_VAR=SECRET_NAME:version`** (version is usually `latest`):
+
+   Example (adjust to secrets you actually created):
+
+   `GEMINI_API_KEY=GEMINI_API_KEY:latest,GOOGLE_GEMINI_API_KEY=GOOGLE_GEMINI_API_KEY:latest,DATABASE_URL=DATABASE_URL:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_ANON_KEY=SUPABASE_ANON_KEY:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,SUPABASE_JWT_SECRET=SUPABASE_JWT_SECRET:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,AUTH_SESSION_SECRET=AUTH_SESSION_SECRET:latest,DIV10_BRAIN_ADMIN_SECRET=DIV10_BRAIN_ADMIN_SECRET:latest`
+
+   For large JSON (`GOOGLE_SERVICE_ACCOUNT`), store the whole JSON as one secret value and bind `GOOGLE_SERVICE_ACCOUNT=GOOGLE_SERVICE_ACCOUNT:latest`.
+
+5. Leave **`_CLOUDRUN_SECRETS` empty** in YAML until all listed secrets exist; otherwise the deploy step will fail.
+
+### Helper: upload `.env.local` into Secret Manager (PowerShell)
+
+From the repo root (after `gcloud` auth and project set):
+
+```powershell
+.\scripts\push-gcp-secrets-from-env.ps1 -ProjectId YOUR_GCP_PROJECT_ID -EnvFile .env.local
+```
+
+The script only pushes keys listed in the script (Gemini, Supabase, DB, OpenAI, auth, optional Google SA JSON). Review the file before running.
+
+### Vite / client bundle note
+
+`vite build` in Docker does not see Cloud Run’s runtime secrets. The server reads `GEMINI_API_KEY`, Supabase keys, etc. from `process.env` at **runtime** in Node. If you rely on **browser** code that needs `GEMINI_API_KEY` injected at build time, you would add Docker `ARG`/`ENV` during `docker build` in CI (avoid baking secrets into layers; prefer server-side calls only).

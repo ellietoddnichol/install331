@@ -6,7 +6,13 @@
 #   - roles/run.admin on the project — deploy step
 #   - roles/iam.serviceAccountUser on 353363250924-compute@developer.gserviceaccount.com — deploy with --service-account
 #   - roles/logging.logWriter on the project — build logs visible in console
+#   - roles/secretmanager.secretAccessor on each secret referenced by _CLOUDRUN_SECRETS (deploy + runtime)
 # One-shot (PowerShell): scripts/grant-labor-catalog-cloud-build-roles.ps1
+#
+# Runtime configuration: set _CLOUDRUN_ENV_VARS (non-sensitive) and _CLOUDRUN_SECRETS (Secret Manager bindings).
+# Create secrets in GCP Secret Manager first; use the same names as env vars (e.g. secret id GEMINI_API_KEY).
+# Format for _CLOUDRUN_SECRETS: VAR=SECRET_NAME:version,VAR2=SECRET2:version  (often VAR=VAR:latest)
+# See docs/SUPABASE_CLOUD_RUN.md § Cloud Build + Secret Manager.
 substitutions:
   _AR_HOSTNAME: europe-west1-docker.pkg.dev
   _AR_PROJECT_ID: gen-lang-client-0568373820
@@ -16,6 +22,11 @@ substitutions:
   _SERVICE_NAME: install58
   # Same runtime SA as your existing Cloud Run revision (act-as permission required on builder SA).
   _RUN_SERVICE_ACCOUNT: '353363250924-compute@developer.gserviceaccount.com'
+  # Non-sensitive env vars at deploy (comma-separated KEY=VALUE). Extend via trigger override.
+  _CLOUDRUN_ENV_VARS: 'NODE_ENV=production,DB_DRIVER=pg'
+  # Optional: Secret Manager → Cloud Run env. Leave empty until secrets exist, then set in trigger, e.g.:
+  # GEMINI_API_KEY=GEMINI_API_KEY:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,DATABASE_URL=DATABASE_URL:latest
+  _CLOUDRUN_SECRETS: ''
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -56,15 +67,32 @@ steps:
     args:
       - -ceu
       - |
-        gcloud run deploy "$_SERVICE_NAME" \
-          --project="$_AR_PROJECT_ID" \
-          --region="$_DEPLOY_REGION" \
-          --platform=managed \
-          --image="$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$_IMAGE_NAME:$COMMIT_SHA" \
-          --service-account="$_RUN_SERVICE_ACCOUNT" \
-          --port=8080 \
-          --cpu-boost \
-          --timeout=300 \
-          --quiet
+        set -euo pipefail
+        if [ -n "${_CLOUDRUN_SECRETS}" ]; then
+          gcloud run deploy "${_SERVICE_NAME}" \
+            --project="${_AR_PROJECT_ID}" \
+            --region="${_DEPLOY_REGION}" \
+            --platform=managed \
+            --image="${_AR_HOSTNAME}/${_AR_PROJECT_ID}/${_AR_REPOSITORY}/${_IMAGE_NAME}:${COMMIT_SHA}" \
+            --service-account="${_RUN_SERVICE_ACCOUNT}" \
+            --port=8080 \
+            --cpu-boost \
+            --timeout=300 \
+            --set-env-vars="${_CLOUDRUN_ENV_VARS}" \
+            --set-secrets="${_CLOUDRUN_SECRETS}" \
+            --quiet
+        else
+          gcloud run deploy "${_SERVICE_NAME}" \
+            --project="${_AR_PROJECT_ID}" \
+            --region="${_DEPLOY_REGION}" \
+            --platform=managed \
+            --image="${_AR_HOSTNAME}/${_AR_PROJECT_ID}/${_AR_REPOSITORY}/${_IMAGE_NAME}:${COMMIT_SHA}" \
+            --service-account="${_RUN_SERVICE_ACCOUNT}" \
+            --port=8080 \
+            --cpu-boost \
+            --timeout=300 \
+            --set-env-vars="${_CLOUDRUN_ENV_VARS}" \
+            --quiet
+        fi
     waitFor:
       - push

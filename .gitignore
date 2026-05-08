@@ -34,3 +34,6 @@ div10_starter_pack_extracted/
 # Local one-off imports / scratch data (not for git)
 tmp/
 
+# Supabase CLI local cache
+supabase/.temp/
+
