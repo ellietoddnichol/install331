@@ -3,6 +3,15 @@ import { getPublicSupabaseClientConfig } from '../../publicSupabaseConfig.ts';
 
 export const publicConfigRouter = Router();
 
+publicConfigRouter.get('/public-config', (_req, res) => {
+  return res.json({
+    data: getPublicSupabaseClientConfig() ?? {
+      supabaseUrl: '',
+      supabaseAnonKey: '',
+    },
+  });
+});
+
 publicConfigRouter.get('/public-config.js', (_req, res) => {
   const config = getPublicSupabaseClientConfig();
   res.setHeader('Content-Type', 'application/javascript; charset=utf-8');

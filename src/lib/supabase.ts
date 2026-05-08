@@ -15,12 +15,44 @@ function readRuntimeConfig(): RuntimePublicSupabaseConfig | null {
   return window.__INSTALL331_PUBLIC_CONFIG__ ?? null;
 }
 
+function readBundledViteUrl(): string {
+  return String(import.meta.env.VITE_SUPABASE_URL ?? '').trim();
+}
+
+function readBundledViteAnonKey(): string {
+  return String(import.meta.env.VITE_SUPABASE_ANON_KEY ?? '').trim();
+}
+
 function readViteUrl(): string {
-  return String(import.meta.env.VITE_SUPABASE_URL ?? readRuntimeConfig()?.supabaseUrl ?? '').trim();
+  const viteUrl = readBundledViteUrl();
+  if (viteUrl) return viteUrl;
+  return String(readRuntimeConfig()?.supabaseUrl ?? '').trim();
 }
 
 function readViteAnonKey(): string {
-  return String(import.meta.env.VITE_SUPABASE_ANON_KEY ?? readRuntimeConfig()?.supabaseAnonKey ?? '').trim();
+  const viteAnonKey = readBundledViteAnonKey();
+  if (viteAnonKey && viteAnonKey !== ANON_PLACEHOLDER) return viteAnonKey;
+  return String(readRuntimeConfig()?.supabaseAnonKey ?? viteAnonKey).trim();
+}
+
+export async function loadSupabaseRuntimeConfig(): Promise<void> {
+  if (typeof window === 'undefined') return;
+  if (readBundledViteUrl() && readBundledViteAnonKey() && readBundledViteAnonKey() !== ANON_PLACEHOLDER) return;
+  try {
+    const res = await fetch('/api/v1/public-config', { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const payload = (await res.json()) as {
+      data?: RuntimePublicSupabaseConfig | null;
+    };
+    const config = payload?.data;
+    if (!config) return;
+    window.__INSTALL331_PUBLIC_CONFIG__ = {
+      supabaseUrl: String(config.supabaseUrl ?? '').trim(),
+      supabaseAnonKey: String(config.supabaseAnonKey ?? '').trim(),
+    };
+  } catch {
+    /* ignore */
+  }
 }
 
 /** True when URL and anon key look configured (does not validate JWT with Supabase). */
