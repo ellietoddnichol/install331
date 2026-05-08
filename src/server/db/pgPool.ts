@@ -3,6 +3,26 @@ import { assertPgEnv } from './driver.ts';
 
 let pool: pg.Pool | null = null;
 
+/** Hostname from `DATABASE_URL` — tolerates rare `new URL()` failures on odd-but-working libpq strings. */
+function tryParseConnectionStringHostname(connectionString: string): string | undefined {
+  const raw = String(connectionString || '').trim();
+  if (!raw) return undefined;
+  try {
+    const h = new URL(raw).hostname;
+    return h || undefined;
+  } catch {
+    const m = raw.match(/@([\w.-]+)(?::\d+)?(?:\/|\?|#|$)/);
+    return m?.[1];
+  }
+}
+
+/** True for Supabase-hosted Postgres (direct `db.*.supabase.co` or pooler `*.pooler.supabase.com`). */
+export function isSupabasePostgresHostname(host: string): boolean {
+  const h = String(host || '').trim().toLowerCase();
+  if (!h) return false;
+  return /\.supabase\.(co|com|net)$/i.test(h) || /\.pooler\.supabase\.com$/i.test(h);
+}
+
 /**
  * Without this, newer `pg-connection-string` treats `sslmode=require` like `verify-full`, which
  * breaks Supabase pooler TLS in Node. `uselibpqcompat=true` restores libpq semantics for `require`.
@@ -13,9 +33,7 @@ export function normalizeSupabaseDatabaseUrl(connectionString: string): string {
   try {
     const u = new URL(raw);
     const host = u.hostname;
-    const isSupabase =
-      /\.supabase\.(co|com|net)$/i.test(host) || /pooler\.supabase\.com$/i.test(host);
-    if (!isSupabase) return raw;
+    if (!isSupabasePostgresHostname(host)) return raw;
     if (!u.searchParams.has('uselibpqcompat')) {
       u.searchParams.set('uselibpqcompat', 'true');
     }
@@ -33,20 +51,17 @@ export function normalizeSupabaseDatabaseUrl(connectionString: string): string {
  */
 /** Exported for scripts (e.g. smoke) that must match runtime TLS behavior for Supabase pooler. */
 export function resolvePgSslConfigForConnectionString(connectionString: string): pg.PoolConfig['ssl'] {
+  const host = tryParseConnectionStringHostname(connectionString);
+  if (host && isSupabasePostgresHostname(host)) {
+    return { rejectUnauthorized: false };
+  }
+
   const explicit = String(process.env.PG_SSL_REJECT_UNAUTHORIZED ?? '').trim();
   if (explicit === '0' || explicit.toLowerCase() === 'false') {
     return { rejectUnauthorized: false };
   }
   if (explicit === '1' || explicit.toLowerCase() === 'true') {
     return { rejectUnauthorized: true };
-  }
-  try {
-    const host = new URL(connectionString).hostname;
-    if (/\.supabase\.(co|com|net)$/i.test(host) || /pooler\.supabase\.com$/i.test(host)) {
-      return { rejectUnauthorized: false };
-    }
-  } catch {
-    // ignore — let pg use its default ssl behavior for non-URL strings
   }
   return undefined;
 }
