@@ -24,6 +24,25 @@ v1Router.get('/session', (req, res, next) => {
   void readSessionHandler(req, res).catch(next);
 });
 
+/**
+ * Public config (unauthenticated): returns public-safe settings fields only.
+ * Does not include sensitive company info, proposal templates, or internal rates.
+ */
+v1Router.get('/public-config', async (_req, res, next) => {
+  try {
+    const { getSettings } = await import('../../repos/settingsRepo.ts');
+    const settings = await getSettings();
+    // Only expose public-safe fields
+    return res.json({
+      data: {
+        defaultLaborRatePerHour: settings.defaultLaborRatePerHour,
+      },
+    });
+  } catch (error: unknown) {
+    next(error);
+  }
+});
+
 v1Router.use('/auth', authRouter);
 
 v1Router.use(requireSession);

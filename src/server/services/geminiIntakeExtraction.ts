@@ -260,6 +260,10 @@ async function enrichGeminiResultWithMapsGrounding(
   if (text.length < 40 || !isMapsGroundingEnabled()) return result;
   if (!shouldAttemptMapsGroundingForAddress(result.address)) return result;
 
+  /**
+   * Env variable naming: GEMINI_API_KEY is the preferred name.
+   * GOOGLE_GEMINI_API_KEY is a compatibility fallback for existing deployments.
+   */
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || '';
   if (!geminiKey) return result;
 
@@ -283,6 +287,10 @@ async function enrichGeminiResultWithMapsGrounding(
 }
 
 export async function extractIntakeFromGemini(input: ExtractInput): Promise<GeminiExtractionResult> {
+  /**
+   * Env variable naming: GEMINI_API_KEY is the preferred name.
+   * GOOGLE_GEMINI_API_KEY is a compatibility fallback for existing deployments.
+   */
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || '';
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY (or GOOGLE_GEMINI_API_KEY) is missing.');

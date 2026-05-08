@@ -8,6 +8,11 @@ import {
   sanitizeProposalSettings,
 } from '../../shared/utils/proposalDefaults.ts';
 
+/**
+ * Env variable naming: DEFAULT_LABOR_RATE_PER_HOUR is the standard name.
+ * Default value is 100/hr if not set, ensuring consistent fallback across the codebase.
+ * This value is used for initial schema setup and as a system-wide fallback.
+ */
 export function initEstimatorSchema(db: Database) {
   const defaultLaborRatePerHour = Number(process.env.DEFAULT_LABOR_RATE_PER_HOUR || 100);
 
