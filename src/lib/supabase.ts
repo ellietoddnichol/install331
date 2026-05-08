@@ -79,13 +79,13 @@ export function assertSupabaseViteEnv(): void {
 
   if (!url) {
     throw new Error(
-      '[Div 10 Catalog Hub] Missing VITE_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL. Copy `.env.example` to `.env.local` and set your Supabase project URL.'
+      '[Div 10 Catalog Hub] Missing VITE_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL. Set one of those at build time, or expose SUPABASE_URL through /api/v1/public-config at runtime.'
     );
   }
 
   if (!anon || anon === ANON_PLACEHOLDER) {
     throw new Error(
-      '[Div 10 Catalog Hub] Missing VITE_SUPABASE_ANON_KEY or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY. Paste the anon/publishable key from Supabase Dashboard → Project Settings → API. Do not use the service_role key in browser-exposed variables.'
+      '[Div 10 Catalog Hub] Missing VITE_SUPABASE_ANON_KEY or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY. Set one at build time, or expose SUPABASE_ANON_KEY via /api/v1/public-config at runtime. Never use service_role in browser-exposed variables.'
     );
   }
 }
