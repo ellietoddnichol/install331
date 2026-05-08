@@ -1,28 +1,29 @@
-import path from 'path';
-import { fileURLToPath } from 'url';
-import fs from 'fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
 import dotenv from 'dotenv';
 import pg from 'pg';
+import { normalizeSupabaseDatabaseUrl, resolvePgSslConfigForConnectionString } from '../src/server/db/pgPool.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
 for (const [name, override] of [
   ['.env', false],
   ['.env.local', true],
-]) {
+] as const) {
   const full = path.join(root, name);
   if (fs.existsSync(full)) dotenv.config({ path: full, override });
 }
 
-// Direct (non-pooler) is fine for a small one-off bulk insert.
-const url = String(process.env.DIRECT_URL || process.env.DATABASE_URL || '').trim();
+const rawUrl = String(process.env.DIRECT_URL || process.env.DATABASE_URL || '').trim();
+const url = normalizeSupabaseDatabaseUrl(rawUrl);
 if (!url) {
   console.error('DIRECT_URL or DATABASE_URL is required.');
   process.exit(1);
 }
 
 // Each row: [modifierKey, applies (pipe-delimited), addLaborMin, addMatCost, pctLabor, pctMat, updatedAt]
-const ROWS = [
+const ROWS: [string, string, number, number, number, number, string][] = [
   ['ADA', 'Toilet Accessories|Lockers', 10, 0.1, 0, 10, '2026-03-13'],
   ['PEENED', 'Toilet Accessories', 0, 8, 0, 8, '2026-03-11'],
   ['STAINLESS', 'Toilet Accessories|Partitions|Accessories', 0, 12, 0, 12, '2026-03-11'],
@@ -68,10 +69,18 @@ const ROWS = [
   ['ANTI-GRAFFITI', 'Partitions|Wall Protection', 0, 25, 0, 15, '2026-03-13'],
   ['FIRE-RATED-ADD', 'Cabinets', 30, 85, 15, 25, '2026-03-13'],
   ['MULTIPLE-ITEM-LC', 'All Division 10', 0, 0, -10, 0, '2026-03-14'],
-  ['UNASSEMBLED', 'Toilet Accessories|Partitions|Lockers|Accessories|Visual Display Boards', 30, 0, 0, 0, '2026-03-15'],
+  [
+    'UNASSEMBLED',
+    'Toilet Accessories|Partitions|Lockers|Accessories|Visual Display Boards',
+    30,
+    0,
+    0,
+    0,
+    '2026-03-15',
+  ],
 ];
 
-function toJsonArrayString(pipeStr) {
+function toJsonArrayString(pipeStr: string): string {
   const arr = String(pipeStr || '')
     .split(/[|,]/)
     .map((s) => s.trim())
@@ -97,9 +106,10 @@ ON CONFLICT (id) DO UPDATE SET
   updated_at = EXCLUDED.updated_at
 `;
 
+const ssl = resolvePgSslConfigForConnectionString(url);
 const client = new pg.Client({
   connectionString: url,
-  ssl: /supabase\.co|pooler\.supabase\.com/i.test(url) ? { rejectUnauthorized: false } : undefined,
+  ...(ssl !== undefined ? { ssl } : {}),
 });
 await client.connect();
 
@@ -118,7 +128,7 @@ for (const r of ROWS) {
     ok++;
   } catch (err) {
     fail++;
-    console.warn(`FAIL ${key}: ${err.message}`);
+    console.warn(`FAIL ${key}: ${err instanceof Error ? err.message : err}`);
   }
 }
 const total = await client.query(`SELECT count(*)::int AS n FROM public.modifiers_v1`);
