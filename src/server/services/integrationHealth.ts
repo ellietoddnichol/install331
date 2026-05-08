@@ -30,6 +30,7 @@ function readDefaultLaborRatePerHour(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 100;
 }
 
+/** Mirrors server startup behavior: default to enabled in production/Cloud Run unless explicitly disabled. */
 function shouldAutoSyncCatalogOnStart(): boolean {
   const raw = String(process.env.AUTO_SYNC_CATALOG_ON_START ?? '').trim().toLowerCase();
   if (raw === '0' || raw === 'false' || raw === 'no' || raw === 'off') return false;
