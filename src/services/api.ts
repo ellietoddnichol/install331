@@ -50,6 +50,22 @@ function readDataArray<T>(payload: { data?: T[] | null }): T[] {
   return Array.isArray(data) ? data : [];
 }
 
+/**
+ * API client for both v1 and legacy endpoints.
+ *
+ * Naming convention:
+ * - Methods prefixed with `V1` or `v1` call `/api/v1/*` (primary API)
+ * - Methods without version prefix call legacy `/api/*` (retained for catalog CRUD only)
+ *
+ * Example:
+ * - getV1Projects() → /api/v1/projects (v1 API)
+ * - getCatalog() → /api/catalog/items (legacy API, still required)
+ *
+ * Why legacy catalog routes still exist:
+ * v1 API currently has no catalog write operations (POST/PUT/DELETE for items/modifiers/bundles).
+ * The frontend Catalog.tsx and ProjectWorkspace.tsx make ~137 calls to legacy catalog endpoints.
+ * These will be migrated to v1 once v1 catalog CRUD routes are implemented.
+ */
 export const api = {
   async getV1Projects(): Promise<ProjectRecord[]> {
     const res = await apiFetch(`${API_BASE}/v1/projects`);

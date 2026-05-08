@@ -72,6 +72,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return undefined;
   }, [supabaseConfigured]);
 
+  /**
+   * Multi-path authentication waterfall (ordered by preference):
+   *
+   * 1. Supabase Auth (if VITE_SUPABASE_URL is configured)
+   *    - Production-ready, full user management
+   *    - Requires Supabase project setup
+   *
+   * 2. Server Password Session (if AUTH_LOGIN_PASSWORD is set)
+   *    - Simple password check + HTTP-only cookie
+   *    - Suitable for single-user or small team deployments
+   *
+   * 3. Legacy Client-Only Fallback (if neither Supabase nor password is configured)
+   *    - Accepts any password, stores email in localStorage
+   *    - NOT production-safe, intentionally kept for local dev convenience
+   *    - Controlled by absence of both Supabase and AUTH_LOGIN_PASSWORD
+   *
+   * The server still enforces requireSession middleware on /api/v1/* routes.
+   */
   async function signIn(email: string, password: string, remember: boolean): Promise<boolean> {
     if (!email.trim() || !password.trim()) return false;
     const normalizedEmail = email.trim().toLowerCase();

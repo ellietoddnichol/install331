@@ -100,6 +100,13 @@ async function startServer() {
 
   app.use(express.json({ limit: '12mb' }));
 
+  /**
+   * Mount order matters: v1 API is primary, legacy API is fallback.
+   * Legacy /api/catalog/* routes are still required because v1 API does not yet implement
+   * catalog CRUD (POST/PUT/DELETE for items/modifiers/bundles). Frontend (Catalog.tsx,
+   * ProjectWorkspace.tsx) makes ~137 calls to legacy catalog endpoints.
+   * See docs/stabilization-audit.md for removal roadmap.
+   */
   app.use('/api/v1', v1Router);
   app.use('/api', legacyRouter);
 
