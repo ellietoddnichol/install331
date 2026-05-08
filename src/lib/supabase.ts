@@ -37,7 +37,8 @@ function readViteAnonKey(): string {
 
 export async function loadSupabaseRuntimeConfig(): Promise<void> {
   if (typeof window === 'undefined') return;
-  if (readBundledViteUrl() && readBundledViteAnonKey() && readBundledViteAnonKey() !== ANON_PLACEHOLDER) return;
+  const bundledAnonKey = readBundledViteAnonKey();
+  if (readBundledViteUrl() && bundledAnonKey && bundledAnonKey !== ANON_PLACEHOLDER) return;
   try {
     const res = await fetch('/api/v1/public-config', { credentials: 'same-origin' });
     if (!res.ok) return;

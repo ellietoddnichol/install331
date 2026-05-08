@@ -26,11 +26,14 @@ export type IntegrationHealthSnapshot = {
 };
 
 function readDefaultLaborRatePerHour(): number {
-  const raw = Number(process.env.DEFAULT_LABOR_RATE_PER_HOUR || 100);
+  const raw = parseFloat(String(process.env.DEFAULT_LABOR_RATE_PER_HOUR || 100).trim());
   return Number.isFinite(raw) && raw > 0 ? raw : 100;
 }
 
-/** Mirrors server startup behavior: default to enabled in production/Cloud Run unless explicitly disabled. */
+/**
+ * Mirrors server startup behavior.
+ * Defaults to enabled in production/Cloud Run unless AUTO_SYNC_CATALOG_ON_START explicitly disables it.
+ */
 function shouldAutoSyncCatalogOnStart(): boolean {
   const raw = String(process.env.AUTO_SYNC_CATALOG_ON_START ?? '').trim().toLowerCase();
   if (raw === '0' || raw === 'false' || raw === 'no' || raw === 'off') return false;
