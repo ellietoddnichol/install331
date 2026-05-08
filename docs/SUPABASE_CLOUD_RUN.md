@@ -54,6 +54,10 @@ Set environment variables (use **Secrets** for keys):
 | `SUPABASE_JWT_SECRET` | Optional extra verify; anon client also validates JWT |
 | `SUPABASE_STORAGE_BUCKET` | `project-files` |
 | `AUTH_REQUIRED` | `1` in production once users exist in Supabase Auth |
+| `CATALOG_BACKEND` | `pg` (Postgres catalog surfaces) |
+| `CATALOG_SOURCE` | `supabase` (catalog rows authoritative in Supabase, not Sheets) |
+| `CATALOG_ITEMS_TABLE` | `public.catalog_items_clean` (or `catalog_items_clean`) |
+| `AUTO_SYNC_CATALOG_ON_START` | `0` — do not pull Google Sheets on every boot unless operators set `1` |
 
 ## 5. Migrating data from SQLite
 

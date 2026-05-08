@@ -25,14 +25,10 @@ for (const [fileName, override] of envFiles) {
   }
 }
 
-/** Pull labor catalog from Sheets once after boot in production by default; opt out with AUTO_SYNC_CATALOG_ON_START=0. Local dev: set AUTO_SYNC_CATALOG_ON_START=1 to enable. */
+/** Google Sheets → DB sync on boot — opt-in only (`AUTO_SYNC_CATALOG_ON_START=1`). Supabase-first deploys read the catalog from Postgres and should leave this off unless operators intentionally sync a workbook. */
 function shouldAutoSyncCatalogOnStart(): boolean {
   const raw = String(process.env.AUTO_SYNC_CATALOG_ON_START ?? '').trim().toLowerCase();
-  if (raw === '0' || raw === 'false' || raw === 'no' || raw === 'off') return false;
-  if (raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on') return true;
-  const prodRuntime =
-    process.env.NODE_ENV === 'production' || Boolean(process.env.K_SERVICE || process.env.K_REVISION);
-  return prodRuntime;
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
 }
 
 /**

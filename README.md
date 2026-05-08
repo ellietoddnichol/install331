@@ -148,27 +148,19 @@ Notes:
 - Legacy and v1 tables coexist while migration work continues.
 - Schema initialization is non-destructive and runs at startup.
 
-## Google Sheets catalog sync
+## Catalog source (Supabase first)
 
-The app pulls **CLEAN_ITEMS** (curated), **MODIFIERS**, **BUNDLES**, **ALIASES**, and **ATTRIBUTES** tabs from a spreadsheet into SQLite. **ITEMS** is raw/staging only (not intended as the live sync source after cutover). The Settings UI and authenticated clients should use **`POST /api/v1/settings/sync-catalog`** (see `api.syncV1Catalog()`). A legacy route **`POST /api/sync/sheets`** still exists for older integrations and calls the same sync implementation.
+**Production / Cloud Run:** the live catalog is read from **Supabase Postgres** (`DB_DRIVER=pg`, `DATABASE_URL`, `CATALOG_SOURCE=supabase`, `CATALOG_ITEMS_TABLE` → `catalog_items_clean` / `public.catalog_items_clean` by default). Tables are defined under `supabase/migrations/`. Startup does **not** pull Google Sheets unless you set **`AUTO_SYNC_CATALOG_ON_START=1`**.
 
-- **Aliases**: drive canonical-first resolution (legacy SKUs, vendor SKUs, parser phrases, etc.).
-- **Attributes**: governed variants (finish / mounting / coating / grip / assembly) with optional pricing/labor deltas; new takeoff lines persist snapshots for auditability and proposal truthfulness.
+See **`docs/SUPABASE_CLOUD_RUN.md`** and **`docs/catalog-sync-architecture.md`**.
 
-Cutover and rollback for the **CLEAN_ITEMS** sync source: see **`docs/CATALOG_SYNC_CUTOVER.md`**.
+## Optional: Google Sheets → database sync
 
-For debugging service-account resolution only, set **`GOOGLE_SHEETS_AUTH_DEBUG=1`** (logs metadata, not the private key).
+Operators can still push workbook tabs (**CLEAN_ITEMS**, **MODIFIERS**, **BUNDLES**, **ALIASES**, **ATTRIBUTES**) into the database via **`POST /api/v1/settings/sync-catalog`** (`api.syncV1Catalog()`). Without Google credentials the sync returns a clean “skipped” result; with a service account and `GOOGLE_SHEETS_SPREADSHEET_ID` it writes to Postgres (or SQLite in local sheet-first setups).
 
-**Credentials (pick one):**
+Cutover / rollback notes: **`docs/CATALOG_SYNC_CUTOVER.md`**. Debug service-account resolution: **`GOOGLE_SHEETS_AUTH_DEBUG=1`**.
 
-1. `GOOGLE_SERVICE_ACCOUNT` — full service account JSON as a string (typical for Cloud Run / Secret Manager).
-2. `GOOGLE_SERVICE_ACCOUNT_FILE` — path to the JSON file, e.g. `./google-service-account.json` (gitignored). Paths are resolved from **current working directory** and **project root**, so sync still works if `cwd` is not the repo root.
-3. `GOOGLE_APPLICATION_CREDENTIALS` — same as (2); standard Google env name.
-4. `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_PRIVATE_KEY` — split variables (use `\n` in the key when inline).
-
-The JSON must be a **service account** (`type`, `client_email`, `private_key`). Enable **Google Sheets API** for the GCP project, and **share the spreadsheet** with that `client_email` (Viewer is enough for read sync).
-
-Spreadsheet: `GOOGLE_SHEETS_SPREADSHEET_ID` (or legacy `GOOGLE_SHEETS_ID`). Tab names: `GOOGLE_SHEETS_TAB_*` in `.env.example`.
+**Credentials (when using Sheets):** `GOOGLE_SERVICE_ACCOUNT` (or `_FILE` / `GOOGLE_APPLICATION_CREDENTIALS` / email+`GOOGLE_PRIVATE_KEY`). Enable **Google Sheets API** and share the spreadsheet with the service account. Tab env vars: **`GOOGLE_SHEETS_TAB_*`** in `.env.example`.
 
 ## Deployment Readiness
 

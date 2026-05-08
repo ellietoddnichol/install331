@@ -23,7 +23,7 @@ substitutions:
   # Same runtime SA as your existing Cloud Run revision (act-as permission required on builder SA).
   _RUN_SERVICE_ACCOUNT: '353363250924-compute@developer.gserviceaccount.com'
   # Non-sensitive env vars at deploy (comma-separated KEY=VALUE). Extend via trigger override.
-  _CLOUDRUN_ENV_VARS: 'NODE_ENV=production,DB_DRIVER=pg'
+  _CLOUDRUN_ENV_VARS: 'NODE_ENV=production,DB_DRIVER=pg,CATALOG_BACKEND=pg,CATALOG_SOURCE=supabase,CATALOG_ITEMS_TABLE=public.catalog_items_clean,AUTO_SYNC_CATALOG_ON_START=0,SUPABASE_STORAGE_BUCKET=project-files'
   # Optional: Secret Manager → Cloud Run env. Leave empty until secrets exist, then set in trigger, e.g.:
   # GEMINI_API_KEY=GEMINI_API_KEY:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,DATABASE_URL=DATABASE_URL:latest
   _CLOUDRUN_SECRETS: ''

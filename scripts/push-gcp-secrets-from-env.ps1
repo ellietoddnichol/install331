@@ -73,9 +73,13 @@ foreach ($key in $SecretKeys.Keys) {
     continue
   }
 
-  $exists = $false
-  & gcloud secrets describe $key --project=$ProjectId 2>$null | Out-Null
-  if ($LASTEXITCODE -eq 0) { $exists = $true }
+  # gcloud writes NOT_FOUND to stderr; with $ErrorActionPreference = 'Stop' that can terminate
+  # the script before we run `secrets create`. Ignore errors for this probe only.
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = 'SilentlyContinue'
+  $null = & gcloud secrets describe $key --project=$ProjectId 2>&1
+  $exists = ($LASTEXITCODE -eq 0)
+  $ErrorActionPreference = $prevEap
 
   if (-not $exists) {
     Write-Host "Creating secret: $key"

@@ -47,6 +47,42 @@ test('buildCatalogSourcePayload reflects env (tabs, spreadsheet flag, clean-tabl
   }
 });
 
+test('Supabase Postgres catalog: no scary Sheets-missing warning; optional Sheets note only', async () => {
+  const keys = [
+    'GOOGLE_SHEETS_SPREADSHEET_ID',
+    'GOOGLE_SHEETS_ID',
+    'DB_DRIVER',
+    'CATALOG_SOURCE',
+    'CATALOG_BACKEND',
+    'CATALOG_ITEMS_TABLE',
+  ] as const;
+  const snap: Partial<Record<(typeof keys)[number], string | undefined>> = {};
+  for (const k of keys) snap[k] = process.env[k];
+  try {
+    delete process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+    delete process.env.GOOGLE_SHEETS_ID;
+    delete process.env.CATALOG_ITEMS_TABLE;
+    process.env.DB_DRIVER = 'pg';
+    process.env.CATALOG_SOURCE = 'supabase';
+    process.env.CATALOG_BACKEND = 'pg';
+
+    const { buildCatalogSourcePayload } = await import('./catalogSource.ts');
+    const p = buildCatalogSourcePayload();
+
+    assert.equal(p.dbDriver, 'pg');
+    assert.equal(p.catalogSource, 'supabase');
+    assert.equal(p.spreadsheetIdConfigured, false);
+    assert.ok(p.notes.some((n) => /Supabase Postgres/i.test(n) && /optional/i.test(n)));
+    assert.ok(!p.notes.some((n) => /will fail until set/i.test(n)));
+  } finally {
+    for (const k of keys) {
+      const v = snap[k];
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+});
+
 test('legacy GOOGLE_SHEETS_TAB_MODIFIERS=MODIFIERS resolves read tab to CLEAN_MODIFIERS', async () => {
   const keys = ['GOOGLE_SHEETS_TAB_MODIFIERS', 'CATALOG_BACKEND', 'CATALOG_SOURCE', 'DB_DRIVER'] as const;
   const snap: Partial<Record<(typeof keys)[number], string | undefined>> = {};

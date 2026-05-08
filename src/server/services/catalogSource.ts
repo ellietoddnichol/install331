@@ -44,17 +44,29 @@ export function buildCatalogSourcePayload(): CatalogSourcePayload {
   const sheetsAliasesTab = process.env.GOOGLE_SHEETS_TAB_ALIASES || 'ALIASES';
   const sheetsAttributesTab = process.env.GOOGLE_SHEETS_TAB_ATTRIBUTES || 'ATTRIBUTES';
 
+  /** Postgres + supabase intent: catalog rows live in Supabase; Sheets sync is optional. */
+  const supabasePostgresCatalog = dbDriver === 'pg' && catalogSource === 'supabase';
+
   if (!spreadsheetIdConfigured) {
-    notes.push('Google Sheets spreadsheet id is not configured (GOOGLE_SHEETS_SPREADSHEET_ID / GOOGLE_SHEETS_ID). Catalog sync will fail until set.');
+    if (supabasePostgresCatalog) {
+      notes.push(
+        'Catalog reads from Supabase Postgres (CATALOG_SOURCE=supabase). Google Sheets sync is optional — set GOOGLE_SHEETS_SPREADSHEET_ID and service-account env vars only if you push from a workbook.'
+      );
+    } else {
+      notes.push(
+        'Google Sheets spreadsheet id is not configured (GOOGLE_SHEETS_SPREADSHEET_ID / GOOGLE_SHEETS_ID). Catalog sync will fail until set.'
+      );
+    }
   }
 
-  if (sheetsItemsTab !== sheetsItemsFetchTab) {
+  const sheetsWorkbookHints = spreadsheetIdConfigured || !supabasePostgresCatalog;
+  if (sheetsWorkbookHints && sheetsItemsTab !== sheetsItemsFetchTab) {
     notes.push(
       `Google Sheets item upserts read tab "${sheetsItemsFetchTab}" while GOOGLE_SHEETS_TAB_ITEMS="${sheetsItemsTab}" (workbook-first guard; set CATALOG_SYNC_ALLOW_LEGACY_ITEMS_TAB=1 to ingest ITEMS).`
     );
   }
 
-  if (sheetsModifiersTab !== sheetsModifiersFetchTab) {
+  if (sheetsWorkbookHints && sheetsModifiersTab !== sheetsModifiersFetchTab) {
     notes.push(
       `Google Sheets modifier upserts read tab "${sheetsModifiersFetchTab}" while GOOGLE_SHEETS_TAB_MODIFIERS="${sheetsModifiersTab}" (workbook-first guard; set CATALOG_SYNC_ALLOW_LEGACY_MODIFIERS_TAB=1 to ingest MODIFIERS).`
     );
