@@ -13,7 +13,7 @@ substitutions:
   _AR_REPOSITORY: cloud-run-source-deploy
   _IMAGE_NAME: install331/cwainstall-git
   _DEPLOY_REGION: europe-west1
-  _SERVICE_NAME: cwainstall-git
+  _SERVICE_NAME: install58
   # Same runtime SA as your existing Cloud Run revision (act-as permission required on builder SA).
   _RUN_SERVICE_ACCOUNT: '353363250924-compute@developer.gserviceaccount.com'
 

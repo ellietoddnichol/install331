@@ -38,7 +38,9 @@ function mapLineModifier(row: any): LineModifierRecord {
 }
 
 function modifiersActiveSql(): string {
-  return isPgDriver() ? '(active IS TRUE OR active = 1)' : 'active = 1';
+  // Postgres `modifiers_v1.active` is INTEGER (0/1). Use numeric equality only — `active IS TRUE`
+  // errors on integers; `active = true` errors on integers. `active = 1` is valid for int and for bool in PG.
+  return 'active = 1';
 }
 
 export async function listModifiers(): Promise<ModifierRecord[]> {

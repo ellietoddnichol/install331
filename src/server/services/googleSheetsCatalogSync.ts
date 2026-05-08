@@ -1903,7 +1903,54 @@ export async function upsertBundles(
   return { bundlesSynced, bundleItemsSynced };
 }
 
+/**
+ * True when at least one supported Google credential variable is configured.
+ * Lets callers short-circuit cleanly without throwing the giant diagnostic error.
+ */
+export function isGoogleSheetsCredentialsConfigured(): boolean {
+  const sources = [
+    process.env.GOOGLE_SERVICE_ACCOUNT,
+    process.env.GOOGLE_SERVICE_ACCOUNT_BASE64,
+    process.env.GOOGLE_SERVICE_ACCOUNT_FILE,
+    process.env.GOOGLE_APPLICATION_CREDENTIALS,
+    process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_PRIVATE_KEY ? 'pair' : '',
+  ];
+  return sources.some((v) => typeof v === 'string' && v.trim().length > 0);
+}
+
 export async function syncCatalogFromGoogleSheets(): Promise<CatalogSyncResult> {
+  /** Catalog ships from Supabase Postgres in this deployment; Sheets sync is opt-in.
+   * If no Google creds are configured, return a clean "skipped" result instead of
+   * throwing — avoids spamming logs and persisting a `failed` row on every call. */
+  if (!isGoogleSheetsCredentialsConfigured()) {
+    const cfg = getSpreadsheetConfig();
+    return {
+      itemsSynced: 0,
+      modifiersSynced: 0,
+      bundlesSynced: 0,
+      bundleItemsSynced: 0,
+      aliasesSynced: 0,
+      attributesSynced: 0,
+      message:
+        'Google Sheets sync skipped: no Google service-account credentials configured. ' +
+        'Install331 reads the catalog directly from Supabase, so this is fine for local/dev. ' +
+        'Set GOOGLE_SERVICE_ACCOUNT (or _BASE64) to re-enable Sheets sync.',
+      spreadsheetId: cfg.spreadsheetId,
+      tabs: {
+        items: cfg.itemsTab,
+        modifiers: cfg.modifiersTab,
+        bundles: cfg.bundlesTab,
+        aliases: cfg.aliasesTab,
+        attributes: cfg.attributesTab,
+      },
+      itemsTabConfigured: undefined,
+      modifiersTabConfigured: undefined,
+      warnings: [],
+      audit: undefined,
+      syncedAt: new Date().toISOString(),
+    };
+  }
+
   /** Captured early so inserts on failure paths still describe the env that was in effect. */
   const runContextRecord = buildCatalogSyncRunContextRecord('catalog_full_sync');
   const cfg = getSpreadsheetConfig();
