@@ -15,6 +15,22 @@ function pushReviewSample<T>(arr: T[], value: T): void {
   if (arr.length < CATALOG_SYNC_REVIEW_MAX_SAMPLES) arr.push(value);
 }
 
+/**
+ * When set, BUNDLES / ATTRIBUTES / ALIASES rows that reference an unknown SKU are demoted
+ * from blocking to warnings. The sync still proceeds and the offending row is logged so
+ * the operator can fix the Sheet on the next pass. Useful when the workbook is hand-edited
+ * and ITEMS is allowed to lag behind the dependent tabs.
+ */
+function shouldDemoteOrphanRefs(): boolean {
+  const v = String(process.env.CATALOG_SYNC_DEMOTE_ORPHAN_REFS ?? '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+}
+
+function pushOrphanRef(message: string, blocking: string[], warnings: string[]): void {
+  if (shouldDemoteOrphanRefs()) warnings.push(message);
+  else blocking.push(message);
+}
+
 function normalizeHeader(input: string): string {
   return String(input || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
@@ -494,7 +510,11 @@ export async function preflightCatalogWorkbookSync(input: {
           if (ns && !sheetSku.has(ns)) {
             bundleUnknownSku += 1;
             pushReviewSample(orphanBundleSkuSample, tok);
-            blocking.push(`BUNDLES row ${i + 1} (${bundleName}): included SKU "${tok}" not found on ITEMS sheet or in existing catalog.`);
+            pushOrphanRef(
+              `BUNDLES row ${i + 1} (${bundleName}): included SKU "${tok}" not found on ITEMS sheet or in existing catalog.`,
+              blocking,
+              warnings
+            );
           }
         }
         const mods = splitList(getCell(row, modifierListCol));
@@ -526,7 +546,11 @@ export async function preflightCatalogWorkbookSync(input: {
         if (n && !sheet.has(n) && !dbSkuNorm.has(n)) {
           orphanAttributeCanonicalCount += 1;
           pushReviewSample(orphanAttributeCanonicalSample, sku);
-          blocking.push(`ATTRIBUTES row ${i + 1}: Canonical_SKU "${sku}" not found in ITEMS sheet or DB.`);
+          pushOrphanRef(
+            `ATTRIBUTES row ${i + 1}: Canonical_SKU "${sku}" not found in ITEMS sheet or DB.`,
+            blocking,
+            warnings
+          );
         }
       }
     }
@@ -544,7 +568,11 @@ export async function preflightCatalogWorkbookSync(input: {
         if (n && !sheet.has(n) && !dbSkuNorm.has(n)) {
           orphanAliasCanonicalCount += 1;
           pushReviewSample(orphanAliasCanonicalSample, sku);
-          blocking.push(`ALIASES row ${i + 1}: Canonical_SKU "${sku}" not found in ITEMS sheet or DB.`);
+          pushOrphanRef(
+            `ALIASES row ${i + 1}: Canonical_SKU "${sku}" not found in ITEMS sheet or DB.`,
+            blocking,
+            warnings
+          );
         }
       }
     }
