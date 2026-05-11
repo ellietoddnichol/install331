@@ -5,6 +5,7 @@ export const WORKSPACE_STEP_PATHS: WorkspaceTab[] = [
   'overview',
   'setup',
   'scope-review',
+  'matching',
   'estimate',
   'proposal',
 ];

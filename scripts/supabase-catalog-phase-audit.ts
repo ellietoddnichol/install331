@@ -19,10 +19,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 const OUT_DIR = path.join(REPO_ROOT, 'reports', 'supabase-catalog-audit');
 
-['.env', '.env.local'].forEach((name) => {
+for (const [name, override] of [
+  ['.env', false],
+  ['.env.local', true],
+] as const) {
   const p = path.join(REPO_ROOT, name);
-  if (fs.existsSync(p)) dotenv.config({ path: p, override: false });
-});
+  if (fs.existsSync(p)) dotenv.config({ path: p, override });
+}
 
 const AUDIT_TABLES_ESTIMATOR_LINEAGE = [
   'catalog_items',

@@ -1,3 +1,5 @@
 id,sku,category,manufacturer,description,base_labor_minutes,uom,reason_bucket
-sheet-item-SHOP-SUPPLIES,SHOP-SUPPLIES,Misc,,Misc Shop Supplies,0,EA,zero_active
-sheet-item-35,35,Visual Display,,MARKER WALL SF,0,EA,zero_active
+add-adhesive-allow,ADD-ADHESIVE-ALLOW,Div 10 Add-Ins,Allowance,"Adhesive allowance for wall protection sheets, panels, signage, decals, or surface-applied specialty items",0,EA,zero_active
+add-fastener-allow,ADD-FASTENER-ALLOW,Div 10 Add-Ins,Allowance,"Miscellaneous anchors, screws, fasteners, washers, and hardware allowance for Div 10 installation",0,EA,zero_active
+add-sealant-allow,ADD-SEALANT-ALLOW,Div 10 Add-Ins,Allowance,"Sealant allowance for wet-area accessories, mop sink splash guards, wall panels, thresholds, or specialty trim",0,EA,zero_active
+add-freight-allow,ADD-FREIGHT-ALLOW,Div 10 Add-Ins,Allowance,Freight allowance for bulky or shipped specialty items,0,EA,zero_active

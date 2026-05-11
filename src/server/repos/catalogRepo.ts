@@ -3,6 +3,7 @@ import type { CatalogItem } from '../../types.ts';
 import type { CatalogCategoryImageGapRow, CatalogPostCutoverHealthRecord, CatalogSyncStatusRecord } from '../../shared/types/estimator.ts';
 import { ensureTakeoffCatalogSeeded } from '../services/intake/takeoffCatalogRegistry.ts';
 import {
+  getCatalogAliasValueColumnSql,
   getCatalogItemAliasesReadTableName,
   getCatalogItemAttributesReadTableName,
   getCatalogItemsTableName,
@@ -194,6 +195,7 @@ export async function searchCatalogItemsForApi(input: {
   await ensureTakeoffCatalogSeeded();
   const readTable = getCatalogItemsTableName();
   const aliasesReadTable = getCatalogItemAliasesReadTableName();
+  const aliasValCol = getCatalogAliasValueColumnSql();
   const qRaw = input.query.trim().toLowerCase();
   if (!qRaw) return [];
 
@@ -242,17 +244,17 @@ export async function searchCatalogItemsForApi(input: {
     OR lower(COALESCE(c.manufacturer,'')) LIKE ?
     OR lower(COALESCE(c.brand,'')) LIKE ?
     OR lower(COALESCE(c.model,'')) LIKE ?
-    OR lower(COALESCE(a.alias_value,'')) LIKE ?
+    OR lower(COALESCE(a.${aliasValCol},'')) LIKE ?
   )`);
   args.push(like, like, like, like, like, like, like, like, like, like);
 
   const matchCase = `(
         CASE
           WHEN lower(c.sku) = ? THEN 0
-          WHEN lower(COALESCE(a.alias_value,'')) = ? THEN 1
+          WHEN lower(COALESCE(a.${aliasValCol},'')) = ? THEN 1
           WHEN lower(COALESCE(c.canonical_sku,'')) = ? THEN 2
           WHEN lower(c.sku) LIKE ? THEN 3
-          WHEN lower(COALESCE(a.alias_value,'')) LIKE ? THEN 4
+          WHEN lower(COALESCE(a.${aliasValCol},'')) LIKE ? THEN 4
           ELSE 10
         END)`;
 
@@ -280,4 +282,201 @@ export async function searchCatalogItemsForApi(input: {
     const { match_rank: _mr, _rn: _rn2, ...rest } = row;
     return mapCatalogRow(rest);
   });
+}
+
+/** Strip LIKE metacharacters from user text (simple guard; no ESCAPE clause needed). */
+function sanitizeLikeUserQuery(raw: string): string {
+  return raw.replace(/%/g, '').replace(/_/g, '').trim();
+}
+
+function buildCatalogPageWhere(params: {
+  activeFilter: 'all' | 'active' | 'inactive';
+  category?: string | null;
+  q?: string | null;
+  typeFilter?: string | null;
+  sourceTabFilter?: string | null;
+  imageSprintOnly?: boolean;
+}): { whereSql: string; args: unknown[] } {
+  const where: string[] = ['1=1'];
+  const args: unknown[] = [];
+  if (params.activeFilter === 'active') where.push('c.active = 1');
+  else if (params.activeFilter === 'inactive') where.push('c.active = 0');
+
+  const cat = String(params.category || '').trim();
+  if (cat && cat !== 'all') {
+    where.push('c.category = ?');
+    args.push(cat);
+  }
+
+  const q = sanitizeLikeUserQuery(String(params.q || ''));
+  if (q) {
+    const like = `%${q.toLowerCase()}%`;
+    where.push(
+      `(lower(c.description) LIKE ? OR lower(c.sku) LIKE ? OR lower(coalesce(c.canonical_sku,'')) LIKE ? OR lower(coalesce(c.manufacturer,'')) LIKE ? OR lower(coalesce(c.brand,'')) LIKE ? OR lower(coalesce(c.family,'')) LIKE ? OR lower(coalesce(c.subcategory,'')) LIKE ? OR lower(coalesce(c.catalog_source_tab,'')) LIKE ? OR lower(coalesce(c.catalog_source,'')) LIKE ?)`
+    );
+    args.push(like, like, like, like, like, like, like, like, like);
+  }
+
+  const typeF = String(params.typeFilter || '').trim();
+  if (typeF && typeF !== 'all') {
+    where.push(
+      `(coalesce(nullif(trim(c.item_type),''), nullif(trim(c.family),''), nullif(trim(c.subcategory),''), 'Standard') = ?)`
+    );
+    args.push(typeF);
+  }
+
+  const sheet = String(params.sourceTabFilter || '').trim();
+  if (sheet && sheet !== 'all') {
+    if (sheet === '__none__') {
+      where.push(
+        `(nullif(trim(coalesce(c.catalog_source_tab,'')),'') is null and nullif(trim(coalesce(c.catalog_source,'')),'') is null)`
+      );
+    } else {
+      where.push(`(coalesce(nullif(trim(c.catalog_source_tab),''), nullif(trim(c.catalog_source),'')) = ?)`);
+      args.push(sheet);
+    }
+  }
+
+  if (params.imageSprintOnly) {
+    where.push(
+      `(c.active = 1 AND (c.deprecated IS NULL OR c.deprecated = 0) AND nullif(trim(coalesce(c.manufacturer,'')),'') is not null AND (nullif(trim(coalesce(c.model,'')),'') is not null OR nullif(trim(coalesce(c.series,'')),'') is not null) AND (c.image_url IS NULL OR trim(c.image_url) = ''))`
+    );
+  }
+
+  return { whereSql: where.join(' AND '), args };
+}
+
+function catalogPageOrderBy(sortBy: string): string {
+  switch (sortBy) {
+    case 'sku-desc':
+      return 'c.sku DESC';
+    case 'name-asc':
+      return 'c.description ASC';
+    case 'name-desc':
+      return 'c.description DESC';
+    case 'category-asc':
+      return 'c.category ASC, c.description ASC';
+    case 'material-desc':
+      return 'c.base_material_cost DESC';
+    case 'labor-desc':
+      return 'c.base_labor_minutes DESC';
+    case 'sku-asc':
+    default:
+      return 'c.sku ASC';
+  }
+}
+
+export type CatalogItemsPageParams = {
+  offset: number;
+  limit: number;
+  activeFilter: 'all' | 'active' | 'inactive';
+  category?: string | null;
+  q?: string | null;
+  typeFilter?: string | null;
+  sourceTabFilter?: string | null;
+  imageSprintOnly?: boolean;
+  sortBy: string;
+};
+
+export async function listCatalogItemsPage(params: CatalogItemsPageParams): Promise<{
+  rows: CatalogItem[];
+  total: number;
+}> {
+  await ensureTakeoffCatalogSeeded();
+  const readTable = getCatalogItemsTableName();
+  const limit = Math.max(1, Math.min(200, Math.floor(params.limit || 50)));
+  const offset = Math.max(0, Math.floor(params.offset || 0));
+  const { whereSql, args } = buildCatalogPageWhere({
+    activeFilter: params.activeFilter,
+    category: params.category,
+    q: params.q,
+    typeFilter: params.typeFilter,
+    sourceTabFilter: params.sourceTabFilter,
+    imageSprintOnly: params.imageSprintOnly,
+  });
+  const orderBy = catalogPageOrderBy(params.sortBy || 'sku-asc');
+
+  const countRow = (await dbCatalogGet(`SELECT COUNT(*) AS n FROM ${readTable} c WHERE ${whereSql}`, args)) as
+    | { n: string | number }
+    | undefined;
+  const total = Number(countRow?.n ?? 0);
+
+  const rows = await dbCatalogAll(
+    `SELECT c.* FROM ${readTable} c WHERE ${whereSql} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
+    [...args, limit, offset]
+  );
+  return { rows: rows.map((r) => mapCatalogRow(r)), total };
+}
+
+export async function listDistinctCatalogCategories(): Promise<string[]> {
+  await ensureTakeoffCatalogSeeded();
+  const readTable = getCatalogItemsTableName();
+  const rows = await dbCatalogAll<{ c: string }>(
+    `SELECT DISTINCT TRIM(c.category) AS c FROM ${readTable} c WHERE TRIM(COALESCE(c.category,'')) != '' ORDER BY c`
+  );
+  return rows.map((r) => String(r.c || '').trim()).filter(Boolean);
+}
+
+export async function listCatalogItemFacets(): Promise<{
+  categories: string[];
+  itemTypes: string[];
+  sourceTabs: string[];
+  hasUntaggedSource: boolean;
+}> {
+  await ensureTakeoffCatalogSeeded();
+  const readTable = getCatalogItemsTableName();
+  const [categories, itemTypes, tabRows, noneRow] = await Promise.all([
+    listDistinctCatalogCategories(),
+    dbCatalogAll<{ t: string }>(
+      `SELECT DISTINCT COALESCE(NULLIF(TRIM(c.item_type),''), NULLIF(TRIM(c.family),''), NULLIF(TRIM(c.subcategory),''), 'Standard') AS t
+       FROM ${readTable} c
+       ORDER BY t`
+    ),
+    dbCatalogAll<{ tab: string | null }>(
+      `SELECT DISTINCT
+         CASE
+           WHEN TRIM(COALESCE(c.catalog_source_tab,'')) != '' THEN TRIM(c.catalog_source_tab)
+           WHEN TRIM(COALESCE(c.catalog_source,'')) != '' THEN TRIM(c.catalog_source)
+           ELSE NULL
+         END AS tab
+       FROM ${readTable} c`
+    ),
+    dbCatalogGet<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM ${readTable} c
+       WHERE nullif(trim(coalesce(c.catalog_source_tab,'')),'') is null
+         AND nullif(trim(coalesce(c.catalog_source,'')),'') is null`
+    ),
+  ]);
+  const sourceTabs = tabRows
+    .map((r) => (r.tab == null ? null : String(r.tab).trim()) || null)
+    .filter((t): t is string => Boolean(t && t.length));
+  return {
+    categories,
+    itemTypes: itemTypes.map((r) => String(r.t || '').trim()).filter(Boolean),
+    sourceTabs: [...new Set(sourceTabs)].sort((a, b) => a.localeCompare(b)),
+    hasUntaggedSource: Number((noneRow as { n?: number } | undefined)?.n ?? 0) > 0,
+  };
+}
+
+const ID_TOKEN = /^[a-zA-Z0-9_-]{1,128}$/;
+
+export async function getCatalogItemById(id: string): Promise<CatalogItem | null> {
+  const tid = String(id || '').trim();
+  if (!ID_TOKEN.test(tid)) return null;
+  await ensureTakeoffCatalogSeeded();
+  const readTable = getCatalogItemsTableName();
+  const row = await dbCatalogGet(`SELECT * FROM ${readTable} WHERE id = ? LIMIT 1`, [tid]);
+  return row ? mapCatalogRow(row) : null;
+}
+
+export async function listCatalogItemsByIds(ids: string[]): Promise<CatalogItem[]> {
+  const unique = [...new Set(ids.map((x) => String(x || '').trim()).filter((x) => ID_TOKEN.test(x)))];
+  if (unique.length === 0) return [];
+  const cap = 400;
+  const slice = unique.slice(0, cap);
+  await ensureTakeoffCatalogSeeded();
+  const readTable = getCatalogItemsTableName();
+  const ph = slice.map(() => '?').join(',');
+  const rows = await dbCatalogAll(`SELECT * FROM ${readTable} WHERE id IN (${ph})`, slice);
+  return rows.map((r) => mapCatalogRow(r));
 }

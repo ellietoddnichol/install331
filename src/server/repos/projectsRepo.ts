@@ -2,9 +2,9 @@ import { randomUUID } from 'crypto';
 import { getEstimatorDb } from '../db/connection.ts';
 import { isPgDriver } from '../db/driver.ts';
 import { dbAll, dbGet, dbRun } from '../db/query.ts';
-import { PeerIntakeDefaultsResponse, PricingMode, ProjectRecord, ProjectStructuredAssumption } from '../../shared/types/estimator.ts';
+import { PeerIntakeDefaultsResponse, ProjectRecord } from '../../shared/types/estimator.ts';
+import { normalizeProjectJobConditions } from '../../shared/utils/jobConditions.ts';
 import { coerceSafeProjectName } from '../../shared/utils/intakeTextGuards.ts';
-import { createDefaultProjectJobConditions, normalizeProjectJobConditions } from '../../shared/utils/jobConditions.ts';
 import {
   generateBidPackageNumber,
   inferDefaultClientName,
@@ -13,136 +13,23 @@ import {
   logProjectAutofill,
   titleStringForInference,
 } from '../services/projectDefaults.ts';
+import {
+  coerceProposalFormat,
+  mapProjectRow,
+  normalizePricingMode,
+  normalizeStructuredAssumptionsInput,
+  parseStructuredAssumptionsJson,
+} from './projectsRowMapping.ts';
+import { useNativeSupabaseWorkspace } from '../db/nativeWorkspace.ts';
+import * as nativeProjects from './native/nativeProjectsRepo.ts';
+import { NATIVE_PROJECT_ROW_SELECT } from './native/nativeProjectSql.ts';
 
-function coerceProposalFormat(raw: unknown): ProjectRecord['proposalFormat'] {
-  const s = String(raw || '').trim();
-  if (s === 'condensed' || s === 'schedule_with_amounts' || s === 'executive_summary') return s;
-  return 'standard';
-}
-
-const VALID_PRICING_MODES: PricingMode[] = [
-  'material_only',
-  'labor_only',
-  'labor_and_material',
-  'material_with_optional_install_quote',
-];
-
-export function normalizePricingMode(raw: unknown): PricingMode {
-  const s = String(raw || '').trim();
-  return VALID_PRICING_MODES.includes(s as PricingMode) ? (s as PricingMode) : 'labor_and_material';
-}
-
-function coerceStructuredAssumptionSource(raw: unknown): ProjectStructuredAssumption['source'] {
-  const s = String(raw || '').trim();
-  if (s === 'peer' || s === 'manual') return s;
-  return 'intake';
-}
-
-export function parseStructuredAssumptionsJson(raw: string | null | undefined): ProjectStructuredAssumption[] {
-  try {
-    const parsed = JSON.parse(raw || '[]');
-    if (!Array.isArray(parsed)) return [];
-    const out: ProjectStructuredAssumption[] = [];
-    for (const entry of parsed) {
-      if (!entry || typeof entry !== 'object') continue;
-      const e = entry as Record<string, unknown>;
-      const text = String(e.text || '').trim();
-      if (!text) continue;
-      const conf = Number(e.confidence);
-      out.push({
-        id: String(e.id || randomUUID()),
-        source: coerceStructuredAssumptionSource(e.source),
-        ruleId: e.ruleId != null ? String(e.ruleId) : undefined,
-        text,
-        confidence: Number.isFinite(conf) ? Math.min(1, Math.max(0, conf)) : 0.75,
-        appliedFields: Array.isArray(e.appliedFields) ? e.appliedFields.map((x) => String(x)) : undefined,
-        createdAt: String(e.createdAt || new Date().toISOString()),
-      });
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}
-
-function normalizeStructuredAssumptionsInput(input: ProjectStructuredAssumption[] | undefined | null): ProjectStructuredAssumption[] {
-  if (!Array.isArray(input)) return [];
-  return parseStructuredAssumptionsJson(JSON.stringify(input));
-}
-
-function mapProjectRow(row: any): ProjectRecord {
-  let parsedJobConditions = createDefaultProjectJobConditions();
-  let selectedScopeCategories: string[] = [];
-  try {
-    parsedJobConditions = normalizeProjectJobConditions(JSON.parse(row.job_conditions_json || '{}'));
-  } catch {
-    parsedJobConditions = createDefaultProjectJobConditions();
-  }
-
-  try {
-    const parsed = JSON.parse(row.scope_categories_json || '[]');
-    selectedScopeCategories = Array.isArray(parsed)
-      ? parsed.map((entry) => String(entry || '').trim()).filter(Boolean)
-      : [];
-  } catch {
-    selectedScopeCategories = [];
-  }
-
-  const structuredAssumptions = parseStructuredAssumptionsJson(row.structured_assumptions_json);
-  let preferredBrands: string[] = [];
-  try {
-    const parsed = JSON.parse(row.preferred_brands_json || '[]');
-    preferredBrands = Array.isArray(parsed) ? parsed.map((e) => String(e || '').trim()).filter(Boolean) : [];
-  } catch {
-    preferredBrands = [];
-  }
-
-  return {
-    id: row.id,
-    projectNumber: row.project_number,
-    projectNumberSource: (row.project_number_source === 'auto' ? 'auto' : 'manual'),
-    projectName: coerceSafeProjectName(String(row.project_name || ''), 'Untitled Project'),
-    clientName: row.client_name,
-    clientNameSource: (row.client_name_source === 'auto' ? 'auto' : 'manual'),
-    generalContractor: row.general_contractor,
-    estimator: row.estimator,
-    bidDate: row.bid_date,
-    proposalDate: row.proposal_date,
-    dueDate: row.due_date,
-    address: row.address,
-    addressSource: (row.address_source === 'auto' ? 'auto' : 'manual'),
-    projectType: row.project_type,
-    projectSize: row.project_size,
-    floorLevel: row.floor_level,
-    accessDifficulty: row.access_difficulty,
-    installHeight: row.install_height,
-    materialHandling: row.material_handling,
-    wallSubstrate: row.wall_substrate,
-    laborBurdenPercent: row.labor_burden_percent,
-    overheadPercent: row.overhead_percent,
-    profitPercent: row.profit_percent,
-    laborOverheadPercent: Number(row.labor_overhead_percent ?? 0),
-    laborProfitPercent: Number(row.labor_profit_percent ?? 0),
-    subLaborManagementFeeEnabled: Boolean(Number(row.sub_labor_management_fee_enabled ?? 0)),
-    subLaborManagementFeePercent: Number(row.sub_labor_management_fee_percent ?? 5),
-    taxPercent: row.tax_percent,
-    pricingMode: normalizePricingMode(row.pricing_mode),
-    selectedScopeCategories,
-    preferredBrands,
-    jobConditions: { ...parsedJobConditions, locationLabelSource: (row.location_label_source === 'auto' ? 'auto' : 'manual') },
-    status: row.status,
-    notes: row.notes,
-    specialNotes: row.special_notes,
-    proposalIncludeSpecialNotes: Boolean(Number(row.proposal_include_special_notes ?? 0)),
-    proposalIncludeCatalogImages: Boolean(Number(row.proposal_include_catalog_images ?? 0)),
-    proposalFormat: coerceProposalFormat(row.proposal_format),
-    structuredAssumptions,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
+export { normalizePricingMode, parseStructuredAssumptionsJson, normalizeStructuredAssumptionsInput } from './projectsRowMapping.ts';
 
 export async function listProjects(): Promise<ProjectRecord[]> {
+  if (useNativeSupabaseWorkspace()) {
+    return nativeProjects.listProjectsNative();
+  }
   const rows = isPgDriver()
     ? await dbAll('SELECT * FROM projects_v1 ORDER BY updated_at DESC')
     : getEstimatorDb().prepare('SELECT * FROM projects_v1 ORDER BY updated_at DESC').all();
@@ -150,6 +37,9 @@ export async function listProjects(): Promise<ProjectRecord[]> {
 }
 
 export async function getProject(projectId: string): Promise<ProjectRecord | null> {
+  if (useNativeSupabaseWorkspace()) {
+    return nativeProjects.getProjectNative(projectId);
+  }
   const row = isPgDriver()
     ? await dbGet('SELECT * FROM projects_v1 WHERE id = ?', [projectId])
     : getEstimatorDb().prepare('SELECT * FROM projects_v1 WHERE id = ?').get(projectId);
@@ -172,7 +62,20 @@ export async function suggestPeerIntakeDefaults(input: {
   let matchedBy: PeerIntakeDefaultsResponse['matchedBy'] = null;
 
   if (client) {
-    if (input.excludeProjectId) {
+    if (isPgDriver() && useNativeSupabaseWorkspace()) {
+      const base = `${NATIVE_PROJECT_ROW_SELECT} WHERE lower(p.status::text) <> 'archived'`;
+      if (input.excludeProjectId) {
+        row = await dbGet(
+          `${base} AND p.id::text <> ? AND LOWER(TRIM(COALESCE(p.customer_name,''))) = ? ORDER BY p.updated_at DESC LIMIT 1`,
+          [input.excludeProjectId, client]
+        );
+      } else {
+        row = await dbGet(
+          `${base} AND LOWER(TRIM(COALESCE(p.customer_name,''))) = ? ORDER BY p.updated_at DESC LIMIT 1`,
+          [client]
+        );
+      }
+    } else if (input.excludeProjectId) {
       row = isPgDriver()
         ? await dbGet(
             `SELECT * FROM projects_v1 WHERE status != 'Archived' AND id != ? AND LOWER(TRIM(COALESCE(client_name,''))) = ? ORDER BY updated_at DESC LIMIT 1`,
@@ -198,7 +101,7 @@ export async function suggestPeerIntakeDefaults(input: {
     if (row) matchedBy = 'client';
   }
 
-  if (!row && gc) {
+  if (!row && gc && !useNativeSupabaseWorkspace()) {
     if (input.excludeProjectId) {
       row = isPgDriver()
         ? await dbGet(
@@ -365,7 +268,9 @@ export async function createProject(input: Partial<ProjectRecord>): Promise<Proj
     project.createdAt,
     project.updatedAt,
   ];
-  if (isPgDriver()) {
+  if (isPgDriver() && useNativeSupabaseWorkspace()) {
+    await nativeProjects.insertProjectNative(project);
+  } else if (isPgDriver()) {
     await dbRun(
       `
     INSERT INTO projects_v1 (
@@ -594,7 +499,9 @@ export async function updateProject(projectId: string, input: Partial<ProjectRec
     next.updatedAt,
     projectId,
   ];
-  if (isPgDriver()) {
+  if (isPgDriver() && useNativeSupabaseWorkspace()) {
+    await nativeProjects.updateProjectNativeCore(projectId, next);
+  } else if (isPgDriver()) {
     await dbRun(
       `
     UPDATE projects_v1 SET
@@ -631,6 +538,9 @@ export async function updateProject(projectId: string, input: Partial<ProjectRec
 }
 
 export async function archiveProject(projectId: string): Promise<boolean> {
+  if (isPgDriver() && useNativeSupabaseWorkspace()) {
+    return nativeProjects.archiveProjectNative(projectId);
+  }
   const result = isPgDriver()
     ? await dbRun(`UPDATE projects_v1 SET status = 'Archived', updated_at = ? WHERE id = ?`, [new Date().toISOString(), projectId])
     : getEstimatorDb()
@@ -640,6 +550,9 @@ export async function archiveProject(projectId: string): Promise<boolean> {
 }
 
 export async function deleteProject(projectId: string): Promise<boolean> {
+  if (isPgDriver() && useNativeSupabaseWorkspace()) {
+    return nativeProjects.deleteProjectNative(projectId);
+  }
   const result = isPgDriver()
     ? await dbRun('DELETE FROM projects_v1 WHERE id = ?', [projectId])
     : getEstimatorDb().prepare('DELETE FROM projects_v1 WHERE id = ?').run(projectId);

@@ -92,9 +92,9 @@ legacyRouter.get('/catalog/search', async (req, res) => {
   }
 });
 
-legacyRouter.get('/catalog/items/:id/aliases', (req, res) => {
+legacyRouter.get('/catalog/items/:id/aliases', async (req, res) => {
   try {
-    const rows = listCatalogAliasesForItem(req.params.id);
+    const rows = await listCatalogAliasesForItem(req.params.id);
     res.json(
       rows.map((r) => ({
         id: r.id,
@@ -113,12 +113,12 @@ const createAliasSchema = z.object({
   aliasValue: z.string().min(1).max(256),
 });
 
-legacyRouter.post('/catalog/items/:id/aliases', (req, res) => {
+legacyRouter.post('/catalog/items/:id/aliases', async (req, res) => {
   const parsed = createAliasSchema.safeParse(req.body);
   if (!parsed.success) return handleRouteError(res, parsed.error, '[POST /api/catalog/items/:id/aliases]');
   try {
     const id = crypto.randomUUID();
-    const row = createCatalogAlias({
+    const row = await createCatalogAlias({
       id,
       catalogItemId: req.params.id,
       aliasType: parsed.data.aliasType,
@@ -135,9 +135,9 @@ legacyRouter.post('/catalog/items/:id/aliases', (req, res) => {
   }
 });
 
-legacyRouter.delete('/catalog/item-aliases/:aliasId', (req, res) => {
+legacyRouter.delete('/catalog/item-aliases/:aliasId', async (req, res) => {
   try {
-    deleteCatalogAlias(req.params.aliasId);
+    await deleteCatalogAlias(req.params.aliasId);
     res.status(204).send();
   } catch (err: unknown) {
     handleRouteError(res, err, '[DELETE /api/catalog/item-aliases/:aliasId]');

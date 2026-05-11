@@ -1,4 +1,12 @@
+import {
+  getBundlesReadTableNames,
+  getCatalogItemAliasesReadLayout,
+  getCatalogItemAliasesReadTableName,
+  getCatalogItemAliasesWriteTableName,
+} from '../db/catalogTable.ts';
+import { getTakeoffLinesTableName } from '../db/workspaceTable.ts';
 import { isCatalogSheetsWorkbookPushEnabled } from './catalogSheetsSyncPolicy.ts';
+import { isPgDriver } from '../db/driver.ts';
 
 /**
  * Non-secret integration readiness flags for Settings / diagnostics.
@@ -17,6 +25,14 @@ export type IntegrationHealthSnapshot = {
   passwordLogin: boolean;
   authRequired: boolean;
   div10BrainAdmin: boolean;
+  /** Resolved Postgres workspace / catalog relation names (empty when not `DB_DRIVER=pg`). */
+  workspaceTakeoffLinesTable: string;
+  catalogAliasesReadTable: string;
+  catalogAliasesWriteTable: string;
+  /** `sheet` = `alias_value` on `catalog_item_aliases`; `brain` = `alias_text` on `catalog_aliases`. */
+  catalogAliasesLayout: 'sheet' | 'brain';
+  catalogBundlesReadTable: string;
+  catalogBundleItemsReadTable: string;
 };
 
 export function getIntegrationHealthSnapshot(): IntegrationHealthSnapshot {
@@ -24,6 +40,8 @@ export function getIntegrationHealthSnapshot(): IntegrationHealthSnapshot {
     Boolean(String(process.env.GOOGLE_SERVICE_ACCOUNT || '').trim()) ||
     Boolean(String(process.env.GOOGLE_SERVICE_ACCOUNT_FILE || '').trim()) ||
     Boolean(String(process.env.GOOGLE_APPLICATION_CREDENTIALS || '').trim());
+  const pg = isPgDriver();
+  const bundleReads = pg ? getBundlesReadTableNames() : { bundlesTable: '', bundleItemsTable: '' };
   return {
     dbDriver: String(process.env.DB_DRIVER || 'sqlite').trim() || 'sqlite',
     gemini: Boolean(
@@ -40,5 +58,11 @@ export function getIntegrationHealthSnapshot(): IntegrationHealthSnapshot {
     passwordLogin: Boolean(String(process.env.AUTH_LOGIN_PASSWORD || '').trim()),
     authRequired: ['1', 'true', 'yes'].includes(String(process.env.AUTH_REQUIRED || '').trim().toLowerCase()),
     div10BrainAdmin: Boolean(String(process.env.DIV10_BRAIN_ADMIN_SECRET || '').trim()),
+    workspaceTakeoffLinesTable: pg ? getTakeoffLinesTableName() : '',
+    catalogAliasesReadTable: pg ? getCatalogItemAliasesReadTableName() : '',
+    catalogAliasesWriteTable: pg ? getCatalogItemAliasesWriteTableName() : '',
+    catalogAliasesLayout: pg ? getCatalogItemAliasesReadLayout() : 'sheet',
+    catalogBundlesReadTable: pg ? bundleReads.bundlesTable : '',
+    catalogBundleItemsReadTable: pg ? bundleReads.bundleItemsTable : '',
   };
 }

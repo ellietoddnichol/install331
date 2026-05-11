@@ -1,4 +1,4 @@
-/** Display rows that allow per-line actions map 1:1 to real `takeoff_lines_v1` ids. */
+/** Display rows that allow per-line actions map 1:1 to persisted takeoff line ids (default table `takeoff_lines_v1`; override via `WORKSPACE_TAKEOFF_LINES_TABLE` when using Postgres). */
 export interface BulkSelectableRow {
   lineId: string;
   canDelete: boolean;

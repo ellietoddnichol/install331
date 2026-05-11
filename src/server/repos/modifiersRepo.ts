@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { getCatalogModifiersReadTableName } from '../db/catalogTable.ts';
+import { getTakeoffLinesTableName } from '../db/workspaceTable.ts';
 import { isPgCatalogBackend } from '../db/catalogBackend.ts';
 import { getEstimatorDb } from '../db/connection.ts';
 import { isPgDriver } from '../db/driver.ts';
@@ -91,18 +92,20 @@ export async function recalculateLineFromModifiers(lineId: string) {
 }
 
 export async function recalculateProjectLinePricing(projectId: string) {
+  const takeoffTable = getTakeoffLinesTableName();
   const rows = isPgDriver()
-    ? await dbAll('SELECT id FROM takeoff_lines_v1 WHERE project_id = ? ORDER BY created_at', [projectId])
-    : getEstimatorDb().prepare('SELECT id FROM takeoff_lines_v1 WHERE project_id = ? ORDER BY created_at').all(projectId);
+    ? await dbAll(`SELECT id FROM ${takeoffTable} WHERE project_id = ? ORDER BY created_at`, [projectId])
+    : getEstimatorDb().prepare(`SELECT id FROM ${takeoffTable} WHERE project_id = ? ORDER BY created_at`).all(projectId);
   const typed = rows as Array<{ id: string }>;
   const results = await Promise.all(typed.map((row) => recalculateLineFromModifiers(row.id)));
   return results.filter(Boolean);
 }
 
 export async function recalculateAllLinePricing() {
+  const takeoffTable = getTakeoffLinesTableName();
   const rows = isPgDriver()
-    ? await dbAll('SELECT id FROM takeoff_lines_v1 ORDER BY created_at')
-    : getEstimatorDb().prepare('SELECT id FROM takeoff_lines_v1 ORDER BY created_at').all();
+    ? await dbAll(`SELECT id FROM ${takeoffTable} ORDER BY created_at`)
+    : getEstimatorDb().prepare(`SELECT id FROM ${takeoffTable} ORDER BY created_at`).all();
   const typed = rows as Array<{ id: string }>;
   const results = await Promise.all(typed.map((row) => recalculateLineFromModifiers(row.id)));
   return results.filter(Boolean);

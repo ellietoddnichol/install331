@@ -18,6 +18,8 @@ export const CATALOG_ISSUE_TYPES = [
   'BUNDLE_DANGLING_REFERENCE',
   'BUNDLE_DANGLING_SUSPECT',
   'TAGS_OR_JSON_INVALID',
+  /** Relation missing or unreadable (e.g. migrations not applied on Postgres). */
+  'SCHEMA_GAP',
 ] as const;
 
 export type CatalogValidationIssueType = (typeof CATALOG_ISSUE_TYPES)[number];

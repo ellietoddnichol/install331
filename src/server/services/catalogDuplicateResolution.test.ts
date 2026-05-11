@@ -7,6 +7,8 @@ import crypto from 'node:crypto';
 
 test('duplicate resolution workflow: selects canonical, creates legacy SKU aliases, deprecates non-canon (no deletes)', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'install331-dupes-'));
+  process.env.DB_DRIVER = 'sqlite';
+  delete process.env.DATABASE_URL;
   process.env.DATABASE_PATH = path.join(tmpDir, 'catalog.dupeResolution.test.db');
 
   const { getEstimatorDb } = await import('../db/connection.ts');
@@ -56,7 +58,7 @@ test('duplicate resolution workflow: selects canonical, creates legacy SKU alias
   ).run('GB-36', canonicalId);
 
   // Create legacy alias for the duplicate SKU.
-  createCatalogAlias({
+  await createCatalogAlias({
     id: `a-${crypto.randomUUID()}`,
     catalogItemId: canonicalId,
     aliasType: 'legacy_sku',
@@ -83,7 +85,7 @@ test('duplicate resolution workflow: selects canonical, creates legacy SKU alias
   assert.equal(String(dup.alias_of), canonicalId);
   assert.ok(String(dup.deprecated_reason || '').includes('Duplicate of GB-36'));
 
-  const aliases = listCatalogAliasesForItem(canonicalId);
+  const aliases = await listCatalogAliasesForItem(canonicalId);
   assert.ok(aliases.some((a) => a.aliasType === 'legacy_sku' && a.aliasValue === 'GB-36-OLD'));
 });
 

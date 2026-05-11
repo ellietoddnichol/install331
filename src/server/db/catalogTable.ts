@@ -9,11 +9,55 @@ const ALLOWED_CATALOG_ITEMS_READ = new Set([
 ]);
 
 /** Physical base ↔ Postgres `_clean` view pairs — identifiers must stay whitelist-safe for interpolated reads only. */
-const MODIFIERS_V1_READ = new Set(['modifiers_v1', 'modifiers_v1_clean']);
-const BUNDLES_V1_READ = new Set(['bundles_v1', 'bundles_v1_clean']);
-const BUNDLE_ITEMS_V1_READ = new Set(['bundle_items_v1', 'bundle_items_v1_clean']);
-const CATALOG_ITEM_ALIASES_READ = new Set(['catalog_item_aliases', 'catalog_item_aliases_clean']);
-const CATALOG_ITEM_ATTRIBUTES_READ = new Set(['catalog_item_attributes', 'catalog_item_attributes_clean']);
+const MODIFIERS_V1_READ = new Set([
+  'modifiers_v1',
+  'modifiers_v1_clean',
+  'public.modifiers_v1',
+  'public.modifiers_v1_clean',
+  /** Native Supabase estimator catalog (short name). */
+  'modifiers',
+  'public.modifiers',
+]);
+const BUNDLES_V1_READ = new Set([
+  'bundles_v1',
+  'bundles_v1_clean',
+  'bundles',
+  'public.bundles_v1',
+  'public.bundles_v1_clean',
+  'public.bundles',
+]);
+const BUNDLE_ITEMS_V1_READ = new Set([
+  'bundle_items_v1',
+  'bundle_items_v1_clean',
+  'bundle_items',
+  'public.bundle_items_v1',
+  'public.bundle_items_v1_clean',
+  'public.bundle_items',
+]);
+const CATALOG_ITEM_ALIASES_READ = new Set([
+  'catalog_item_aliases',
+  'catalog_item_aliases_clean',
+  'public.catalog_item_aliases',
+  'public.catalog_item_aliases_clean',
+  /** Div 10 Brain synonym table (`alias_text` instead of `alias_value`). */
+  'catalog_aliases',
+  'public.catalog_aliases',
+]);
+const CATALOG_ITEM_ALIASES_WRITE = new Set([
+  'catalog_item_aliases',
+  'public.catalog_item_aliases',
+  'catalog_aliases',
+  'public.catalog_aliases',
+]);
+const CATALOG_ITEM_ATTRIBUTES_READ = new Set([
+  'catalog_item_attributes',
+  'catalog_item_attributes_clean',
+  'public.catalog_item_attributes',
+  'public.catalog_item_attributes_clean',
+  /** See `scripts/supabase-bridge-native-to-install331-views.sql` — maps `attribute_def_id` + typed values to sheet-style columns. */
+  'catalog_item_attributes_compat',
+  'public.catalog_item_attributes_compat',
+]);
 const ESTIMATOR_PARAMETRIC_MODIFIERS_READ = new Set(['estimator_parametric_modifiers', 'estimator_parametric_modifiers_clean']);
 const ESTIMATOR_SKU_ALIASES_READ = new Set(['estimator_sku_aliases', 'estimator_sku_aliases_clean']);
 const ESTIMATOR_CATALOG_ITEM_ATTRIBUTES_READ = new Set([
@@ -38,11 +82,11 @@ export type CatalogSourceMode = 'supabase' | 'sqlite' | 'sheet_staging';
 /**
  * Returns the catalog items **relation** name for **reads** (table or view).
  *
- * - **Postgres catalog backend (DB_DRIVER=pg, default mapping):** `catalog_items_clean` — the compatibility VIEW over
- *   `catalog_items` (`20260430130000_catalog_items_clean_view.sql`), matching the
- *   CLEAN_ITEMS mental model without duplicating storage.
+ * - **Postgres catalog backend (DB_DRIVER=pg, default mapping):** `catalog_items` — works without a Supabase VIEW.
+ *   Deployments that create `catalog_items_clean` (migration `20260430130000_catalog_items_clean_view.sql`) can set
+ *   `CATALOG_ITEMS_TABLE=catalog_items_clean` for the CLEAN_ITEMS read surface.
  * - **SQLite (default):** `catalog_items` — local seed/tests.
- * - **Override:** `CATALOG_ITEMS_TABLE=catalog_items` | `catalog_items_clean`.
+ * - **Override:** `CATALOG_ITEMS_TABLE=catalog_items` | `catalog_items_clean` (plus optional `public.` prefix; whitelist only).
  *
  * Safety: only allows a small whitelist of identifiers to avoid SQL injection.
  */
@@ -50,7 +94,7 @@ export function getCatalogItemsTableName(): string {
   const raw = String(process.env.CATALOG_ITEMS_TABLE || '').trim();
   if (raw && ALLOWED_CATALOG_ITEMS_READ.has(raw)) return raw;
 
-  if (isPgCatalogBackend()) return 'catalog_items_clean';
+  if (isPgCatalogBackend()) return 'catalog_items';
   return 'catalog_items';
 }
 
@@ -67,48 +111,75 @@ export function getCatalogItemsWriteTableName(): 'catalog_items' {
   return 'catalog_items';
 }
 
-/** Reads for modifiers catalog defs (`modifiers_v1`). Postgres default: `modifiers_v1_clean` VIEW. */
-export function getCatalogModifiersReadTableName(): 'modifiers_v1' | 'modifiers_v1_clean' {
+/** Reads for modifiers catalog defs. Postgres default: native `modifiers` or install331 `modifiers_v1` (set `CATALOG_MODIFIERS_READ_TABLE` if you use only `_v1`). */
+export function getCatalogModifiersReadTableName(): string {
   return resolveSupportingReadTable({
     envVarName: 'CATALOG_MODIFIERS_READ_TABLE',
     sqliteDefault: 'modifiers_v1',
-    pgDefaultClean: 'modifiers_v1_clean',
+    pgDefaultClean: 'modifiers',
     allowed: MODIFIERS_V1_READ,
-  }) as 'modifiers_v1' | 'modifiers_v1_clean';
+  });
 }
 
 /**
  * Reads for bundle headers + lines.
  * Override independently via `CATALOG_BUNDLES_READ_TABLE` / `CATALOG_BUNDLE_ITEMS_READ_TABLE`.
  */
-export function getBundlesReadTableNames(): {
-  bundlesTable: 'bundles_v1' | 'bundles_v1_clean';
-  bundleItemsTable: 'bundle_items_v1' | 'bundle_items_v1_clean';
-} {
+export function getBundlesReadTableNames(): { bundlesTable: string; bundleItemsTable: string } {
   return {
     bundlesTable: resolveSupportingReadTable({
       envVarName: 'CATALOG_BUNDLES_READ_TABLE',
       sqliteDefault: 'bundles_v1',
       pgDefaultClean: 'bundles_v1_clean',
       allowed: BUNDLES_V1_READ,
-    }) as 'bundles_v1' | 'bundles_v1_clean',
+    }),
     bundleItemsTable: resolveSupportingReadTable({
       envVarName: 'CATALOG_BUNDLE_ITEMS_READ_TABLE',
       sqliteDefault: 'bundle_items_v1',
       pgDefaultClean: 'bundle_items_v1_clean',
       allowed: BUNDLE_ITEMS_V1_READ,
-    }) as 'bundle_items_v1' | 'bundle_items_v1_clean',
+    }),
   };
 }
 
-/** Reads for sheet-sync style aliases (`catalog_item_aliases`). */
-export function getCatalogItemAliasesReadTableName(): 'catalog_item_aliases' | 'catalog_item_aliases_clean' {
+/** True when the relation is Div 10 Brain `catalog_aliases` (text in `alias_text`, no `updated_at`). */
+export function isCatalogAliasesBrainTableName(rel: string): boolean {
+  const t = rel.replace(/^public\./, '');
+  return t === 'catalog_aliases';
+}
+
+/** Reads for sheet-sync aliases (`catalog_item_aliases`) or Brain synonyms (`catalog_aliases`). */
+export function getCatalogItemAliasesReadTableName(): string {
   return resolveSupportingReadTable({
     envVarName: 'CATALOG_ITEM_ALIASES_READ_TABLE',
     sqliteDefault: 'catalog_item_aliases',
     pgDefaultClean: 'catalog_item_aliases_clean',
     allowed: CATALOG_ITEM_ALIASES_READ,
-  }) as 'catalog_item_aliases' | 'catalog_item_aliases_clean';
+  });
+}
+
+export function getCatalogItemAliasesReadLayout(): 'sheet' | 'brain' {
+  return isCatalogAliasesBrainTableName(getCatalogItemAliasesReadTableName()) ? 'brain' : 'sheet';
+}
+
+/** SQL identifier for the column holding synonym / search text for the configured aliases read relation. */
+export function getCatalogAliasValueColumnSql(): 'alias_value' | 'alias_text' {
+  return getCatalogItemAliasesReadLayout() === 'brain' ? 'alias_text' : 'alias_value';
+}
+
+/**
+ * Physical table for alias INSERT/DELETE from the app or workbook import.
+ * Defaults to `catalog_item_aliases`; when reads target `catalog_aliases`, defaults the write target to the same relation unless overridden.
+ */
+export function getCatalogItemAliasesWriteTableName(): string {
+  if (!isPgCatalogBackend()) return 'catalog_item_aliases';
+  const raw = String(process.env.CATALOG_ITEM_ALIASES_WRITE_TABLE || '').trim();
+  if (raw && CATALOG_ITEM_ALIASES_WRITE.has(raw)) return raw;
+
+  const readRel = getCatalogItemAliasesReadTableName();
+  if (isCatalogAliasesBrainTableName(readRel)) return readRel;
+
+  return 'catalog_item_aliases';
 }
 
 /** Reads for sheet-sync style item attributes (`catalog_item_attributes`). */

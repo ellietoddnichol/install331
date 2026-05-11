@@ -8,10 +8,35 @@ import { TakeoffLineModifierRollup, TakeoffLineRecord, TakeoffPricingSource } fr
 import { recordIntakeCatalogMemoryFromAcceptedMatch } from './intakeCatalogMemoryRepo.ts';
 import { getRoom } from './roomsRepo.ts';
 import { getCatalogItemAttributesReadTableName, getCatalogItemsTableName } from '../db/catalogTable.ts';
+import { getTakeoffLinesTableName } from '../db/workspaceTable.ts';
+import { useNativeSupabaseWorkspace } from '../db/nativeWorkspace.ts';
+import { tryOptionalPgRelation } from '../db/pgOptionalRelation.ts';
+import * as nativePricedTakeoff from './native/nativeTakeoffPricingLinesRepo.ts';
 
 const DEFAULT_LABOR_RATE_PER_HOUR = Number(process.env.DEFAULT_LABOR_RATE_PER_HOUR || 100);
 
 export async function getConfiguredLaborRatePerHour(): Promise<number> {
+  if (isPgDriver() && useNativeSupabaseWorkspace()) {
+    const row = await tryOptionalPgRelation(
+      'takeoff public.app_settings default_labor_rate_per_hour',
+      () =>
+        dbGet<{ setting_value: unknown }>(
+          `SELECT setting_value FROM public.app_settings WHERE setting_key = ? LIMIT 1`,
+          ['default_labor_rate_per_hour']
+        ),
+      undefined
+    );
+    if (row) {
+      const raw = row.setting_value;
+      const n =
+        typeof raw === 'number'
+          ? raw
+          : raw && typeof raw === 'object' && 'defaultLaborRatePerHour' in (raw as object)
+            ? Number((raw as { defaultLaborRatePerHour?: unknown }).defaultLaborRatePerHour)
+            : Number(raw);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+  }
   const row = isPgDriver()
     ? await dbGet('SELECT default_labor_rate_per_hour FROM settings_v1 WHERE id = ?', ['global'])
     : getEstimatorDb().prepare('SELECT default_labor_rate_per_hour FROM settings_v1 WHERE id = ?').get('global');
@@ -185,9 +210,14 @@ function mapTakeoffRow(row: any): TakeoffLineRecord {
 
 /** Takeoff row from DB only (no line_modifiers). Use for pricing math and internal joins. */
 export async function getTakeoffLineCore(lineId: string): Promise<TakeoffLineRecord | null> {
+  if (isPgDriver() && useNativeSupabaseWorkspace()) {
+    const row = await nativePricedTakeoff.getPricedTakeoffLine(lineId);
+    return row ? mapTakeoffRow(row) : null;
+  }
+  const takeoffTable = getTakeoffLinesTableName();
   const row = isPgDriver()
-    ? await dbGet('SELECT * FROM takeoff_lines_v1 WHERE id = ?', [lineId])
-    : getEstimatorDb().prepare('SELECT * FROM takeoff_lines_v1 WHERE id = ?').get(lineId);
+    ? await dbGet(`SELECT * FROM ${takeoffTable} WHERE id = ?`, [lineId])
+    : getEstimatorDb().prepare(`SELECT * FROM ${takeoffTable} WHERE id = ?`).get(lineId);
   return row ? mapTakeoffRow(row) : null;
 }
 
@@ -270,13 +300,19 @@ export async function enrichLineWithModifierNames(line: TakeoffLineRecord): Prom
 }
 
 export async function listTakeoffLines(projectId: string, roomId?: string): Promise<TakeoffLineRecord[]> {
-  const rows = isPgDriver()
-    ? roomId
-      ? await dbAll('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? AND room_id = ? ORDER BY created_at', [projectId, roomId])
-      : await dbAll('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? ORDER BY created_at', [projectId])
-    : roomId
-      ? getEstimatorDb().prepare('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? AND room_id = ? ORDER BY created_at').all(projectId, roomId)
-      : getEstimatorDb().prepare('SELECT * FROM takeoff_lines_v1 WHERE project_id = ? ORDER BY created_at').all(projectId);
+  let rows: any[];
+  if (isPgDriver() && useNativeSupabaseWorkspace()) {
+    rows = await nativePricedTakeoff.listPricedTakeoffLinesForProject(projectId, roomId);
+  } else {
+    const takeoffTable = getTakeoffLinesTableName();
+    rows = isPgDriver()
+      ? roomId
+        ? await dbAll(`SELECT * FROM ${takeoffTable} WHERE project_id = ? AND room_id = ? ORDER BY created_at`, [projectId, roomId])
+        : await dbAll(`SELECT * FROM ${takeoffTable} WHERE project_id = ? ORDER BY created_at`, [projectId])
+      : roomId
+        ? getEstimatorDb().prepare(`SELECT * FROM ${takeoffTable} WHERE project_id = ? AND room_id = ? ORDER BY created_at`).all(projectId, roomId)
+        : getEstimatorDb().prepare(`SELECT * FROM ${takeoffTable} WHERE project_id = ? ORDER BY created_at`).all(projectId);
+  }
   const lines = rows.map(mapTakeoffRow);
   const ids = lines.map((l) => l.id);
   const byLine = await batchModifierNamesByLineIds(ids);
@@ -561,6 +597,8 @@ export async function createTakeoffLine(
       ? JSON.stringify(attributeDeltaLaborSnapshot)
       : null;
 
+  const takeoffTable = getTakeoffLinesTableName();
+
   const line: TakeoffLineRecord = {
     id: input.id ?? randomUUID(),
     projectId: input.projectId,
@@ -663,7 +701,7 @@ export async function createTakeoffLine(
   if (isPgDriver()) {
     await dbRun(
       `
-    INSERT INTO takeoff_lines_v1 (
+    INSERT INTO ${takeoffTable} (
       id, project_id, room_id, source_type, source_ref, description,
       proposal_visibility, proposal_description_override, parent_estimate_line_id, source_line_type,
       sku, category, subcategory, base_type,
@@ -683,7 +721,7 @@ export async function createTakeoffLine(
     getEstimatorDb()
       .prepare(
         `
-    INSERT INTO takeoff_lines_v1 (
+    INSERT INTO ${takeoffTable} (
       id, project_id, room_id, source_type, source_ref, description,
       proposal_visibility, proposal_description_override, parent_estimate_line_id, source_line_type,
       sku, category, subcategory, base_type,
@@ -713,6 +751,7 @@ export async function createTakeoffLine(
 }
 
 export async function updateTakeoffLine(lineId: string, input: Partial<TakeoffLineRecord>): Promise<TakeoffLineRecord | null> {
+  const takeoffTable = getTakeoffLinesTableName();
   const existing = await getTakeoffLineCore(lineId);
   if (!existing) return null;
 
@@ -892,7 +931,7 @@ export async function updateTakeoffLine(lineId: string, input: Partial<TakeoffLi
   if (isPgDriver()) {
     await dbRun(
       `
-    UPDATE takeoff_lines_v1 SET
+    UPDATE ${takeoffTable} SET
       room_id = ?, source_type = ?, source_ref = ?, description = ?,
       proposal_visibility = ?, proposal_description_override = ?, parent_estimate_line_id = ?, source_line_type = ?,
       sku = ?, category = ?, subcategory = ?, base_type = ?,
@@ -912,7 +951,7 @@ export async function updateTakeoffLine(lineId: string, input: Partial<TakeoffLi
     getEstimatorDb()
       .prepare(
         `
-    UPDATE takeoff_lines_v1 SET
+    UPDATE ${takeoffTable} SET
       room_id = ?, source_type = ?, source_ref = ?, description = ?,
       proposal_visibility = ?, proposal_description_override = ?, parent_estimate_line_id = ?, source_line_type = ?,
       sku = ?, category = ?, subcategory = ?, base_type = ?,
@@ -942,9 +981,10 @@ export async function updateTakeoffLine(lineId: string, input: Partial<TakeoffLi
 }
 
 export async function deleteTakeoffLine(lineId: string): Promise<boolean> {
+  const takeoffTable = getTakeoffLinesTableName();
   const result = isPgDriver()
-    ? await dbRun('DELETE FROM takeoff_lines_v1 WHERE id = ?', [lineId])
-    : getEstimatorDb().prepare('DELETE FROM takeoff_lines_v1 WHERE id = ?').run(lineId);
+    ? await dbRun(`DELETE FROM ${takeoffTable} WHERE id = ?`, [lineId])
+    : getEstimatorDb().prepare(`DELETE FROM ${takeoffTable} WHERE id = ?`).run(lineId);
   return result.changes > 0;
 }
 
@@ -972,16 +1012,17 @@ export async function bulkMoveTakeoffLinesToRoom(
 
   try {
     const now = new Date().toISOString();
+    const takeoffTable = getTakeoffLinesTableName();
     if (isPgDriver()) {
       await withPgTransaction(async (exec) => {
         for (const id of uniqueIds) {
-          await exec.run(`UPDATE takeoff_lines_v1 SET room_id = ?, updated_at = ? WHERE id = ?`, [trimmedRoom, now, id]);
+          await exec.run(`UPDATE ${takeoffTable} SET room_id = ?, updated_at = ? WHERE id = ?`, [trimmedRoom, now, id]);
         }
       });
     } else {
       const db = getEstimatorDb();
       db.transaction(() => {
-        const stmt = db.prepare('UPDATE takeoff_lines_v1 SET room_id = ?, updated_at = ? WHERE id = ?');
+        const stmt = db.prepare(`UPDATE ${takeoffTable} SET room_id = ?, updated_at = ? WHERE id = ?`);
         for (const id of uniqueIds) stmt.run(trimmedRoom, now, id);
       })();
     }
@@ -1005,8 +1046,9 @@ export async function duplicateTakeoffLine(sourceLineId: string, targetRoomId: s
 
   const newId = randomUUID();
   const now = new Date().toISOString();
+  const takeoffTable = getTakeoffLinesTableName();
   const insertSelectSql = `
-    INSERT INTO takeoff_lines_v1 (
+    INSERT INTO ${takeoffTable} (
       id, project_id, room_id, source_type, source_ref, description, sku, category, subcategory, base_type,
       qty, unit, material_cost, base_material_cost, labor_minutes, labor_cost, base_labor_cost, pricing_source, unit_sell, line_total, notes, bundle_id, catalog_item_id,
       variant_id, intake_scope_bucket, intake_match_confidence,
@@ -1027,7 +1069,7 @@ export async function duplicateTakeoffLine(sourceLineId: string, targetRoomId: s
       base_material_cost_snapshot, base_labor_minutes_snapshot,
       attribute_delta_material_snapshot_json, attribute_delta_labor_snapshot_json,
       ?, ?
-    FROM takeoff_lines_v1 WHERE id = ?
+    FROM ${takeoffTable} WHERE id = ?
   `;
   const insertParams = [newId, targetRoomId, now, now, sourceLineId];
   const inserted = isPgDriver()

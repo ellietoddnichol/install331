@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { resolveCatalogBackendSetting } from '../../db/catalogBackend.ts';
 import { isPgDriver } from '../../db/driver.ts';
 import { getPgPool } from '../../db/pgPool.ts';
+import { tryOptionalPgRelation } from '../../db/pgOptionalRelation.ts';
 
 export const catalogHealthRouter = Router();
 
@@ -25,21 +26,24 @@ catalogHealthRouter.get('/catalog-health', async (_req, res) => {
   try {
     const pool = getPgPool();
 
-    let catalogHealthRows: unknown[] = [];
-    try {
-      const r = await pool.query('SELECT * FROM public.catalog_health');
-      catalogHealthRows = r.rows;
-    } catch {
-      catalogHealthRows = [];
-    }
+    const catalogHealthRows = await tryOptionalPgRelation(
+      'catalog-health public.catalog_health',
+      async () => {
+        const r = await pool.query('SELECT * FROM public.catalog_health');
+        return r.rows;
+      },
+      []
+    );
 
     async function countFrom(rel: string): Promise<number | null> {
-      try {
-        const r = await pool.query<{ n: string }>(`SELECT count(*)::bigint AS n FROM ${rel}`);
-        return Number(r.rows[0]?.n ?? 0);
-      } catch {
-        return null;
-      }
+      return tryOptionalPgRelation(
+        `catalog-health count ${rel}`,
+        async () => {
+          const r = await pool.query<{ n: string }>(`SELECT count(*)::bigint AS n FROM ${rel}`);
+          return Number(r.rows[0]?.n ?? 0);
+        },
+        null
+      );
     }
 
     const counts = {

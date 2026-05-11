@@ -79,10 +79,16 @@ export function buildCatalogSourcePayload(): CatalogSourcePayload {
     );
   }
 
-  if (catalogItemsTable === 'catalog_items_clean') {
+  if (catalogItemsTable === 'catalog_items_clean' || catalogItemsTable === 'public.catalog_items_clean') {
     notes.push(
-      'Reads use CATALOG_ITEMS_TABLE=catalog_items_clean. In Supabase this is typically provided as a VIEW over catalog_items so CLEAN_ITEMS sync and estimator reads stay aligned.'
+      'Reads use the catalog_items_clean VIEW. In Supabase this is typically provided over catalog_items so CLEAN_ITEMS sync and estimator reads stay aligned.'
     );
+  } else if (catalogItemsTable === 'catalog_items' || catalogItemsTable === 'public.catalog_items') {
+    if (isPgCatalogBackend()) {
+      notes.push(
+        'Catalog item reads use the physical catalog_items table (default). After applying repo migrations that create catalog_items_clean, you may set CATALOG_ITEMS_TABLE=catalog_items_clean if you want that read surface.'
+      );
+    }
   }
 
   return {

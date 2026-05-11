@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowUpDown, Clipboard, Database, ExternalLink, Package, Plus, RefreshCw, Search, ShieldCheck, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
-import { useCatalogWorkspaceQuery } from '../hooks/api/useCatalogWorkspaceQuery.ts';
+import { useCatalogItemsPageQuery, useCatalogMetaQuery } from '../hooks/api/useCatalogWorkspaceQuery.ts';
 import { queryKeys } from '../lib/queryKeys.ts';
 import { CatalogSyncStatusRecord, BundleRecord, ModifierRecord } from '../shared/types/estimator';
 import { CatalogAliasType, CatalogItem } from '../types';
@@ -206,7 +206,30 @@ const MANUAL_REVIEW_QUEUE_LABELS: Record<CatalogReviewQueueKey, string> = {
 };
 
 
-function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusRecord }) {
+function catalogSyncStatusShortLabel(
+  status: CatalogSyncStatusRecord['status'] | undefined,
+  workbookImportOn: boolean,
+): string {
+  const s = status ?? 'never';
+  if (workbookImportOn) {
+    if (s === 'running') return 'Import running';
+    if (s === 'success') return 'Last import OK';
+    if (s === 'failed') return 'Last import failed';
+    return 'No import yet';
+  }
+  if (s === 'running') return 'Busy';
+  if (s === 'success') return 'DB ready';
+  if (s === 'failed') return 'Prior run had errors';
+  return 'No import recorded';
+}
+
+function CatalogSyncReviewPanel({
+  syncStatus,
+  workbookImportEnabled,
+}: {
+  syncStatus: CatalogSyncStatusRecord;
+  workbookImportEnabled: boolean;
+}) {
   const review = syncStatus.syncAudit?.catalogReview;
   const warn = syncStatus.warnings || [];
   const sum = syncStatus.lastAttemptSummary;
@@ -271,26 +294,32 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
   return (
     <details className="rounded-lg border border-dashed border-app-line bg-app-surface px-3 py-2">
       <summary className="cursor-pointer select-none text-xs font-semibold text-slate-800">
-        Sync publish review
+        {workbookImportEnabled ? 'Sync publish review' : 'Import history & audit (optional)'}
       </summary>
       <div className="mt-2 space-y-2 border-t border-app-line pt-2">
-        <div className="flex flex-wrap items-center gap-2">
-          {hist ? (
-            <span className="ui-mono-chip ui-mono-chip--ok text-[10px]">Historical workbook</span>
-          ) : (
-            <span className="ui-mono-chip ui-mono-chip--mute text-[10px]">Current server workbook</span>
-          )}
-          {hist ? (
-            <span className="text-[10px] text-app-muted">
-              Review sample cap at run: {hist.validation.catalogSyncReviewMaxSamples} · Preflight blocking cap:{' '}
-              {hist.validation.preflightMaxBlockingIssues}
-            </span>
-          ) : null}
-        </div>
+        {workbookImportEnabled ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {hist ? (
+              <span className="ui-mono-chip ui-mono-chip--ok text-[10px]">Historical workbook</span>
+            ) : (
+              <span className="ui-mono-chip ui-mono-chip--mute text-[10px]">Current server workbook</span>
+            )}
+            {hist ? (
+              <span className="text-[10px] text-app-muted">
+                Review sample cap at run: {hist.validation.catalogSyncReviewMaxSamples} · Preflight blocking cap:{' '}
+                {hist.validation.preflightMaxBlockingIssues}
+              </span>
+            ) : null}
+          </div>
+        ) : (
+          <p className="text-[10px] leading-snug text-app-muted">
+            Optional spreadsheet import is off on this server. What follows is only from past import runs or audits — not your live catalog source.
+          </p>
+        )}
         {syncStatus.workbook ? (
           <div className="rounded bg-app-surface-soft px-2 py-1.5 text-[10px] font-mono text-slate-700">
             <div>
-              Spreadsheet ID:{' '}
+              {workbookImportEnabled ? 'Spreadsheet ID:' : 'Archived workbook id:'}{' '}
               {syncStatus.workbook.spreadsheetIdConfigured && syncStatus.workbook.spreadsheetId
                 ? syncStatus.workbook.spreadsheetId
                 : '(not configured)'}
@@ -521,25 +550,18 @@ export function Catalog() {
     [],
   );
   const catalogSearchInputRef = useRef<HTMLInputElement>(null);
-  const { data, isLoading, isError, error, refetch } = useCatalogWorkspaceQuery();
-  const items = data?.items ?? [];
-  const modifiers = data?.modifiers ?? [];
-  const bundles = data?.bundles ?? [];
-  const syncStatus = data?.syncStatus ?? null;
-  const inventory = data?.inventory ?? null;
-
-  const invalidateWorkspace = useCallback(async () => {
-    await queryClient.invalidateQueries({ queryKey: queryKeys.catalog.workspace });
-  }, [queryClient]);
 
   const [activeTab, setActiveTab] = useState<CatalogTab>(initialUrlFilters.activeTab);
   const [activatingAll, setActivatingAll] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncActionError, setSyncActionError] = useState<string | null>(null);
-  const [catalogSheetsPushEnabled, setCatalogSheetsPushEnabled] = useState<boolean | null>(null);
+  const [integrationHealth, setIntegrationHealth] = useState<Awaited<ReturnType<typeof api.getV1IntegrationHealth>> | null>(null);
 
   useEffect(() => {
-    void api.getV1IntegrationHealth().then((h) => setCatalogSheetsPushEnabled(h.catalogSheetsSyncEnabled));
+    void api
+      .getV1IntegrationHealth()
+      .then(setIntegrationHealth)
+      .catch(() => setIntegrationHealth(null));
   }, []);
 
   const [search, setSearch] = useState(initialUrlFilters.search);
@@ -551,7 +573,48 @@ export function Catalog() {
   const [sortBy, setSortBy] = useState<SortKey>(initialUrlFilters.sortBy);
   /** Manufacturer-backed active rows still missing an image (narrow filter). */
   const [imageSprintOnly, setImageSprintOnly] = useState(initialUrlFilters.imageSprintOnly);
+
+  const pageSize = 75;
+  const [itemsPage, setItemsPage] = useState(0);
+
+  const metaQuery = useCatalogMetaQuery();
+  const modifiers = metaQuery.data?.modifiers ?? [];
+  const bundles = metaQuery.data?.bundles ?? [];
+  const syncStatus = metaQuery.data?.syncStatus ?? null;
+  const inventory = metaQuery.data?.inventory ?? null;
+  const facets = metaQuery.data?.facets;
+
+  const itemsPageQuery = useCatalogItemsPageQuery({
+    offset: itemsPage * pageSize,
+    limit: pageSize,
+    activeFilter,
+    categoryFilter,
+    search,
+    typeFilter,
+    sourceTabFilter,
+    sortBy,
+    imageSprintOnly,
+  });
+  const items = itemsPageQuery.data?.items ?? [];
+  const totalItemRows = itemsPageQuery.data?.total ?? 0;
+
+  const invalidateWorkspace = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: queryKeys.catalog.meta });
+    await queryClient.invalidateQueries({
+      predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === 'catalog' && q.queryKey[1] === 'items',
+    });
+  }, [queryClient]);
+
+  const isLoading = metaQuery.isLoading || (activeTab === 'items' && itemsPageQuery.isLoading);
+  const isError = metaQuery.isError || (activeTab === 'items' && itemsPageQuery.isError);
+  const error = metaQuery.error ?? itemsPageQuery.error;
+  const refetch = useCallback(() => {
+    void metaQuery.refetch();
+    void itemsPageQuery.refetch();
+  }, [metaQuery, itemsPageQuery]);
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
+  /** True when the row was created locally (not yet in Postgres); paged list cannot detect this by membership. */
+  const [editingItemIsNew, setEditingItemIsNew] = useState(false);
   const [editingModifier, setEditingModifier] = useState<ModifierRecord | null>(null);
   /** Avoids reopening the item editor when URL still has `catalogItem` for one frame after close (searchParams lag vs state). */
   const suppressCatalogItemUrlOpenRef = useRef(false);
@@ -564,7 +627,12 @@ export function Catalog() {
       setSearchParams(next, { replace: true });
     }
     setEditingItem(null);
+    setEditingItemIsNew(false);
   }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    setItemsPage(0);
+  }, [search, categoryFilter, activeFilter, typeFilter, sourceTabFilter, sortBy, imageSprintOnly]);
 
   const [editingBundle, setEditingBundle] = useState<BundleRecord | null>(null);
   const [savingModifier, setSavingModifier] = useState(false);
@@ -643,23 +711,37 @@ export function Catalog() {
       suppressCatalogItemUrlOpenRef.current = false;
     }
 
-    if (items.length > 0 && idInUrl && !suppressCatalogItemUrlOpenRef.current) {
+    if (idInUrl && !suppressCatalogItemUrlOpenRef.current) {
       const found = items.find((i) => i.id === idInUrl);
-      if (!found) {
-        const next = new URLSearchParams(searchParams);
-        next.delete('catalogItem');
-        if (next.toString() !== searchParams.toString()) {
-          setSearchParams(next, { replace: true });
+      if (found) {
+        if (editingItem?.id !== found.id) {
+          setEditingItem(found);
+          setEditingItemIsNew(false);
         }
-        return;
-      }
-      if (editingItem?.id !== found.id) {
-        setEditingItem(found);
-        return;
+      } else if (!editingItem || editingItem.id !== idInUrl) {
+        let cancelled = false;
+        void (async () => {
+          try {
+            const row = await api.getV1CatalogItem(idInUrl);
+            if (cancelled || suppressCatalogItemUrlOpenRef.current) return;
+            setEditingItem(row);
+            setEditingItemIsNew(false);
+          } catch {
+            if (cancelled) return;
+            const next = new URLSearchParams(searchParams);
+            next.delete('catalogItem');
+            if (next.toString() !== searchParams.toString()) {
+              setSearchParams(next, { replace: true });
+            }
+          }
+        })();
+        return () => {
+          cancelled = true;
+        };
       }
     }
 
-    const catalogItemIdForUrl = editingItem?.id || (items.length === 0 ? idInUrl : null);
+    const catalogItemIdForUrl = editingItem?.id || idInUrl;
 
     const next = buildCatalogWorkspaceSearchParams({
       activeTab,
@@ -676,7 +758,7 @@ export function Catalog() {
     setSearchParams(next, { replace: true });
   }, [
     items,
-    editingItem?.id,
+    editingItem,
     searchParams,
     setSearchParams,
     activeTab,
@@ -717,7 +799,7 @@ export function Catalog() {
   async function handleActivateAllCatalogItems() {
     if (!inventory || inventory.inactive === 0) return;
     const ok = window.confirm(
-      catalogSheetsPushEnabled === true
+      integrationHealth?.catalogSheetsSyncEnabled === true
         ? `Set all ${inventory.total} catalog rows to Active? This fixes items hidden after a Google Sheet sync that listed fewer rows than your database.`
         : `Set all ${inventory.total} catalog rows to Active? Use this if bulk edits left rows inactive unintentionally.`
     );
@@ -749,79 +831,25 @@ export function Catalog() {
     }
   }
 
-  const categories = useMemo(() => ['all', ...Array.from(new Set(items.map((i) => i.category))).sort()], [items]);
+  const categories = useMemo(
+    () => ['all', ...(facets?.categories ? [...facets.categories].sort((a, b) => a.localeCompare(b)) : [])],
+    [facets?.categories]
+  );
   const itemTypes = useMemo(
-    () => ['all', ...Array.from(new Set(items.map((i) => catalogRowTypeLabel(i)))).sort((a, b) => a.localeCompare(b))],
-    [items]
+    () => ['all', ...(facets?.itemTypes ? [...facets.itemTypes].sort((a, b) => a.localeCompare(b)) : [])],
+    [facets?.itemTypes]
   );
 
   const sheetSourceTabOptions = useMemo(() => {
-    const set = new Set<string>();
-    let anyMissing = false;
-    for (const item of items) {
-      const t = catalogItemSourceTab(item);
-      if (t) set.add(t);
-      else anyMissing = true;
-    }
-    const tabs = Array.from(set).sort((a, b) => a.localeCompare(b));
-    return (anyMissing ? (['all', '__none__', ...tabs] as const) : (['all', ...tabs] as const)) as readonly string[];
-  }, [items]);
+    const tabs = facets?.sourceTabs ? [...facets.sourceTabs].sort((a, b) => a.localeCompare(b)) : [];
+    return (facets?.hasUntaggedSource ? (['all', '__none__', ...tabs] as const) : (['all', ...tabs] as const)) as readonly string[];
+  }, [facets?.hasUntaggedSource, facets?.sourceTabs]);
 
-  const filteredItems = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return items
-      .filter((item) => {
-        const textMatch =
-          !query ||
-          item.description.toLowerCase().includes(query) ||
-          item.sku.toLowerCase().includes(query) ||
-          item.category.toLowerCase().includes(query) ||
-          (item.family || '').toLowerCase().includes(query) ||
-          (item.subcategory || '').toLowerCase().includes(query) ||
-          (item.manufacturer || '').toLowerCase().includes(query) ||
-          (item.brand || '').toLowerCase().includes(query) ||
-          (item.model || '').toLowerCase().includes(query) ||
-          (item.modelNumber || '').toLowerCase().includes(query) ||
-          (item.series || '').toLowerCase().includes(query) ||
-          (item.itemType || '').toLowerCase().includes(query) ||
-          (item.catalogSourceTab || '').toLowerCase().includes(query) ||
-          (item.catalogSource || '').toLowerCase().includes(query);
-
-        const categoryMatch = categoryFilter === 'all' || item.category === categoryFilter;
-        const activeMatch =
-          activeFilter === 'all' ||
-          (activeFilter === 'active' && item.active) ||
-          (activeFilter === 'inactive' && !item.active);
-
-        const currentType = catalogRowTypeLabel(item);
-        const typeMatch = typeFilter === 'all' || currentType === typeFilter;
-
-        const itemTab = catalogItemSourceTab(item);
-        const sourceTabMatch =
-          sourceTabFilter === 'all' ||
-          (sourceTabFilter === '__none__' ? !itemTab : itemTab === sourceTabFilter);
-
-        const isDeprecated = Boolean(item.deprecated);
-        const forwardFacing = item.active && !isDeprecated;
-        const mfrBacked =
-          Boolean(String(item.manufacturer || '').trim()) &&
-          (Boolean(String(item.model || '').trim()) || Boolean(String(item.series || '').trim()));
-        const missingImage = !String(item.imageUrl || '').trim();
-        const imageSprintMatch = !imageSprintOnly || (forwardFacing && mfrBacked && missingImage);
-
-        return textMatch && categoryMatch && activeMatch && typeMatch && sourceTabMatch && imageSprintMatch;
-      })
-      .sort((a, b) => {
-        if (sortBy === 'sku-asc') return a.sku.localeCompare(b.sku);
-        if (sortBy === 'sku-desc') return b.sku.localeCompare(a.sku);
-        if (sortBy === 'name-asc') return a.description.localeCompare(b.description);
-        if (sortBy === 'name-desc') return b.description.localeCompare(a.description);
-        if (sortBy === 'category-asc') return a.category.localeCompare(b.category);
-        if (sortBy === 'material-desc') return b.baseMaterialCost - a.baseMaterialCost;
-        if (sortBy === 'labor-desc') return b.baseLaborMinutes - a.baseLaborMinutes;
-        return 0;
-      });
-  }, [items, search, categoryFilter, activeFilter, typeFilter, sourceTabFilter, sortBy, imageSprintOnly]);
+  const totalPages = Math.max(1, Math.ceil(totalItemRows / pageSize));
+  const pageRangeLabel =
+    totalItemRows === 0
+      ? '0'
+      : `${itemsPage * pageSize + 1}–${itemsPage * pageSize + items.length}`;
 
   const curatorEditorContextBadges = useMemo(() => {
     const tags: string[] = [];
@@ -892,13 +920,14 @@ export function Catalog() {
       tags: [],
     };
     setEditingItem(newItem);
+    setEditingItemIsNew(true);
   };
 
   async function handleSaveItem(e: React.FormEvent) {
     e.preventDefault();
     if (!editingItem) return;
     try {
-      const isNew = !items.find((item) => item.id === editingItem.id);
+      const isNew = editingItemIsNew;
       if (isNew) {
         await api.createCatalogItem(editingItem);
       } else {
@@ -1101,13 +1130,24 @@ export function Catalog() {
     }
   }
 
-  const workbookPushEnabled = catalogSheetsPushEnabled === true;
+  /** Optional Google Sheets → DB import (`CATALOG_SHEETS_SYNC_ENABLED`); orthogonal to where live reads come from. */
+  const sheetImportEnabled = integrationHealth?.catalogSheetsSyncEnabled === true;
+  const dbDriver = (integrationHealth?.dbDriver ?? '').toLowerCase();
+  const catalogDbIsPostgres = dbDriver === 'pg';
+  const catalogDbIsSqlite = dbDriver === 'sqlite';
+  const catalogPersistenceLabel = catalogDbIsPostgres ? 'Supabase Postgres' : catalogDbIsSqlite ? 'local SQLite' : 'database';
   const lastSynced = syncStatus?.lastSuccessAt || syncStatus?.lastAttemptAt;
   const displayedSyncFailure =
     syncActionError ||
-    (workbookPushEnabled && syncStatus?.status === 'failed' && syncStatus.message?.trim() ? syncStatus.message.trim() : null);
+    (sheetImportEnabled && syncStatus?.status === 'failed' && syncStatus.message?.trim() ? syncStatus.message.trim() : null);
   const itemsSyncedLabelHint =
-    syncStatus?.status === 'failed' ? 'Last successful sheet import' : 'Last workbook import';
+    syncStatus?.status === 'failed'
+      ? sheetImportEnabled
+        ? 'Last successful sheet import'
+        : 'Last successful catalog run'
+      : sheetImportEnabled
+        ? 'Last workbook import'
+        : 'Last catalog run';
 
   return (
     <div className="ui-page space-y-5">
@@ -1122,14 +1162,45 @@ export function Catalog() {
             </div>
             <h1 className="mt-2 text-[24px] font-semibold leading-tight tracking-tight text-slate-950 md:text-[28px]">Catalog</h1>
             <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.06em] text-slate-500">
-              {workbookPushEnabled
-                ? 'Items, modifiers, and bundles from your workspace; workbook import can refresh Postgres.'
-                : 'Items, modifiers, and bundles from Supabase Postgres (live database).'}
+              {!integrationHealth
+                ? 'Items, modifiers, and bundles from the catalog database.'
+                : catalogDbIsPostgres
+                  ? `Items, modifiers, and bundles from Supabase Postgres.${sheetImportEnabled ? ' Optional workbook import can upsert rows into Postgres.' : ''}`
+                  : catalogDbIsSqlite
+                    ? `Items, modifiers, and bundles from local SQLite.${sheetImportEnabled ? ' Optional workbook import can refresh catalog rows.' : ''}`
+                    : `Items, modifiers, and bundles from ${catalogPersistenceLabel}.`}
             </p>
+            {integrationHealth && catalogDbIsPostgres && integrationHealth.workspaceTakeoffLinesTable ? (
+              <p className="mt-2 max-w-[52rem] text-[10px] leading-snug text-slate-500">
+                Workspace mapping: takeoff lines in <span className="font-mono text-slate-700">{integrationHealth.workspaceTakeoffLinesTable}</span>
+                {integrationHealth.catalogAliasesReadTable ? (
+                  <>
+                    {' '}
+                    · catalog synonyms read from <span className="font-mono text-slate-700">{integrationHealth.catalogAliasesReadTable}</span> (
+                    {integrationHealth.catalogAliasesLayout === 'brain' ? (
+                      <span>
+                        <span className="font-mono">alias_text</span> / Div 10 Brain
+                      </span>
+                    ) : (
+                      <span>
+                        <span className="font-mono">alias_value</span> / sheet-style
+                      </span>
+                    )}
+                    ){integrationHealth.catalogAliasesWriteTable ? (
+                      <>
+                        {' '}
+                        · writes to <span className="font-mono text-slate-700">{integrationHealth.catalogAliasesWriteTable}</span>
+                      </>
+                    ) : null}
+                  </>
+                ) : null}
+                .
+              </p>
+            ) : null}
             <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
               <span className="ui-chip-soft inline-flex items-center gap-1.5 px-2.5 py-1 font-medium text-slate-700">
                 <Package className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-                {items.length} items
+                {inventory?.total ?? '—'} items
               </span>
               <span className="ui-chip-soft px-2.5 py-1 font-medium text-slate-700">{modifiers.length} modifiers</span>
               <span className="ui-chip-soft px-2.5 py-1 font-medium text-slate-700">{bundles.length} bundles</span>
@@ -1140,12 +1211,16 @@ export function Catalog() {
               ) : null}
               {lastSynced ? (
                 <span className="rounded-md border border-app-line bg-app-surface-soft px-2.5 py-1 text-app-muted">
-                  {workbookPushEnabled ? 'Last workbook import ' : 'Last catalog run '}
+                  {sheetImportEnabled ? 'Last workbook import ' : 'Last catalog run '}
                   {new Date(lastSynced).toLocaleString()}
                 </span>
               ) : (
                 <span className="rounded-md border border-dashed border-app-line px-2.5 py-1 text-app-muted">
-                  {workbookPushEnabled ? 'No import yet — run sync below' : 'No workbook import history (Supabase is source)'}
+                  {sheetImportEnabled
+                    ? 'No workbook import yet — run sync below if you use Sheets'
+                    : catalogDbIsPostgres
+                      ? 'No workbook import history (live catalog is in Postgres)'
+                      : 'No workbook import history'}
                 </span>
               )}
             </div>
@@ -1157,30 +1232,31 @@ export function Catalog() {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 id="catalog-sync-heading" className="text-sm font-semibold text-slate-900">
-              {workbookPushEnabled ? 'Google Sheets → database import' : 'Catalog source'}
+              Catalog source
             </h2>
-            <p className="ui-mono-kicker mt-1">Module 01 / {workbookPushEnabled ? 'Workbook import' : 'Supabase'}</p>
+            <p className="ui-mono-kicker mt-1">Module 01 / {catalogPersistenceLabel}</p>
             <p className="mt-1 max-w-[52rem] text-xs leading-snug text-slate-500">
-              {workbookPushEnabled
-                ? 'Rows missing from the sheet are deactivated after import; use Activate all after a bulk import if counts look wrong.'
-                : 'The app reads catalog tables in Postgres. Edit in Supabase (Table Editor or SQL). Set CATALOG_SHEETS_SYNC_ENABLED=1 on the server only if you need spreadsheet imports again.'}
+              {catalogDbIsPostgres
+                ? sheetImportEnabled
+                  ? 'Live catalog is Postgres (Supabase). Optional workbook import is on — rows missing from the workbook can be deactivated after import; use Activate all if counts look wrong.'
+                  : 'Live catalog is Postgres (Supabase). Edit in the Table Editor or SQL. Optional workbook import is off on this server — nothing is “syncing” from a spreadsheet unless you enable it in server env.'
+                : catalogDbIsSqlite
+                  ? sheetImportEnabled
+                    ? 'Local SQLite catalog. Workbook import can upsert rows; rows missing from the workbook may be deactivated after import.'
+                    : 'Local SQLite catalog on this machine. Edit here or via scripts; use DB_DRIVER=pg + DATABASE_URL for Supabase-hosted catalog.'
+                  : 'Catalog persistence follows DB_DRIVER on the server.'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="ui-chip-soft inline-flex items-center gap-1">
               <Database className="w-3.5 h-3.5" aria-hidden />
-              Source: {workbookPushEnabled ? 'workbook import → Postgres' : 'Supabase Postgres'}
+              Live data: {catalogPersistenceLabel}
+              {sheetImportEnabled ? <span className="text-app-muted"> · Sheets import on</span> : null}
             </span>
             <span className={`rounded px-2 py-1 text-xs font-medium ${statusClass(syncStatus?.status || 'never')}`}>
-              {syncStatus?.status === 'running'
-                ? 'Syncing'
-                : syncStatus?.status === 'success'
-                  ? 'Synced'
-                  : syncStatus?.status === 'failed'
-                    ? 'Failed'
-                    : 'Never synced'}
+              {catalogSyncStatusShortLabel(syncStatus?.status, sheetImportEnabled)}
             </span>
-            {workbookPushEnabled ? (
+            {sheetImportEnabled ? (
               <button
                 type="button"
                 onClick={() => void handleSyncCatalog()}
@@ -1197,9 +1273,9 @@ export function Catalog() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2 text-xs">
           <div
             className="ui-surface-soft px-2 py-1.5 text-slate-700"
-            title={workbookPushEnabled ? 'Resolved from server env (GOOGLE_SHEETS_TAB_*)' : undefined}
+            title={sheetImportEnabled ? 'Resolved from server env (GOOGLE_SHEETS_TAB_*)' : undefined}
           >
-            {workbookPushEnabled ? (
+            {sheetImportEnabled ? (
               syncStatus?.workbook ? (
                 <>
                   Sheet tabs: {syncStatus.workbook.tabs.itemsFetch}, {syncStatus.workbook.tabs.modifiersFetch},{' '}
@@ -1210,10 +1286,13 @@ export function Catalog() {
                 <>Default tabs: CLEAN_ITEMS, CLEAN_MODIFIERS, BUNDLES, ALIASES, ATTRIBUTES</>
               )
             ) : (
-              <>Workbook import disabled — no sheet tabs in use</>
+              <>Postgres catalog only — optional workbook import is off</>
             )}
           </div>
-          <div className="ui-surface-soft px-2 py-1.5 text-slate-700">Last import: {lastSynced ? new Date(lastSynced).toLocaleString() : 'Never'}</div>
+          <div className="ui-surface-soft px-2 py-1.5 text-slate-700">
+            {sheetImportEnabled ? 'Last import: ' : 'Last recorded import: '}
+            {lastSynced ? new Date(lastSynced).toLocaleString() : 'Never'}
+          </div>
           <div className="ui-surface-soft px-2 py-1.5 text-slate-700">
             DB rows: {inventory ? `${inventory.total} total · ${inventory.active} active · ${inventory.inactive} inactive` : '—'}
           </div>
@@ -1227,7 +1306,7 @@ export function Catalog() {
 
         {displayedSyncFailure ? (
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900 whitespace-pre-wrap">
-            <span className="font-semibold">Sync error: </span>
+            <span className="font-semibold">{sheetImportEnabled ? 'Import error: ' : 'Catalog run error: '}</span>
             {displayedSyncFailure}
           </div>
         ) : null}
@@ -1236,7 +1315,7 @@ export function Catalog() {
           <div className="ui-callout-warn flex flex-wrap items-center justify-between gap-2 text-xs">
             <p>
               <span className="font-semibold">{inventory.inactive} catalog row(s) are inactive</span> — hidden from estimates and intake unless you filter “Inactive” here.
-              {workbookPushEnabled
+              {sheetImportEnabled
                 ? 'Often caused by importing from a workbook that listed fewer rows than this database.'
                 : 'Often caused by deactivating rows in the database or legacy imports.'}
             </p>
@@ -1258,7 +1337,7 @@ export function Catalog() {
             ))}
           </div>
         ) : null}
-        {syncStatus ? <CatalogSyncReviewPanel syncStatus={syncStatus} /> : null}
+        {syncStatus ? <CatalogSyncReviewPanel syncStatus={syncStatus} workbookImportEnabled={sheetImportEnabled} /> : null}
       </section>
 
       <nav className="ui-surface p-3" aria-label="Catalog data tabs">
@@ -1268,7 +1347,7 @@ export function Catalog() {
             onClick={() => setActiveTab('items')}
             className={`ui-wtab ${activeTab === 'items' ? 'ui-wtab-blue' : 'ui-wtab-idle'}`}
           >
-            Items ({items.length})
+            Items ({inventory?.total ?? '—'})
           </button>
           <button
             type="button"
@@ -1426,7 +1505,11 @@ export function Catalog() {
         ) : null}
 
         <div className="mt-2 text-[11px] text-slate-500">
-          {activeTab === 'items' ? `Showing ${filteredItems.length} of ${items.length} item records` : activeTab === 'modifiers' ? `Showing ${filteredModifiers.length} of ${modifiers.length} modifier records` : `Showing ${filteredBundles.length} of ${bundles.length} bundle records`}
+          {activeTab === 'items'
+            ? `Rows ${pageRangeLabel} of ${totalItemRows} (page ${Math.min(itemsPage + 1, totalPages)} / ${totalPages})`
+            : activeTab === 'modifiers'
+              ? `Showing ${filteredModifiers.length} of ${modifiers.length} modifier records`
+              : `Showing ${filteredBundles.length} of ${bundles.length} bundle records`}
         </div>
       </section>
 
@@ -1443,21 +1526,32 @@ export function Catalog() {
           ) : isLoading ? (
             <div className="flex min-h-[30vh] items-center justify-center p-8 text-sm text-slate-500">Loading catalog…</div>
           ) : activeTab === 'items' ? (
-            filteredItems.length === 0 ? (
+            totalItemRows === 0 ? (
               <div className="flex min-h-[28vh] flex-col items-center justify-center gap-3 p-10 text-center">
                 <Package className="mx-auto h-8 w-8 text-slate-300" aria-hidden />
-                {items.length === 0 ? (
+                {(inventory?.total ?? 0) === 0 ? (
                   <>
                     <div>
                       <p className="text-sm font-semibold text-slate-800">No catalog items in the database yet</p>
                       <p className="mt-2 max-w-md text-xs leading-relaxed text-slate-600">
-                        {workbookPushEnabled ? (
+                        {catalogDbIsPostgres ? (
+                          <>
+                            Add rows in <strong>Supabase</strong> (e.g.{' '}
+                            <code className="rounded bg-slate-100 px-1">catalog_items</code>) or create them here.
+                            {sheetImportEnabled ? (
+                              <>
+                                {' '}
+                                Or run <strong>Import from Sheets</strong> above if you load catalog from a workbook.
+                              </>
+                            ) : null}
+                          </>
+                        ) : sheetImportEnabled ? (
                           <>
                             Run <strong>Import from Sheets</strong> above (configure workbook tabs first). Until rows import, Items stays empty — modifiers and bundles follow the same run.
                           </>
                         ) : (
                           <>
-                            Add rows in <strong>Supabase</strong> (e.g. <code className="rounded bg-slate-100 px-1">catalog_items</code>) or use a migration script. The UI can create items here once the table has data.
+                            Seed or add rows in your local catalog database, or create items here once the table is ready.
                           </>
                         )}
                       </p>
@@ -1475,6 +1569,7 @@ export function Catalog() {
                 )}
               </div>
             ) : (
+              <>
               <table className="w-full text-xs">
                 <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 backdrop-blur-sm">
                   <tr>
@@ -1493,7 +1588,7 @@ export function Catalog() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredItems.map((item) => {
+                  {items.map((item) => {
                     const cat = String(item.category || '').toLowerCase();
                     const accent = cat.includes('partition')
                       ? 'border-l-emerald-500'
@@ -1514,12 +1609,14 @@ export function Catalog() {
                       className={`cursor-pointer border-b border-slate-100 border-l-[3px] ${accent} outline-none hover:bg-slate-50/70 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400/50`}
                       onClick={() => {
                         suppressCatalogItemUrlOpenRef.current = false;
+                        setEditingItemIsNew(false);
                         setEditingItem(item);
                       }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
                           suppressCatalogItemUrlOpenRef.current = false;
+                          setEditingItemIsNew(false);
                           setEditingItem(item);
                         }
                       }}
@@ -1656,6 +1753,32 @@ export function Catalog() {
                   })}
                 </tbody>
               </table>
+              {totalItemRows > 0 ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50/80 px-3 py-2 text-[11px] text-slate-600">
+                  <span className="tabular-nums">
+                    {totalItemRows} matching {totalItemRows === 1 ? 'row' : 'rows'}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="ui-btn-secondary h-8 px-2.5 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+                      disabled={itemsPage <= 0 || itemsPageQuery.isFetching}
+                      onClick={() => setItemsPage((p) => Math.max(0, p - 1))}
+                    >
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      className="ui-btn-secondary h-8 px-2.5 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+                      disabled={(itemsPage + 1) * pageSize >= totalItemRows || itemsPageQuery.isFetching}
+                      onClick={() => setItemsPage((p) => p + 1)}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              </>
             )
           ) : activeTab === 'modifiers' ? (
             filteredModifiers.length === 0 ? (
@@ -1665,9 +1788,11 @@ export function Catalog() {
                 </div>
                 <p className="max-w-md text-xs leading-relaxed text-slate-600">
                   {modifiers.length === 0
-                    ? workbookPushEnabled
-                      ? 'Import from Sheets above after your workbook MODIFIERS tab is populated. Modifier rows drive labor/material deltas on estimates.'
-                      : 'Add modifier rows in Supabase (modifiers table) or use Add controls in this UI once the catalog backend has tables ready.'
+                    ? catalogDbIsPostgres
+                      ? `Add modifier rows in Supabase or use Add controls in this UI.${sheetImportEnabled ? ' You can also import from Sheets after the MODIFIERS tab is populated.' : ''}`
+                      : sheetImportEnabled
+                        ? 'Import from Sheets above after your workbook MODIFIERS tab is populated. Modifier rows drive labor/material deltas on estimates.'
+                        : 'Add modifier rows in the local database or use Add controls in this UI once tables are ready.'
                     : 'Clear search or switch activation filter to “All activation”. Import warnings above sometimes list unknown modifier keys referenced by bundles.'}
                 </p>
               </div>
@@ -1754,9 +1879,11 @@ export function Catalog() {
               </div>
               <p className="max-w-md text-xs leading-relaxed text-slate-600">
                 {bundles.length === 0
-                  ? workbookPushEnabled
-                    ? 'Import from Sheets once your workbook BUNDLES tab has rows. Bundles reference catalog SKUs and modifiers — orphan hints appear under import warnings when something does not resolve.'
-                    : 'Create bundle rows in Supabase or with bundle tools in this UI. Bundles reference existing item SKUs and modifier keys.'
+                  ? catalogDbIsPostgres
+                    ? `Create bundle rows in Supabase or with bundle tools in this UI.${sheetImportEnabled ? ' You can also import from Sheets once the BUNDLES tab has rows.' : ''}`
+                    : sheetImportEnabled
+                      ? 'Import from Sheets once your workbook BUNDLES tab has rows. Bundles reference catalog SKUs and modifiers — orphan hints appear under import warnings when something does not resolve.'
+                      : 'Create bundle rows in the local database or with bundle tools in this UI.'
                   : 'Clear search or widen the activation filter. Use Manual review queues in the panel above to export orphan bundle SKU references.'}
               </p>
             </div>
@@ -2171,7 +2298,7 @@ export function Catalog() {
                       ) : (
                         <p className="mt-2 border-t border-app-line pt-2 text-[11px] text-app-muted">
                           No extra provenance fields on this row
-                          {workbookPushEnabled ? ' (they often appear after a workbook import).' : '.'}
+                          {sheetImportEnabled ? ' (they often appear after a workbook import).' : '.'}
                         </p>
                       );
                     })()}

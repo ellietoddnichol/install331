@@ -3,6 +3,8 @@ import { getEstimatorDb } from '../db/connection.ts';
 import { isPgDriver } from '../db/driver.ts';
 import { dbAll, dbGet, dbRun } from '../db/query.ts';
 import { RoomRecord } from '../../shared/types/estimator.ts';
+import { useNativeSupabaseWorkspace } from '../db/nativeWorkspace.ts';
+import * as nativeRooms from './native/nativeRoomsRepo.ts';
 
 function mapRoomRow(row: any): RoomRecord {
   return {
@@ -17,6 +19,9 @@ function mapRoomRow(row: any): RoomRecord {
 }
 
 export async function listRooms(projectId: string): Promise<RoomRecord[]> {
+  if (isPgDriver() && useNativeSupabaseWorkspace()) {
+    return nativeRooms.listRoomsByProjectNative(projectId);
+  }
   const rows = isPgDriver()
     ? await dbAll('SELECT * FROM rooms_v1 WHERE project_id = ? ORDER BY sort_order, created_at', [projectId])
     : getEstimatorDb().prepare('SELECT * FROM rooms_v1 WHERE project_id = ? ORDER BY sort_order, created_at').all(projectId);
@@ -24,6 +29,9 @@ export async function listRooms(projectId: string): Promise<RoomRecord[]> {
 }
 
 export async function getRoom(roomId: string): Promise<RoomRecord | null> {
+  if (isPgDriver() && useNativeSupabaseWorkspace()) {
+    return nativeRooms.getRoomNative(roomId);
+  }
   const row = isPgDriver()
     ? await dbGet('SELECT * FROM rooms_v1 WHERE id = ?', [roomId])
     : getEstimatorDb().prepare('SELECT * FROM rooms_v1 WHERE id = ?').get(roomId);
@@ -32,14 +40,16 @@ export async function getRoom(roomId: string): Promise<RoomRecord | null> {
 
 export async function createRoom(input: Partial<RoomRecord> & { projectId: string; roomName: string }): Promise<RoomRecord> {
   const now = new Date().toISOString();
-  const sortRow = isPgDriver()
-    ? await dbGet<{ next_sort: number }>(
-        'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_sort FROM rooms_v1 WHERE project_id = ?',
-        [input.projectId]
-      )
-    : (getEstimatorDb()
-        .prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_sort FROM rooms_v1 WHERE project_id = ?')
-        .get(input.projectId) as { next_sort: number } | undefined);
+  const sortRow = isPgDriver() && useNativeSupabaseWorkspace()
+    ? { next_sort: await nativeRooms.nextSortOrderNative(input.projectId) }
+    : isPgDriver()
+      ? await dbGet<{ next_sort: number }>(
+          'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_sort FROM rooms_v1 WHERE project_id = ?',
+          [input.projectId]
+        )
+      : (getEstimatorDb()
+          .prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_sort FROM rooms_v1 WHERE project_id = ?')
+          .get(input.projectId) as { next_sort: number } | undefined);
 
   const room: RoomRecord = {
     id: input.id ?? randomUUID(),
@@ -51,7 +61,14 @@ export async function createRoom(input: Partial<RoomRecord> & { projectId: strin
     updatedAt: now,
   };
 
-  if (isPgDriver()) {
+  if (isPgDriver() && useNativeSupabaseWorkspace()) {
+    await nativeRooms.createRoomNative({
+      id: room.id,
+      projectId: room.projectId,
+      roomName: room.roomName,
+      sortOrder: room.sortOrder,
+    });
+  } else if (isPgDriver()) {
     await dbRun(
       `
     INSERT INTO rooms_v1 (id, project_id, room_name, sort_order, notes, created_at, updated_at)
@@ -84,7 +101,9 @@ export async function updateRoom(roomId: string, input: Partial<RoomRecord>): Pr
     updatedAt: new Date().toISOString(),
   };
 
-  if (isPgDriver()) {
+  if (isPgDriver() && useNativeSupabaseWorkspace()) {
+    await nativeRooms.updateRoomNative(roomId, next.roomName, next.sortOrder);
+  } else if (isPgDriver()) {
     await dbRun(`UPDATE rooms_v1 SET room_name = ?, sort_order = ?, notes = ?, updated_at = ? WHERE id = ?`, [
       next.roomName,
       next.sortOrder,
@@ -102,6 +121,9 @@ export async function updateRoom(roomId: string, input: Partial<RoomRecord>): Pr
 }
 
 export async function deleteRoom(roomId: string): Promise<boolean> {
+  if (isPgDriver() && useNativeSupabaseWorkspace()) {
+    return nativeRooms.deleteRoomNative(roomId);
+  }
   const result = isPgDriver()
     ? await dbRun('DELETE FROM rooms_v1 WHERE id = ?', [roomId])
     : getEstimatorDb().prepare('DELETE FROM rooms_v1 WHERE id = ?').run(roomId);

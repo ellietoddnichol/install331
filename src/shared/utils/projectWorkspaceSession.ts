@@ -12,6 +12,8 @@ export type WorkspaceUiSnapshot = {
   pricingOrganizeMode?: 'rooms' | 'categories';
   /** When `categories`, filter key or PRICING_ALL_CATEGORIES sentinel (stored as string). */
   pricingCategoryFilter?: string;
+  /** Native Postgres proposal: `estimates.id` used with `v_estimate_lines_customer` / `v_estimate_summary`. */
+  proposalNativeEstimateId?: string | null;
 };
 
 export function readWorkspaceUi(projectId: string): WorkspaceUiSnapshot {
@@ -33,7 +35,7 @@ export function writeWorkspaceUi(projectId: string, snapshot: WorkspaceUiSnapsho
   }
 }
 
-const KNOWN_TABS = new Set<string>(['overview', 'setup', 'scope-review', 'estimate', 'proposal']);
+const KNOWN_TABS = new Set<string>(['overview', 'setup', 'scope-review', 'matching', 'estimate', 'proposal']);
 
 export function tabFromSearchParam(value: string | null): WorkspaceTab {
   if (!value) return 'estimate';

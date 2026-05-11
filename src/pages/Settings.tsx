@@ -174,7 +174,8 @@ export function Settings() {
           <p className="ui-mono-kicker">Integrations</p>
           <h2 className="text-sm font-semibold text-slate-900">Environment readiness</h2>
           <p className="text-xs text-slate-500">
-            Booleans indicate whether required variables are set on the server (not whether the last sync succeeded).
+            Booleans indicate whether required variables are set on the server (not whether the last sync succeeded). When{' '}
+            <span className="font-mono">DB_DRIVER=pg</span>, the live catalog is still Postgres; workbook import is only an optional way to load rows.
           </p>
           <dl className="grid gap-2 text-xs sm:grid-cols-2">
             <div className="flex justify-between gap-2 border-b border-slate-100 pb-1">
@@ -194,8 +195,8 @@ export function Settings() {
               <dd>{integrationHealth.googleSheets ? 'configured' : 'missing'}</dd>
             </div>
             <div className="flex justify-between gap-2 border-b border-slate-100 pb-1">
-              <dt className="text-slate-500">Workbook → DB import</dt>
-              <dd>{integrationHealth.catalogSheetsSyncEnabled ? 'enabled' : 'off (Supabase-only)'}</dd>
+              <dt className="text-slate-500">Workbook → DB import (CATALOG_SHEETS_SYNC_ENABLED)</dt>
+              <dd>{integrationHealth.catalogSheetsSyncEnabled ? 'on' : 'off'}</dd>
             </div>
             <div className="flex justify-between gap-2 border-b border-slate-100 pb-1">
               <dt className="text-slate-500">Supabase (anon)</dt>
@@ -221,6 +222,35 @@ export function Settings() {
               <dt className="text-slate-500">Div 10 Brain admin</dt>
               <dd>{integrationHealth.div10BrainAdmin ? 'configured' : 'missing'}</dd>
             </div>
+            {integrationHealth.dbDriver === 'pg' ? (
+              <>
+                <div className="col-span-full mt-2 border-t border-slate-100 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  Postgres relation mapping
+                </div>
+                <div className="flex justify-between gap-2 border-b border-slate-100 pb-1 sm:col-span-2">
+                  <dt className="text-slate-500">Takeoff lines table</dt>
+                  <dd className="max-w-[60%] truncate font-mono text-[10px] text-slate-900" title={integrationHealth.workspaceTakeoffLinesTable}>
+                    {integrationHealth.workspaceTakeoffLinesTable || '—'}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-2 border-b border-slate-100 pb-1 sm:col-span-2">
+                  <dt className="text-slate-500">Catalog aliases (read → write)</dt>
+                  <dd className="max-w-[60%] truncate text-right font-mono text-[10px] text-slate-900" title={`${integrationHealth.catalogAliasesReadTable} → ${integrationHealth.catalogAliasesWriteTable}`}>
+                    {integrationHealth.catalogAliasesReadTable || '—'} → {integrationHealth.catalogAliasesWriteTable || '—'}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-2 border-b border-slate-100 pb-1">
+                  <dt className="text-slate-500">Alias column layout</dt>
+                  <dd className="font-mono text-[10px] text-slate-900">{integrationHealth.catalogAliasesLayout}</dd>
+                </div>
+                <div className="flex justify-between gap-2 border-b border-slate-100 pb-1 sm:col-span-2">
+                  <dt className="text-slate-500">Bundles / bundle items (reads)</dt>
+                  <dd className="max-w-[60%] truncate text-right font-mono text-[10px] text-slate-900" title={`${integrationHealth.catalogBundlesReadTable} · ${integrationHealth.catalogBundleItemsReadTable}`}>
+                    {integrationHealth.catalogBundlesReadTable || '—'} · {integrationHealth.catalogBundleItemsReadTable || '—'}
+                  </dd>
+                </div>
+              </>
+            ) : null}
           </dl>
         </section>
       ) : null}

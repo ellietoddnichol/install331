@@ -79,11 +79,11 @@ import { PartitionLayoutBuilderModal } from '../components/workspace/PartitionLa
 import { OverviewPage } from './project/OverviewPage';
 import { SetupPage } from './project/SetupPage';
 import { ScopeReviewPage } from './project/ScopeReviewPage';
+import { MatchingPage } from './project/MatchingPage';
 import { HandoffSummary } from '../components/workflow/HandoffSummary';
 import { ActionFeedbackBanner } from '../components/feedback/ActionFeedbackBanner';
 import { formatCurrencySafe, formatLaborDurationMinutes, formatNumberSafe } from '../utils/numberFormat';
 import { getDistanceInMiles } from '../utils/geo';
-import { catalogItemMatchesQuery } from '../shared/utils/catalogItemSearch';
 import { CatalogCategorySelect } from '../components/intake/CatalogCategorySelect';
 import { useTransientNumericField } from '../hooks/useTransientNumericField';
 import { buildProposalScheduleSections, splitProposalTextLines } from '../shared/utils/proposalDocument';
@@ -132,7 +132,14 @@ export function ProjectWorkspace() {
   const [project, setProject] = useState<ProjectRecord | null>(null);
   const [rooms, setRooms] = useState<RoomRecord[]>([]);
   const [lines, setLines] = useState<TakeoffLineRecord[]>([]);
-  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
+  const linesRef = useRef<TakeoffLineRecord[]>([]);
+  linesRef.current = lines;
+  /** Catalog rows for takeoff lines that already reference a catalog item (server lookup; not the full catalog). */
+  const [referencedCatalogItems, setReferencedCatalogItems] = useState<CatalogItem[]>([]);
+  /** Category names for pickers (distinct from Postgres; not derived from a full client catalog download). */
+  const [workspaceCatalogCategories, setWorkspaceCatalogCategories] = useState<string[]>(['all']);
+  /** Server-backed list for add-items flows (search API or first page when search is empty). */
+  const [catalogBrowseItems, setCatalogBrowseItems] = useState<CatalogItem[]>([]);
   const [summary, setSummary] = useState<EstimateSummary | null>(null);
   const [settings, setSettings] = useState<SettingsRecord | null>(null);
   const [modifiers, setModifiers] = useState<ModifierRecord[]>([]);
@@ -211,6 +218,15 @@ export function ProjectWorkspace() {
   const [distanceCalculating, setDistanceCalculating] = useState(false);
   const [distanceError, setDistanceError] = useState<string | null>(null);
 
+  /** When true, Proposal tab reads `v_estimate_lines_customer` + `v_estimate_summary` via `/api/v1/pipeline/...`. */
+  const [pipelineNativeEnabled, setPipelineNativeEnabled] = useState(false);
+  const [proposalNativeEstimateId, setProposalNativeEstimateId] = useState('');
+  const [pipelineProposalEstimates, setPipelineProposalEstimates] = useState<Record<string, unknown>[]>([]);
+  const [nativeProposalLines, setNativeProposalLines] = useState<TakeoffLineRecord[] | null>(null);
+  const [nativeProposalSummary, setNativeProposalSummary] = useState<EstimateSummary | null>(null);
+  const [nativeProposalWarnings, setNativeProposalWarnings] = useState<string[]>([]);
+  const [nativeProposalLoading, setNativeProposalLoading] = useState(false);
+
   const statusActionLabel = useMemo(() => {
     if (!project) return 'Mark Submitted';
     if (project.status === 'Draft' || project.status === 'Lost') return 'Mark Submitted';
@@ -227,6 +243,7 @@ export function ProjectWorkspace() {
       { id: 'overview' as const, label: 'Overview', tier: 'secondary' as const },
       { id: 'setup' as const, label: 'Setup', tier: 'secondary' as const },
       { id: 'scope-review' as const, label: 'Scope review', badge: exceptionCount, tier: 'primary' as const },
+      { id: 'matching' as const, label: 'Matching', tier: 'primary' as const },
       { id: 'estimate' as const, label: 'Estimate', tier: 'primary' as const },
       { id: 'proposal' as const, label: 'Proposal', tier: 'primary' as const },
     ],
@@ -236,6 +253,22 @@ export function ProjectWorkspace() {
   useEffect(() => {
     void api.getV1IntegrationHealth().then((h) => setCatalogSheetsPushEnabled(h.catalogSheetsSyncEnabled));
   }, []);
+
+  useEffect(() => {
+    void api
+      .getV1PipelineCapabilities()
+      .then((c) => setPipelineNativeEnabled(Boolean(c?.nativeWorkspace && c?.pg)))
+      .catch(() => setPipelineNativeEnabled(false));
+  }, []);
+
+  useEffect(() => {
+    if (pipelineNativeEnabled) return;
+    setNativeProposalLines(null);
+    setNativeProposalSummary(null);
+    setNativeProposalWarnings([]);
+    setNativeProposalLoading(false);
+    setPipelineProposalEstimates([]);
+  }, [pipelineNativeEnabled]);
 
   useEffect(() => {
     if (!id) return;
@@ -269,13 +302,72 @@ export function ProjectWorkspace() {
     }
   }, [id, workspaceStep, navigate]);
 
+  const hydrateReferencedCatalogItems = useCallback(async (lineList: TakeoffLineRecord[]) => {
+    const ids = [...new Set(lineList.map((l) => String(l.catalogItemId || '').trim()).filter(Boolean))];
+    if (ids.length === 0) {
+      setReferencedCatalogItems([]);
+      return;
+    }
+    try {
+      const rows = await api.lookupV1CatalogItemsByIds(ids);
+      setReferencedCatalogItems(rows);
+    } catch (err) {
+      console.warn('Referenced catalog lookup failed', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    void hydrateReferencedCatalogItems(lines);
+  }, [lines, hydrateReferencedCatalogItems]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      const q = catalogSearch.trim();
+      try {
+        if (q) {
+          const rows = await api.searchCatalogItems({
+            query: q,
+            category: catalogCategory === 'all' ? undefined : catalogCategory,
+            includeDeprecated: false,
+            includeNonCanonical: false,
+            includeInactive: false,
+          });
+          if (!cancelled) setCatalogBrowseItems(rows);
+        } else {
+          const { items } = await api.getV1CatalogItemsPage({
+            offset: 0,
+            limit: 100,
+            activeFilter: 'active',
+            category: catalogCategory === 'all' ? undefined : catalogCategory,
+            sortBy: 'sku-asc',
+          });
+          if (!cancelled) setCatalogBrowseItems(items);
+        }
+      } catch (err) {
+        console.warn('Catalog browse load failed', err);
+        if (!cancelled) setCatalogBrowseItems([]);
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [catalogSearch, catalogCategory]);
+
   useEffect(() => {
     const onCatalogSynced = () => {
-      void api.getCatalog().then(setCatalog);
+      void api.getV1CatalogCategories().then((catList) => {
+        setWorkspaceCatalogCategories([
+          'all',
+          ...catList.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
+        ]);
+      });
+      void hydrateReferencedCatalogItems(linesRef.current);
     };
     window.addEventListener('catalog-synced', onCatalogSynced);
     return () => window.removeEventListener('catalog-synced', onCatalogSynced);
-  }, []);
+  }, [hydrateReferencedCatalogItems]);
 
   useEffect(() => {
     if (!id || loading) return;
@@ -285,8 +377,18 @@ export function ProjectWorkspace() {
       selectedLineId,
       pricingOrganizeMode,
       pricingCategoryFilter,
+      proposalNativeEstimateId: proposalNativeEstimateId || undefined,
     });
-  }, [id, loading, activeRoomId, takeoffRoomFilter, selectedLineId, pricingOrganizeMode, pricingCategoryFilter]);
+  }, [
+    id,
+    loading,
+    activeRoomId,
+    takeoffRoomFilter,
+    selectedLineId,
+    pricingOrganizeMode,
+    pricingCategoryFilter,
+    proposalNativeEstimateId,
+  ]);
 
   /** Empty scope review is a dead-end — send estimators straight to the estimate with a clear status flag. */
   useEffect(() => {
@@ -301,14 +403,6 @@ export function ProjectWorkspace() {
     const qs = next.toString();
     navigate(`${projectWorkspacePath(id, 'estimate')}${qs ? `?${qs}` : ''}`, { replace: true });
   }, [loading, exceptionCount, activeTab, id, navigate, searchParams]);
-
-  // Proposal must always reflect the latest persisted estimate/takeoff state.
-  useEffect(() => {
-    if (loading) return;
-    if (activeTab !== 'proposal') return;
-    if (!project) return;
-    void refreshTakeoff(project.id);
-  }, [activeTab, loading, project?.id]);
 
   /** Keep `?view=quantities` in sync for the Estimate step only; path carries the workspace tab. */
   useEffect(() => {
@@ -412,11 +506,11 @@ export function ProjectWorkspace() {
       } catch (repriceErr) {
         console.warn('Takeoff reprice skipped (workspace still loads)', repriceErr);
       }
-      const [projectData, roomData, lineData, catalogData, summaryData, settingsData, modifiersData, bundlesData, filesData] = await Promise.all([
+      const [projectData, roomData, lineData, catalogCategories, summaryData, settingsData, modifiersData, bundlesData, filesData] = await Promise.all([
         api.getV1Project(projectId),
         api.getV1Rooms(projectId),
         api.getV1TakeoffLines(projectId),
-        api.getCatalog(),
+        api.getV1CatalogCategories(),
         api.getV1Summary(projectId),
         api.getV1Settings(),
         api.getV1Modifiers(),
@@ -437,7 +531,10 @@ export function ProjectWorkspace() {
       setRooms(roomData);
       setLines(lineData);
       setTakeoffLinesLoadedAt(new Date().toISOString());
-      setCatalog(catalogData);
+      setWorkspaceCatalogCategories([
+        'all',
+        ...catalogCategories.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
+      ]);
       setSummary(summaryData);
       setSettings(ensureProposalDefaults(settingsData));
       setModifiers(modifiersData);
@@ -445,6 +542,7 @@ export function ProjectWorkspace() {
       setProjectFiles(filesData);
 
       const ui = readWorkspaceUi(projectId);
+      setProposalNativeEstimateId(typeof ui.proposalNativeEstimateId === 'string' ? ui.proposalNativeEstimateId : '');
       const firstRoomId = roomData[0]?.id ?? '';
       const roomPick =
         ui.activeRoomId && roomData.some((r) => r.id === ui.activeRoomId) ? ui.activeRoomId : firstRoomId;
@@ -500,6 +598,59 @@ export function ProjectWorkspace() {
     setTakeoffLinesLoadedAt(new Date().toISOString());
     setSummary(summaryData);
   }
+
+  const refreshProposalTabFresh = useCallback(
+    async (projectId: string) => {
+      if (pipelineNativeEnabled) {
+        let list: Record<string, unknown>[] = [];
+        try {
+          list = await api.getV1PipelineEstimates(projectId);
+        } catch {
+          list = [];
+        }
+        setPipelineProposalEstimates(list);
+        let eid = proposalNativeEstimateId;
+        if (!eid) {
+          eid = String((list[0] as { id?: unknown })?.id || '');
+          if (eid) setProposalNativeEstimateId(eid);
+        }
+        if (!eid) {
+          setNativeProposalLines(null);
+          setNativeProposalSummary(null);
+          setNativeProposalWarnings([]);
+          return;
+        }
+        setNativeProposalLoading(true);
+        try {
+          const pack = await api.getV1PipelineProposalPreview(projectId, eid);
+          setNativeProposalLines(pack.lines);
+          setNativeProposalSummary(pack.summary);
+          setNativeProposalWarnings(pack.warnings || []);
+        } catch {
+          setNativeProposalLines(null);
+          setNativeProposalSummary(null);
+          setNativeProposalWarnings([]);
+        } finally {
+          setNativeProposalLoading(false);
+        }
+      } else {
+        await refreshTakeoff(projectId);
+      }
+    },
+    [pipelineNativeEnabled, proposalNativeEstimateId]
+  );
+
+  const useNativeProposalBundle =
+    pipelineNativeEnabled && nativeProposalLines !== null && nativeProposalSummary !== null;
+  const proposalScheduleLines = useNativeProposalBundle ? nativeProposalLines! : lines;
+  const proposalScheduleSummary = useNativeProposalBundle ? nativeProposalSummary! : summary;
+
+  useEffect(() => {
+    if (loading) return;
+    if (activeTab !== 'proposal') return;
+    if (!project) return;
+    void refreshProposalTabFresh(project.id);
+  }, [activeTab, loading, project?.id, refreshProposalTabFresh]);
 
   const activeRoomLines = useMemo(
     () => lines.filter((line) => line.roomId === activeRoomId),
@@ -866,38 +1017,21 @@ export function ProjectWorkspace() {
     setTakeoffRoomFilter(roomId);
   }
 
-  const categories = useMemo(() => {
-    const all = new Set<string>();
-    for (const item of catalog) {
-      if (!item) continue;
-      const c = String(item.category ?? '')
-        .trim();
-      if (c) all.add(c);
-    }
-    return ['all', ...Array.from(all).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))];
-  }, [catalog]);
+  const categories = workspaceCatalogCategories;
 
   const scopeCategoryOptions = useMemo(
     () => categories.filter((category) => category !== 'all'),
     [categories]
   );
 
-  const filteredCatalog = useMemo(() => {
-    return catalog.filter((item) => {
-      const searchMatch = catalogItemMatchesQuery(item, catalogSearch);
-      const categoryMatch = catalogCategory === 'all' || item.category === catalogCategory;
-      return searchMatch && categoryMatch;
-    });
-  }, [catalog, catalogSearch, catalogCategory]);
-
   const catalogImageById = useMemo(() => {
     const m = new Map<string, string>();
-    for (const item of catalog) {
+    for (const item of referencedCatalogItems) {
       const u = item.imageUrl?.trim();
       if (u) m.set(item.id, u);
     }
     return m;
-  }, [catalog]);
+  }, [referencedCatalogItems]);
 
   function resolveLocalLinePricing(line: TakeoffLineRecord): TakeoffLineRecord {
     const pricingSource = line.pricingSource === 'manual' ? 'manual' : 'auto';
@@ -1129,8 +1263,7 @@ export function ProjectWorkspace() {
 
   async function ensureProposalIsFresh(): Promise<void> {
     if (!project) return;
-    // Proposal output must reflect the latest persisted takeoff state.
-    await refreshTakeoff(project.id);
+    await refreshProposalTabFresh(project.id);
     // Let React flush the updated proposal DOM before we capture it.
     await new Promise<void>((resolve) => {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
@@ -1211,8 +1344,15 @@ export function ProjectWorkspace() {
     const maxTextWidth = pageWidth - (marginX * 2);
     const showMaterialPricing = pricingMode !== 'labor_only';
     const showLaborPricing = pricingMode !== 'material_only';
-    const scheduleSections = buildProposalScheduleSections(lines, showMaterialPricing, showLaborPricing, summary.conditionLaborHoursMultiplier || 1);
-    const conditionLines = summary.conditionAssumptions || [];
+    const schedSummary = proposalScheduleSummary;
+    if (!schedSummary) return;
+    const scheduleSections = buildProposalScheduleSections(
+      proposalScheduleLines,
+      showMaterialPricing,
+      showLaborPricing,
+      schedSummary.conditionLaborHoursMultiplier || 1
+    );
+    const conditionLines = schedSummary.conditionAssumptions || [];
     const introSource = (proposalSettings.proposalIntro || DEFAULT_PROPOSAL_INTRO)
       .split(/\n\n+/)
       .map((paragraph) => paragraph.trim())
@@ -1376,10 +1516,10 @@ export function ProjectWorkspace() {
       margin: { left: marginX, right: marginX },
       head: [['Line', 'Amount']],
       body: [
-        ['Total Material', formatCurrencySafe(showMaterialPricing ? summary.materialSubtotal : 0)],
-        ['Total Labor', formatCurrencySafe(showLaborPricing ? summary.adjustedLaborSubtotal || summary.laborSubtotal : 0)],
-        ['Estimated Install Duration', formatWorkWeeksLabel(summary.durationWeeks || 0)],
-        ['Total Proposal Amount', formatCurrencySafe(summary.baseBidTotal)],
+        ['Total Material', formatCurrencySafe(showMaterialPricing ? schedSummary.materialSubtotal : 0)],
+        ['Total Labor', formatCurrencySafe(showLaborPricing ? schedSummary.adjustedLaborSubtotal || schedSummary.laborSubtotal : 0)],
+        ['Estimated Install Duration', formatWorkWeeksLabel(schedSummary.durationWeeks || 0)],
+        ['Total Proposal Amount', formatCurrencySafe(schedSummary.baseBidTotal)],
       ],
       columnStyles: {
         0: { cellWidth: 330 },
@@ -1451,7 +1591,13 @@ export function ProjectWorkspace() {
       setTimeout(() => {
         window.dispatchEvent(new CustomEvent('catalog-synced'));
       }, 0);
-      setCatalog(await api.getCatalog());
+      void api.getV1CatalogCategories().then((catList) => {
+        setWorkspaceCatalogCategories([
+          'all',
+          ...catList.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
+        ]);
+      });
+      void hydrateReferencedCatalogItems(linesRef.current);
       setSyncState('ok');
       setActionFeedback({ tone: 'success', message: 'Catalog sync complete.' });
     } catch (error) {
@@ -1810,7 +1956,16 @@ export function ProjectWorkspace() {
         tags: [],
       } as CatalogItem);
 
-      setCatalog((prev) => [created, ...prev]);
+      setReferencedCatalogItems((prev) => {
+        const m = new Map(prev.map((i) => [i.id, i]));
+        m.set(created.id, created);
+        return Array.from(m.values());
+      });
+      setCatalogBrowseItems((prev) => {
+        const m = new Map(prev.map((i) => [i.id, i]));
+        m.set(created.id, created);
+        return Array.from(m.values());
+      });
       await persistLine(selectedLine.id, {
         catalogItemId: created.id,
         sku: created.sku,
@@ -1965,15 +2120,15 @@ export function ProjectWorkspace() {
   }
 
   async function generateProposalDraft(mode: 'scope_summary' | 'proposal_text' | 'terms_and_conditions' | 'default_short') {
-    if (!project || !settings || !summary) return;
+    if (!project || !settings || !proposalScheduleSummary) return;
 
     setProposalDrafting(mode);
     try {
       const draft = await api.generateV1ProposalDraft({
         mode,
         project,
-        lines,
-        summary,
+        lines: proposalScheduleLines,
+        summary: proposalScheduleSummary,
         settings,
       });
 
@@ -2153,7 +2308,7 @@ export function ProjectWorkspace() {
             rooms={rooms}
             categories={categories}
             roomNamesById={roomNamesById}
-            catalog={catalog}
+            catalog={referencedCatalogItems}
             pricingMode={pricingMode}
             laborMultiplier={summary?.conditionLaborMultiplier || 1}
             selectedLineId={selectedLineId}
@@ -2171,6 +2326,8 @@ export function ProjectWorkspace() {
             }}
           />
         )}
+
+        {activeTab === 'matching' && id ? <MatchingPage projectId={id} /> : null}
 
         {activeTab === 'estimate' && (() => {
           /**
@@ -2746,9 +2903,9 @@ export function ProjectWorkspace() {
                 onProposalIncludeCatalogImagesChange={(value) =>
                   setProject((prev) => (prev ? { ...prev, proposalIncludeCatalogImages: value } : prev))
                 }
-                baseBidTotal={summary?.baseBidTotal}
-                lineCount={lines.length}
-                durationDays={summary?.durationDays}
+                baseBidTotal={proposalScheduleSummary?.baseBidTotal}
+                lineCount={proposalScheduleLines.length}
+                durationDays={proposalScheduleSummary?.durationDays}
               />
               <section className="space-y-4">
                 <div className="ui-surface p-4 sm:p-5">
@@ -2774,11 +2931,48 @@ export function ProjectWorkspace() {
                   <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-medium text-slate-600">Print / export</span>
                 </div>
                 <div className="ui-panel-muted max-h-[calc(100vh-220px)] overflow-auto p-3">
+                  {pipelineNativeEnabled ? (
+                    <div className="mb-3 space-y-2 rounded-lg border border-slate-200 bg-slate-50/90 p-3 text-[11px] text-slate-700">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-slate-900">DB estimate (native)</span>
+                        {nativeProposalLoading ? (
+                          <span className="text-slate-500">Loading…</span>
+                        ) : null}
+                      </div>
+                      <label className="flex flex-col gap-1">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Estimate record</span>
+                        <select
+                          className="max-w-md rounded border border-slate-300 bg-white px-2 py-1.5 text-[11px]"
+                          value={proposalNativeEstimateId}
+                          onChange={(e) => {
+                            const next = e.target.value;
+                            setProposalNativeEstimateId(next);
+                            setNativeProposalLines(null);
+                            setNativeProposalSummary(null);
+                          }}
+                        >
+                          <option value="">Select estimate…</option>
+                          {pipelineProposalEstimates.map((e) => (
+                            <option key={String((e as { id: string }).id)} value={String((e as { id: string }).id)}>
+                              {String((e as { name?: string }).name || (e as { id: string }).id)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {nativeProposalWarnings.length > 0 ? (
+                        <ul className="list-inside list-disc text-amber-900">
+                          {nativeProposalWarnings.map((w) => (
+                            <li key={w}>{w}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <ProposalPreview
                     project={project}
                     settings={settings}
-                    lines={lines}
-                    summary={summary}
+                    lines={proposalScheduleLines}
+                    summary={proposalScheduleSummary}
                     catalogImageById={catalogImageById}
                   />
                 </div>
@@ -2799,7 +2993,7 @@ export function ProjectWorkspace() {
         categories={categories}
         search={catalogSearch}
         category={catalogCategory}
-        items={filteredCatalog}
+        items={catalogBrowseItems}
         onClose={() => setCatalogOpen(false)}
         onSearch={setCatalogSearch}
         onCategory={setCatalogCategory}

@@ -11,6 +11,8 @@ import { div10BrainRouter } from './div10BrainRoutes.ts';
 import { readSessionHandler, requireSession } from '../../auth/requireSession.ts';
 import { authRouter } from './authRoutes.ts';
 import { catalogHealthRouter } from './catalogHealthRoutes.ts';
+import { catalogRouter } from './catalogRoutes.ts';
+import { pipelineRouter } from './pipelineRoutes.ts';
 
 export const v1Router = Router();
 
@@ -28,6 +30,8 @@ v1Router.use('/auth', authRouter);
 
 v1Router.use(requireSession);
 
+v1Router.use('/catalog', catalogRouter);
+v1Router.use('/pipeline', pipelineRouter);
 v1Router.use('/projects', projectsRouter);
 v1Router.use('/rooms', roomsRouter);
 v1Router.use('/takeoff', takeoffRouter);

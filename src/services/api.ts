@@ -443,6 +443,12 @@ export const api = {
     passwordLogin: boolean;
     authRequired: boolean;
     div10BrainAdmin: boolean;
+    workspaceTakeoffLinesTable: string;
+    catalogAliasesReadTable: string;
+    catalogAliasesWriteTable: string;
+    catalogAliasesLayout: 'sheet' | 'brain';
+    catalogBundlesReadTable: string;
+    catalogBundleItemsReadTable: string;
   }> {
     const res = await apiFetch(`${API_BASE}/v1/settings/integration-health`);
     const payload = await handleResponse<{ data: {
@@ -457,6 +463,12 @@ export const api = {
       passwordLogin: boolean;
       authRequired: boolean;
       div10BrainAdmin: boolean;
+      workspaceTakeoffLinesTable: string;
+      catalogAliasesReadTable: string;
+      catalogAliasesWriteTable: string;
+      catalogAliasesLayout: 'sheet' | 'brain';
+      catalogBundlesReadTable: string;
+      catalogBundleItemsReadTable: string;
     } }>(res);
     return payload.data;
   },
@@ -610,6 +622,7 @@ export const api = {
     const payload = await handleResponse<{ data: { ok: boolean } }>(res);
     return payload.data;
   },
+  /** Full catalog list — use only for export/backup or legacy flows. Prefer {@link getV1CatalogItemsPage} for the Catalog UI. */
   async getCatalog(options?: { includeInactive?: boolean }): Promise<CatalogItem[]> {
     const q =
       options?.includeInactive === true
@@ -617,6 +630,69 @@ export const api = {
         : '';
     const res = await apiFetch(`${API_BASE}/catalog/items${q}`);
     return handleResponse<CatalogItem[]>(res);
+  },
+
+  async getV1CatalogCategories(): Promise<string[]> {
+    const res = await apiFetch(`${API_BASE}/v1/catalog/categories`);
+    const payload = await handleResponse<{ data: string[] }>(res);
+    return payload.data ?? [];
+  },
+
+  async getV1CatalogFacets(): Promise<{
+    categories: string[];
+    itemTypes: string[];
+    sourceTabs: string[];
+    hasUntaggedSource: boolean;
+  }> {
+    const res = await apiFetch(`${API_BASE}/v1/catalog/facets`);
+    const payload = await handleResponse<{
+      data: { categories: string[]; itemTypes: string[]; sourceTabs: string[]; hasUntaggedSource: boolean };
+    }>(res);
+    return payload.data;
+  },
+
+  async getV1CatalogItemsPage(input: {
+    offset: number;
+    limit: number;
+    activeFilter: 'all' | 'active' | 'inactive';
+    category?: string;
+    q?: string;
+    typeFilter?: string;
+    sourceTabFilter?: string;
+    imageSprintOnly?: boolean;
+    sortBy?: string;
+  }): Promise<{ items: CatalogItem[]; total: number; offset: number; limit: number }> {
+    const p = new URLSearchParams();
+    p.set('offset', String(Math.max(0, input.offset)));
+    p.set('limit', String(Math.min(200, Math.max(1, input.limit ?? 75))));
+    if (input.activeFilter !== 'all') p.set('act', input.activeFilter);
+    if (input.category && input.category !== 'all') p.set('cat', input.category);
+    if (input.q?.trim()) p.set('q', input.q.trim());
+    if (input.typeFilter && input.typeFilter !== 'all') p.set('itype', input.typeFilter);
+    if (input.sourceTabFilter && input.sourceTabFilter !== 'all') p.set('sheet', input.sourceTabFilter);
+    if (input.imageSprintOnly) p.set('img', '1');
+    if (input.sortBy) p.set('sort', input.sortBy);
+    const res = await apiFetch(`${API_BASE}/v1/catalog/items?${p.toString()}`);
+    const payload = await handleResponse<{
+      data: { items: CatalogItem[]; total: number; offset: number; limit: number };
+    }>(res);
+    return payload.data;
+  },
+
+  async getV1CatalogItem(id: string): Promise<CatalogItem> {
+    const res = await apiFetch(`${API_BASE}/v1/catalog/items/${encodeURIComponent(id)}`);
+    const payload = await handleResponse<{ data: CatalogItem }>(res);
+    return payload.data;
+  },
+
+  async lookupV1CatalogItemsByIds(ids: string[]): Promise<CatalogItem[]> {
+    const res = await apiFetch(`${API_BASE}/v1/catalog/items/lookup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    const payload = await handleResponse<{ data: { items: CatalogItem[] } }>(res);
+    return payload.data.items;
   },
   async getV1CatalogInventory(): Promise<{ total: number; active: number; inactive: number }> {
     const res = await apiFetch(`${API_BASE}/v1/settings/catalog-inventory`);
@@ -752,5 +828,146 @@ export const api = {
   async deleteCatalogItemAttribute(attributeId: string): Promise<void> {
     const res = await apiFetch(`${API_BASE}/catalog/item-attributes/${encodeURIComponent(attributeId)}`, { method: 'DELETE' });
     await handleResponse<void>(res);
+  },
+
+  async getV1PipelineCapabilities(): Promise<{ nativeWorkspace: boolean; pg: boolean }> {
+    const res = await apiFetch(`${API_BASE}/v1/pipeline/capabilities`);
+    const payload = await handleResponse<{ data: { nativeWorkspace: boolean; pg: boolean } }>(res);
+    return payload.data;
+  },
+
+  async getV1PipelineProposalPreview(
+    projectId: string,
+    estimateId: string
+  ): Promise<{ lines: TakeoffLineRecord[]; summary: EstimateSummary; warnings: string[] }> {
+    const params = new URLSearchParams({ estimateId });
+    const res = await apiFetch(
+      `${API_BASE}/v1/pipeline/projects/${encodeURIComponent(projectId)}/proposal-preview?${params.toString()}`
+    );
+    const payload = await handleResponse<{
+      data: { lines: TakeoffLineRecord[]; summary: EstimateSummary; warnings?: string[] };
+    }>(res);
+    const d = payload.data;
+    if (!d?.summary) {
+      throw new Error('Proposal preview response was missing summary.');
+    }
+    return { lines: Array.isArray(d.lines) ? d.lines : [], summary: d.summary, warnings: d.warnings ?? [] };
+  },
+
+  async getV1PipelineTakeoffUploads(projectId: string): Promise<Record<string, unknown>[]> {
+    const res = await apiFetch(`${API_BASE}/v1/pipeline/projects/${encodeURIComponent(projectId)}/takeoff-uploads`);
+    const payload = await handleResponse<{ data: Record<string, unknown>[] }>(res);
+    return readDataArray(payload);
+  },
+
+  async getV1PipelineEstimates(projectId: string): Promise<Record<string, unknown>[]> {
+    const res = await apiFetch(`${API_BASE}/v1/pipeline/projects/${encodeURIComponent(projectId)}/estimates`);
+    const payload = await handleResponse<{ data: Record<string, unknown>[] }>(res);
+    return readDataArray(payload);
+  },
+
+  async postV1PipelineProcessMatches(takeoffUploadId: string): Promise<void> {
+    const res = await apiFetch(`${API_BASE}/v1/pipeline/takeoff-uploads/${encodeURIComponent(takeoffUploadId)}/process-matches`, {
+      method: 'POST',
+    });
+    await handleResponse<{ data: { ok: boolean } }>(res);
+  },
+
+  async getV1PipelineReviewQueue(takeoffUploadId: string): Promise<{ reviewQueue: Record<string, unknown>[]; autoMatched: Record<string, unknown>[] }> {
+    const res = await apiFetch(`${API_BASE}/v1/pipeline/takeoff-uploads/${encodeURIComponent(takeoffUploadId)}/review-queue`);
+    const payload = await handleResponse<{
+      data: { reviewQueue: Record<string, unknown>[]; autoMatched: Record<string, unknown>[] };
+    }>(res);
+    return payload.data;
+  },
+
+  async postV1PipelineAcceptMatch(takeoffRowId: string, body: { catalogItemId: string; isReplace?: boolean; confidence?: number }): Promise<void> {
+    const res = await apiFetch(`${API_BASE}/v1/pipeline/takeoff-rows/${encodeURIComponent(takeoffRowId)}/accept-match`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        catalogItemId: body.catalogItemId,
+        isReplace: Boolean(body.isReplace),
+        confidence: body.confidence ?? 1,
+      }),
+    });
+    await handleResponse<{ data: { ok: boolean } }>(res);
+  },
+
+  async postV1PipelineRejectMatch(takeoffRowId: string, body: { catalogItemId: string; reasonCode?: string }): Promise<void> {
+    const res = await apiFetch(`${API_BASE}/v1/pipeline/takeoff-rows/${encodeURIComponent(takeoffRowId)}/reject-match`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ catalogItemId: body.catalogItemId, reasonCode: body.reasonCode ?? 'rejected' }),
+    });
+    await handleResponse<{ data: { ok: boolean } }>(res);
+  },
+
+  async postV1PipelineClearMatch(takeoffRowId: string): Promise<void> {
+    const res = await apiFetch(`${API_BASE}/v1/pipeline/takeoff-rows/${encodeURIComponent(takeoffRowId)}/clear-match`, { method: 'POST' });
+    await handleResponse<{ data: { ok: boolean } }>(res);
+  },
+
+  async postV1PipelineBuildEstimateFromUpload(body: {
+    estimateId: string;
+    takeoffUploadId: string;
+    laborRate: number;
+    locationCode?: string;
+    overwriteExisting?: boolean;
+  }): Promise<void> {
+    const res = await apiFetch(`${API_BASE}/v1/pipeline/estimates/${encodeURIComponent(body.estimateId)}/build-from-upload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        takeoffUploadId: body.takeoffUploadId,
+        laborRate: body.laborRate,
+        locationCode: body.locationCode ?? 'DEFAULT',
+        overwriteExisting: Boolean(body.overwriteExisting),
+      }),
+    });
+    await handleResponse<{ data: { ok: boolean } }>(res);
+  },
+
+  async getV1PipelineEstimateLinesDetailed(estimateId: string): Promise<Record<string, unknown>[]> {
+    const res = await apiFetch(`${API_BASE}/v1/pipeline/estimates/${encodeURIComponent(estimateId)}/lines-detailed`);
+    const payload = await handleResponse<{ data: Record<string, unknown>[] }>(res);
+    return readDataArray(payload);
+  },
+
+  async getV1PipelineEstimateSummary(estimateId: string): Promise<Record<string, unknown> | null> {
+    const res = await apiFetch(`${API_BASE}/v1/pipeline/estimates/${encodeURIComponent(estimateId)}/summary`);
+    const payload = await handleResponse<{ data: Record<string, unknown> | null }>(res);
+    return payload.data ?? null;
+  },
+
+  async getV1PipelineEstimateCategoryTotals(estimateId: string): Promise<Record<string, unknown>[]> {
+    const res = await apiFetch(`${API_BASE}/v1/pipeline/estimates/${encodeURIComponent(estimateId)}/category-totals`);
+    const payload = await handleResponse<{ data: Record<string, unknown>[] }>(res);
+    return readDataArray(payload);
+  },
+
+  async getV1PipelineEstimateLineRollups(estimateId: string): Promise<Record<string, unknown>[]> {
+    const res = await apiFetch(`${API_BASE}/v1/pipeline/estimates/${encodeURIComponent(estimateId)}/line-rollups`);
+    const payload = await handleResponse<{ data: Record<string, unknown>[] }>(res);
+    return readDataArray(payload);
+  },
+
+  async getV1PipelineEstimateReadiness(estimateId: string): Promise<Record<string, unknown> | null> {
+    const res = await apiFetch(`${API_BASE}/v1/pipeline/estimates/${encodeURIComponent(estimateId)}/readiness`);
+    const payload = await handleResponse<{ data: Record<string, unknown> | null }>(res);
+    return payload.data ?? null;
+  },
+
+  async getV1PipelineEstimateLinesCustomer(estimateId: string): Promise<Record<string, unknown>[]> {
+    const res = await apiFetch(`${API_BASE}/v1/pipeline/estimates/${encodeURIComponent(estimateId)}/lines-customer`);
+    const payload = await handleResponse<{ data: Record<string, unknown>[] }>(res);
+    return readDataArray(payload);
+  },
+
+  async getV1PipelineCatalogSearch(q: string): Promise<Record<string, unknown>[]> {
+    const params = new URLSearchParams({ q });
+    const res = await apiFetch(`${API_BASE}/v1/pipeline/catalog-search?${params.toString()}`);
+    const payload = await handleResponse<{ data: Record<string, unknown>[] }>(res);
+    return readDataArray(payload);
   },
 };

@@ -1,5 +1,6 @@
 import { getEstimatorDb } from '../db/connection.ts';
 import { isPgDriver } from '../db/driver.ts';
+import { tryOptionalPgRelation } from '../db/pgOptionalRelation.ts';
 import { dbAll, dbGet, dbRun } from '../db/query.ts';
 import { parseCatalogSyncWarningsPayload } from '../services/catalogSyncWorkbookValidation.ts';
 import {
@@ -252,24 +253,51 @@ const EMPTY_SYNC_STATUS_ROW: CatalogSyncStatusDbRow = {
 };
 
 export async function getCatalogSyncStatus(): Promise<CatalogSyncStatusRecord> {
-  const row = isPgDriver()
-    ? ((await dbGet('SELECT * FROM catalog_sync_status_v1 WHERE id = ?', ['catalog'])) as CatalogSyncStatusDbRow | undefined)
-    : (getEstimatorDb().prepare('SELECT * FROM catalog_sync_status_v1 WHERE id = ?').get('catalog') as CatalogSyncStatusDbRow | undefined);
-  const baseRow = row ?? EMPTY_SYNC_STATUS_ROW;
+  let row: CatalogSyncStatusDbRow | undefined;
+  let latestRun:
+    | { id: string; run_context_json: string | null; warnings_json: string | null }
+    | undefined;
 
-  const parsed = parseCatalogSyncWarningsPayload(baseRow.warnings_json);
-  const serverConfigNow = buildCatalogSyncServerConfigNow();
-  const latestRunSql = `
+  if (isPgDriver()) {
+    row = await tryOptionalPgRelation(
+      'settings catalog_sync_status_v1',
+      () =>
+        dbGet('SELECT * FROM catalog_sync_status_v1 WHERE id = ?', ['catalog']) as Promise<CatalogSyncStatusDbRow | undefined>,
+      undefined
+    );
+    const latestRunSql = `
     SELECT id, run_context_json, warnings_json
     FROM catalog_sync_runs_v1
     ORDER BY attempted_at DESC
     LIMIT 1
   `;
-  const latestRun = isPgDriver()
-    ? ((await dbGet(latestRunSql, [])) as { id: string; run_context_json: string | null; warnings_json: string | null } | undefined)
-    : (getEstimatorDb().prepare(latestRunSql).get() as
-        | { id: string; run_context_json: string | null; warnings_json: string | null }
-        | undefined);
+    latestRun = await tryOptionalPgRelation(
+      'settings catalog_sync_runs_v1 (latest run)',
+      () =>
+        dbGet(latestRunSql, []) as Promise<
+          { id: string; run_context_json: string | null; warnings_json: string | null } | undefined
+        >,
+      undefined
+    );
+  } else {
+    row = getEstimatorDb()
+      .prepare('SELECT * FROM catalog_sync_status_v1 WHERE id = ?')
+      .get('catalog') as CatalogSyncStatusDbRow | undefined;
+    const latestRunSql = `
+    SELECT id, run_context_json, warnings_json
+    FROM catalog_sync_runs_v1
+    ORDER BY attempted_at DESC
+    LIMIT 1
+  `;
+    latestRun = getEstimatorDb().prepare(latestRunSql).get() as
+      | { id: string; run_context_json: string | null; warnings_json: string | null }
+      | undefined;
+  }
+
+  const baseRow = row ?? EMPTY_SYNC_STATUS_ROW;
+
+  const parsed = parseCatalogSyncWarningsPayload(baseRow.warnings_json);
+  const serverConfigNow = buildCatalogSyncServerConfigNow();
   const historicalSyncRunContext = parseCatalogSyncRunContextJson(latestRun?.run_context_json);
   const workbook = historicalSyncRunContext
     ? toCatalogSyncWorkbookSnapshotFromRunContext(sliceCatalogSyncRunContextBody(historicalSyncRunContext))
@@ -304,18 +332,28 @@ export async function getCatalogSyncStatus(): Promise<CatalogSyncStatusRecord> {
 export async function getCatalogSyncRunRowForCsv(runId?: string | null): Promise<CatalogSyncRunDbRow | undefined> {
   if (runId?.trim()) {
     const id = runId.trim();
-    return isPgDriver()
-      ? ((await dbGet('SELECT * FROM catalog_sync_runs_v1 WHERE id = ?', [id])) as CatalogSyncRunDbRow | undefined)
-      : (getEstimatorDb().prepare('SELECT * FROM catalog_sync_runs_v1 WHERE id = ?').get(id) as CatalogSyncRunDbRow | undefined);
+    if (isPgDriver()) {
+      return tryOptionalPgRelation(
+        `settings catalog_sync_runs_v1 (by id ${id})`,
+        () => dbGet('SELECT * FROM catalog_sync_runs_v1 WHERE id = ?', [id]) as Promise<CatalogSyncRunDbRow | undefined>,
+        undefined
+      );
+    }
+    return getEstimatorDb().prepare('SELECT * FROM catalog_sync_runs_v1 WHERE id = ?').get(id) as CatalogSyncRunDbRow | undefined;
   }
   const sql = `
     SELECT * FROM catalog_sync_runs_v1
     ORDER BY attempted_at DESC
     LIMIT 1
   `;
-  return isPgDriver()
-    ? ((await dbGet(sql, [])) as CatalogSyncRunDbRow | undefined)
-    : (getEstimatorDb().prepare(sql).get() as CatalogSyncRunDbRow | undefined);
+  if (isPgDriver()) {
+    return tryOptionalPgRelation(
+      'settings catalog_sync_runs_v1 (latest for CSV)',
+      () => dbGet(sql, []) as Promise<CatalogSyncRunDbRow | undefined>,
+      undefined
+    );
+  }
+  return getEstimatorDb().prepare(sql).get() as CatalogSyncRunDbRow | undefined;
 }
 
 export async function listCatalogSyncRuns(limit = 10): Promise<CatalogSyncRunHistoryRecord[]> {
@@ -325,9 +363,16 @@ export async function listCatalogSyncRuns(limit = 10): Promise<CatalogSyncRunHis
     ORDER BY attempted_at DESC
     LIMIT ?
   `;
-  const rows = isPgDriver()
-    ? ((await dbAll(sql, [limit])) as CatalogSyncRunDbRow[])
-    : (getEstimatorDb().prepare(sql).all(limit) as CatalogSyncRunDbRow[]);
+  let rows: CatalogSyncRunDbRow[];
+  if (isPgDriver()) {
+    rows = await tryOptionalPgRelation(
+      'settings catalog_sync_runs_v1 (list history)',
+      () => dbAll(sql, [limit]) as Promise<CatalogSyncRunDbRow[]>,
+      []
+    );
+  } else {
+    rows = getEstimatorDb().prepare(sql).all(limit) as CatalogSyncRunDbRow[];
+  }
 
   const serverConfigNow = buildCatalogSyncServerConfigNow();
   const workbookFallback = buildCatalogSyncWorkbookSnapshot();

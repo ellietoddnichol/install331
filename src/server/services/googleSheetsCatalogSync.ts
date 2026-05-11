@@ -5,7 +5,14 @@ import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
 import { JWT } from 'google-auth-library';
 import { getEstimatorDb } from '../db/connection.ts';
-import { getCatalogItemsWriteTableName, getCatalogModifiersReadTableName } from '../db/catalogTable.ts';
+import { isPgCatalogBackend } from '../db/catalogBackend.ts';
+import {
+  getCatalogItemAliasesWriteTableName,
+  getCatalogItemsWriteTableName,
+  getCatalogModifiersReadTableName,
+  isCatalogAliasesBrainTableName,
+} from '../db/catalogTable.ts';
+import { tryOptionalPgRelation } from '../db/pgOptionalRelation.ts';
 import type { DbExec } from '../db/query.ts';
 import { dbCatalogGet, dbCatalogRun } from '../db/query.ts';
 import { withCatalogSyncWriteTransaction } from './catalogSyncTransaction.ts';
@@ -419,6 +426,8 @@ export async function upsertAliases(
 
   const now = new Date().toISOString();
   const skuNormToId = await buildSkuNormToIdMap(ex, writeTable);
+  const aliasWrite = getCatalogItemAliasesWriteTableName();
+  const aliasBrain = isCatalogAliasesBrainTableName(aliasWrite);
 
   let aliasesSynced = 0;
   for (let i = 1; i < rows.length; i += 1) {
@@ -437,17 +446,30 @@ export async function upsertAliases(
       continue;
     }
 
-    const id = `sheet-alias-${keyFromParts(catalogItemId, aliasType, aliasValue)}`;
-    await ex.run(
-      `
-    INSERT INTO catalog_item_aliases (id, catalog_item_id, alias_type, alias_value, created_at, updated_at)
+    if (aliasBrain) {
+      const ins = await ex.run(
+        `INSERT INTO ${aliasWrite} (catalog_item_id, alias_text, alias_type, created_at)
+         SELECT ?, ?, ?, ?
+         WHERE NOT EXISTS (
+           SELECT 1 FROM ${aliasWrite} ca
+           WHERE ca.catalog_item_id = ? AND ca.alias_text = ? AND COALESCE(ca.alias_type, '') = COALESCE(?, '')
+         )`,
+        [catalogItemId, aliasValue, aliasType, now, catalogItemId, aliasValue, aliasType]
+      );
+      if (ins.changes > 0) aliasesSynced += 1;
+    } else {
+      const id = `sheet-alias-${keyFromParts(catalogItemId, aliasType, aliasValue)}`;
+      await ex.run(
+        `
+    INSERT INTO ${aliasWrite} (id, catalog_item_id, alias_type, alias_value, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(catalog_item_id, alias_type, alias_value)
     DO UPDATE SET updated_at = excluded.updated_at
   `,
-      [id, catalogItemId, aliasType, aliasValue, now, now]
-    );
-    aliasesSynced += 1;
+        [id, catalogItemId, aliasType, aliasValue, now, now]
+      );
+      aliasesSynced += 1;
+    }
   }
 
   return { aliasesSynced };
@@ -557,10 +579,19 @@ export async function upsertAttributes(
 }
 
 async function readSyncStatusRow(ex: DbExec | undefined): Promise<CatalogSyncStatusDbRow | undefined> {
-  if (ex) {
-    return ex.get<CatalogSyncStatusDbRow>('SELECT * FROM catalog_sync_status_v1 WHERE id = ?', ['catalog']);
+  const sql = 'SELECT * FROM catalog_sync_status_v1 WHERE id = ?';
+  const params: unknown[] = ['catalog'];
+  if (isPgCatalogBackend()) {
+    return tryOptionalPgRelation(
+      'catalog-sync read catalog_sync_status_v1',
+      () => (ex ? ex.get<CatalogSyncStatusDbRow>(sql, params) : dbCatalogGet<CatalogSyncStatusDbRow>(sql, params)),
+      undefined
+    );
   }
-  return dbCatalogGet<CatalogSyncStatusDbRow>('SELECT * FROM catalog_sync_status_v1 WHERE id = ?', ['catalog']);
+  if (ex) {
+    return ex.get<CatalogSyncStatusDbRow>(sql, params);
+  }
+  return dbCatalogGet<CatalogSyncStatusDbRow>(sql, params);
 }
 
 async function updateSyncStatus(

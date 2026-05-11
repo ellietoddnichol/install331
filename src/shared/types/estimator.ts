@@ -308,7 +308,7 @@ export interface TakeoffLineRecord {
   updatedAt: string;
 }
 
-export type ProposalVisibility = 'customer_visible' | 'internal_only';
+export type ProposalVisibility = 'customer_visible' | 'internal_only' | 'optional_or_alt';
 
 export type EstimateSourceLineType =
   | 'catalog_item'

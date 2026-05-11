@@ -10,4 +10,10 @@ test('getIntegrationHealthSnapshot returns stable keys', () => {
   assert.equal(typeof snap.catalogSheetsSyncEnabled, 'boolean');
   assert.equal(typeof snap.pdfProvider, 'string');
   assert.equal(typeof snap.div10BrainAdmin, 'boolean');
+  assert.equal(typeof snap.workspaceTakeoffLinesTable, 'string');
+  assert.equal(typeof snap.catalogAliasesReadTable, 'string');
+  assert.equal(typeof snap.catalogAliasesWriteTable, 'string');
+  assert.ok(snap.catalogAliasesLayout === 'sheet' || snap.catalogAliasesLayout === 'brain');
+  assert.equal(typeof snap.catalogBundlesReadTable, 'string');
+  assert.equal(typeof snap.catalogBundleItemsReadTable, 'string');
 });

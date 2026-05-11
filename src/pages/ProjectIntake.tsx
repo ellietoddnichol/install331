@@ -1234,6 +1234,24 @@ export function ProjectIntake() {
   const [selectedReviewLineId, setSelectedReviewLineId] = useState<string | null>(null);
   const [catalogPickerLineId, setCatalogPickerLineId] = useState<string | null>(null);
 
+  const [intakeCatalogCategories, setIntakeCatalogCategories] = useState<string[]>([]);
+  const catalogRef = useRef<CatalogItem[]>([]);
+  catalogRef.current = catalog;
+  const intakeCatalogLoadPromiseRef = useRef<Promise<CatalogItem[]> | null>(null);
+
+  /** Full catalog is large — load from the server only when intake flows need it (not on the initial projects/settings fetch). */
+  const loadIntakeCatalogIfNeeded = useCallback(async (): Promise<CatalogItem[]> => {
+    if (catalogRef.current.length > 0) return catalogRef.current;
+    if (!intakeCatalogLoadPromiseRef.current) {
+      intakeCatalogLoadPromiseRef.current = api.getCatalog().then((rows) => {
+        intakeCatalogLoadPromiseRef.current = null;
+        setCatalog(rows);
+        return rows;
+      });
+    }
+    return intakeCatalogLoadPromiseRef.current;
+  }, []);
+
   const filteredReviewSuggestions = useMemo(() => {
     const q = reviewSearch.trim().toLowerCase();
     return lineSuggestions
@@ -1288,7 +1306,12 @@ export function ProjectIntake() {
 
   useEffect(() => {
     const onCatalogSynced = () => {
-      void api.getCatalog().then(setCatalog);
+      intakeCatalogLoadPromiseRef.current = null;
+      // Only refetch the full item list when this page already hydrated it (suggestCatalogMatch / picker).
+      // Avoid downloading the entire catalog on sync if intake never loaded it.
+      if (catalogRef.current.length > 0) {
+        void api.getCatalog().then(setCatalog);
+      }
     };
     window.addEventListener('catalog-synced', onCatalogSynced);
     return () => window.removeEventListener('catalog-synced', onCatalogSynced);
@@ -1296,14 +1319,14 @@ export function ProjectIntake() {
 
   useEffect(() => {
     void (async () => {
-      const [projectData, catalogData, settingsData, modifiersData] = await Promise.all([
+      const [projectData, categoryList, settingsData, modifiersData] = await Promise.all([
         api.getV1Projects(),
-        api.getCatalog(),
+        api.getV1CatalogCategories(),
         api.getV1Settings(),
         api.getV1Modifiers(),
       ]);
       setProjects(projectData);
-      setCatalog(catalogData);
+      setIntakeCatalogCategories(categoryList.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })));
       setSettingsDefaults(settingsData);
       setIntakeModifiers(modifiersData);
 
@@ -1439,11 +1462,17 @@ export function ProjectIntake() {
   );
 
   const scopeCategoryOptions = useMemo(
-    () => Array.from(new Set([
-      ...catalog.map((item) => String(item.category || '').trim()),
-      ...lineSuggestions.map((line) => String(line.category || '').trim()),
-    ].filter(Boolean))).sort(),
-    [catalog, lineSuggestions]
+    () =>
+      Array.from(
+        new Set(
+          [
+            ...intakeCatalogCategories,
+            ...catalog.map((item) => String(item.category || '').trim()),
+            ...lineSuggestions.map((line) => String(line.category || '').trim()),
+          ].filter(Boolean)
+        )
+      ).sort(),
+    [intakeCatalogCategories, catalog, lineSuggestions]
   );
 
   const newCatalogPeerSuggestion = useMemo(() => {
@@ -1659,10 +1688,11 @@ export function ProjectIntake() {
     }
   }
 
-  function applyIntakeParseToReview(result: IntakeParseResult, fallbackSource: string) {
-    const allowed = uniqueSortedCatalogCategories(catalog);
+  async function applyIntakeParseToReview(result: IntakeParseResult, fallbackSource: string) {
+    const cat = await loadIntakeCatalogIfNeeded();
+    const allowed = uniqueSortedCatalogCategories(cat);
     const raw = dedupeSuggestions(result.reviewLines.map((line) => buildIntakeLineSuggestion(line, fallbackSource)));
-    const suggestionsBase = clampSuggestionCategories(raw, catalog);
+    const suggestionsBase = clampSuggestionCategories(raw, cat);
     const inferredByFingerprint = new Map<string, LineSuggestion['catalogAttributeSnapshot']>();
     for (const row of result.estimateDraft?.lineSuggestions ?? []) {
       if (!row.reviewLineFingerprint) continue;
@@ -1703,7 +1733,7 @@ export function ProjectIntake() {
     setParserReviewSummary(buildParserReviewSummary(result));
     setLastIntakeParse(result);
     if (result.estimateDraft) {
-      const init = buildInitialEstimateReviewState(result.estimateDraft, catalog);
+      const init = buildInitialEstimateReviewState(result.estimateDraft, cat);
       setEstimateReviewLines(init.lineByFingerprint);
       setEstimateReviewJobConditions(init.jobConditionById);
       setEstimateReviewProjectMods(init.projectModifierById);
@@ -1737,6 +1767,8 @@ export function ProjectIntake() {
       return;
     }
 
+    const cat = await loadIntakeCatalogIfNeeded();
+
     let importedFromProject: LineSuggestion[] = [];
     let importedFromStructured: LineSuggestion[] = [];
     let roomNames: string[] = [];
@@ -1761,8 +1793,8 @@ export function ProjectIntake() {
 
       importedFromProject = sourceLines.map((line) => {
         const match = line.catalogItemId
-          ? catalog.find((item) => item.id === line.catalogItemId)
-          : suggestCatalogMatch({ itemName: line.description, category: line.category, description: line.description }, catalog, projectDraft.preferredBrands || []);
+          ? cat.find((item) => item.id === line.catalogItemId)
+          : suggestCatalogMatch({ itemName: line.description, category: line.category, description: line.description }, cat, projectDraft.preferredBrands || []);
         const roomName = sourceRooms.find((room) => room.id === line.roomId)?.roomName || 'General';
 
         return {
@@ -1900,7 +1932,7 @@ export function ProjectIntake() {
             description: line.description,
             rawText: `${line.itemName} ${line.description}`,
           },
-          catalog,
+          cat,
           projectDraft.preferredBrands || []
         );
 
@@ -1980,7 +2012,7 @@ export function ProjectIntake() {
           description: line.description,
           rawText: `${line.itemName} ${line.description} ${line.notes || ''}`,
         },
-        catalog,
+        cat,
         projectDraft.preferredBrands || []
       );
 
@@ -2006,7 +2038,7 @@ export function ProjectIntake() {
       } as LineSuggestion;
     });
     setLineSuggestions(
-      clampSuggestionCategories(dedupeSuggestions([...importedFromProject, ...importedFromStructured, ...importedFromText]), catalog)
+      clampSuggestionCategories(dedupeSuggestions([...importedFromProject, ...importedFromStructured, ...importedFromText]), cat)
     );
   }
 
@@ -2040,7 +2072,7 @@ export function ProjectIntake() {
       });
 
       applyIntakeParseToDraft(result, file.name);
-      applyIntakeParseToReview(result, file.name);
+      await applyIntakeParseToReview(result, file.name);
       setTakeoffParsedFromServer(true);
       setTakeoffStructuredLines(result.reviewLines.map((line) => buildIntakeParsedImportLine(line, file.name)));
       setTakeoffStructuredProjectName(coerceSafeProjectName(result.projectMetadata.projectName || '', '') || '');
@@ -2118,7 +2150,7 @@ export function ProjectIntake() {
 
       if (result.reviewLines.length > 0) {
         applyIntakeParseToDraft(result, file.name);
-        applyIntakeParseToReview(result, file.name);
+        await applyIntakeParseToReview(result, file.name);
         return;
       }
     } catch (_error) {
@@ -2149,9 +2181,10 @@ export function ProjectIntake() {
       }))
     );
 
+    const cat = await loadIntakeCatalogIfNeeded();
     const parsed = adaptive.lines.map((line) => {
       const roomFromLine = line.roomName || 'General';
-      const match = suggestCatalogMatch({ itemName: line.itemName, category: line.category, description: line.description, rawText: `${line.description} ${line.notes || ''}` }, catalog, projectDraft.preferredBrands || []);
+      const match = suggestCatalogMatch({ itemName: line.itemName, category: line.category, description: line.description, rawText: `${line.description} ${line.notes || ''}` }, cat, projectDraft.preferredBrands || []);
 
       return {
         id: makeId('line-suggest'),
@@ -2580,7 +2613,8 @@ export function ProjectIntake() {
     const line = lineSuggestions.find((entry) => entry.id === lineId);
     if (!line) return;
 
-    const allowed = uniqueSortedCatalogCategories(catalog);
+    const allowed =
+      catalog.length > 0 ? uniqueSortedCatalogCategories(catalog) : intakeCatalogCategories.length > 0 ? [...intakeCatalogCategories] : ['Uncategorized'];
     setNewCatalogLineId(lineId);
     setNewCatalogDraft({
       description: line.description || line.rawText,
@@ -2805,12 +2839,14 @@ function applyRoomToVisible(roomName: string) {
     });
   }
 
-  function applyBlankQuickAddRows(input: {
+  async function applyBlankQuickAddRows(input: {
     rows: ParsedImportLine[];
     metadata?: Partial<ProjectRecord> | null;
   }) {
     const parsed = input.rows;
     if (parsed.length === 0) return;
+
+    const cat = await loadIntakeCatalogIfNeeded();
 
     if (input.metadata) {
       setProjectDraft((prev) => ({
@@ -2836,7 +2872,7 @@ function applyRoomToVisible(roomName: string) {
       const raw = `${row.itemCode || ''} ${row.description || row.itemName || ''}`.trim();
       const match = suggestCatalogMatch(
         { itemName: row.itemName, description: row.description, rawText: raw },
-        catalog
+        cat
       );
       const resolvedRoom = normalizeRoomName(row.roomName || seededRoom || 'General Scope');
       if (resolvedRoom && !nextRooms.has(resolvedRoom)) {
@@ -2875,13 +2911,13 @@ function applyRoomToVisible(roomName: string) {
       }
     }
 
-    setLineSuggestions((prev) => clampSuggestionCategories(dedupeSuggestions([...prev, ...added]), catalog));
+    setLineSuggestions((prev) => clampSuggestionCategories(dedupeSuggestions([...prev, ...added]), cat));
     setBlankQuickAddText('');
   }
 
-  function applyBlankQuickAdd() {
+  async function applyBlankQuickAdd() {
     const parsed = parseBlankQuickAddLines(blankQuickAddText);
-    applyBlankQuickAddRows({ rows: parsed, metadata: null });
+    await applyBlankQuickAddRows({ rows: parsed, metadata: null });
   }
 
   async function parsePreferredXlsxTemplate(file: File): Promise<{ rows: ParsedImportLine[]; metadata: Partial<ProjectRecord> }> {
@@ -2946,7 +2982,8 @@ function applyRoomToVisible(roomName: string) {
     return { rows: out, metadata };
   }
 
-  function loadTemplateDefaults() {
+  async function loadTemplateDefaults() {
+    const cat = await loadIntakeCatalogIfNeeded();
     setParserReviewSummary(null);
     setLastIntakeParse(null);
     setEstimateReviewLines({});
@@ -2969,7 +3006,7 @@ function applyRoomToVisible(roomName: string) {
       ['2 Grab Bar 36', '1 Mirror 18x36', '1 Paper Towel Dispenser'],
       'Template seed'
     ).map((line) => {
-      const match = suggestCatalogMatch({ itemName: line.itemName, description: line.description, rawText: line.description }, catalog, projectDraft.preferredBrands || []);
+      const match = suggestCatalogMatch({ itemName: line.itemName, description: line.description, rawText: line.description }, cat, projectDraft.preferredBrands || []);
       return {
         id: makeId('line-suggest'),
         include: true,
@@ -2991,12 +3028,12 @@ function applyRoomToVisible(roomName: string) {
         matched: !!match,
       } as LineSuggestion;
     });
-    setLineSuggestions(clampSuggestionCategories(dedupeSuggestions(starter), catalog));
+    setLineSuggestions(clampSuggestionCategories(dedupeSuggestions(starter), cat));
   }
 
-  function applyManualTemplateFallback() {
+  async function applyManualTemplateFallback() {
     setMode('template');
-    loadTemplateDefaults();
+    await loadTemplateDefaults();
     setStep(3);
   }
 
@@ -3007,7 +3044,7 @@ function applyRoomToVisible(roomName: string) {
     }
 
     if (mode === 'template') {
-      loadTemplateDefaults();
+      await loadTemplateDefaults();
       return true;
     }
 
@@ -3557,7 +3594,7 @@ function applyRoomToVisible(roomName: string) {
                   <button
                     type="button"
                     className="ui-btn-secondary h-9 px-3 text-xs font-semibold disabled:opacity-50"
-                    onClick={applyBlankQuickAdd}
+                    onClick={() => void applyBlankQuickAdd()}
                     disabled={!blankQuickAddText.trim()}
                   >
                     Add to draft
@@ -3577,12 +3614,12 @@ function applyRoomToVisible(roomName: string) {
                     if (file) {
                       const name = file.name.toLowerCase();
                       if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
-                        void parsePreferredXlsxTemplate(file).then(({ rows, metadata }) => {
+                        void parsePreferredXlsxTemplate(file).then(async ({ rows, metadata }) => {
                           if (rows.length === 0) {
                             void file.text().then((t) => setBlankQuickAddText((prev) => (prev ? `${prev}\n${t}` : t)));
                             return;
                           }
-                          applyBlankQuickAddRows({ rows, metadata });
+                          await applyBlankQuickAddRows({ rows, metadata });
                         });
                         return;
                       }
@@ -4336,7 +4373,7 @@ function applyRoomToVisible(roomName: string) {
 
                     {parserReviewSummary.recommendedAction === 'manual-template' ? (
                       <button
-                        onClick={applyManualTemplateFallback}
+                        onClick={() => void applyManualTemplateFallback()}
                         className="inline-flex h-10 items-center rounded-full bg-red-600 px-4 text-[11px] font-semibold text-white hover:bg-red-700"
                       >
                         Use Manual Template
@@ -4610,7 +4647,7 @@ function applyRoomToVisible(roomName: string) {
                 {parserReviewSummary.recommendedAction === 'manual-template' ? (
                   <button
                     type="button"
-                    onClick={applyManualTemplateFallback}
+                    onClick={() => void applyManualTemplateFallback()}
                     className="inline-flex h-9 shrink-0 items-center rounded-full bg-red-600 px-3 text-[11px] font-semibold text-white outline-none hover:bg-red-700 focus-visible:ring-2 focus-visible:ring-red-400/50"
                   >
                     Use Manual Template

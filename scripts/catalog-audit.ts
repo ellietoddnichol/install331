@@ -13,6 +13,11 @@ import dotenv from 'dotenv';
 import { isPgDriver } from '../src/server/db/driver.ts';
 import { closePgPool } from '../src/server/db/pgPool.ts';
 import { dbAll } from '../src/server/db/query.ts';
+import {
+  getBundlesReadTableNames,
+  getCatalogItemsReadTableName,
+  getCatalogModifiersReadTableName,
+} from '../src/server/db/catalogTable.ts';
 import type { CatalogValidationIssueType } from '../src/shared/types/catalogValidationIssue.ts';
 import { CATALOG_ALLOWED_UOM } from '../src/shared/catalogValidationConstants.ts';
 
@@ -20,10 +25,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 const OUT_DIR = path.join(REPO_ROOT, 'reports', 'catalog-audit');
 
-['.env', '.env.local'].forEach((name) => {
+for (const [name, override] of [
+  ['.env', false],
+  ['.env.local', true],
+] as const) {
   const p = path.join(REPO_ROOT, name);
-  if (fs.existsSync(p)) dotenv.config({ path: p, override: false });
-});
+  if (fs.existsSync(p)) dotenv.config({ path: p, override });
+}
 
 type CatalogRow = Record<string, unknown>;
 type ModifierRow = {
@@ -198,7 +206,19 @@ async function run() {
     );
   }
 
-  const catalog = await dbAll<CatalogRow>('SELECT * FROM catalog_items');
+  async function readCatalogRows(): Promise<CatalogRow[]> {
+    const preferred = getCatalogItemsReadTableName();
+    try {
+      return await dbAll<CatalogRow>(`SELECT * FROM ${preferred}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!/does not exist/i.test(msg)) throw e;
+      console.warn(`[catalog-audit] ${preferred} unreadable — falling back to catalog_items (${msg})`);
+      return await dbAll<CatalogRow>('SELECT * FROM catalog_items');
+    }
+  }
+
+  const catalog = await readCatalogRows();
 
   const skuToIds = new Map<string, string[]>();
   const nameKeyToIds = new Map<string, string[]>();
@@ -375,7 +395,22 @@ async function run() {
     }
   }
 
-  const modifiers = await dbAll<ModifierRow>('SELECT * FROM modifiers_v1');
+  let modifiers: ModifierRow[] = [];
+  try {
+    const modRel = getCatalogModifiersReadTableName();
+    try {
+      modifiers = await dbAll<ModifierRow>(`SELECT * FROM ${modRel}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!/does not exist/i.test(msg) || modRel === 'modifiers_v1') throw e;
+      console.warn(`[catalog-audit] ${modRel} unreadable — falling back to modifiers_v1 (${msg})`);
+      modifiers = await dbAll<ModifierRow>('SELECT * FROM modifiers_v1');
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[catalog-audit] Skipping modifier rules (no readable modifiers relation): ${msg}`);
+    pushIssue(allIssues, 'SCHEMA_GAP', 'modifier', '_', 'Modifiers relation missing or unreadable', msg);
+  }
   for (const m of modifiers) {
     const pctLike =
       m.percent_labor === 0 &&
@@ -440,7 +475,29 @@ async function run() {
     }
   }
 
-  const bundles = await dbAll<BundleRow>('SELECT * FROM bundles_v1');
+  let bundles: BundleRow[] = [];
+  let bItems: (BundleItemRow & { b_active?: number })[] = [];
+  try {
+    const { bundlesTable, bundleItemsTable } = getBundlesReadTableNames();
+    try {
+      bundles = await dbAll<BundleRow>(`SELECT * FROM ${bundlesTable}`);
+      bItems = await dbAll<BundleItemRow & { b_active?: number }>(
+        `SELECT bi.*, b.active as b_active FROM ${bundleItemsTable} bi JOIN ${bundlesTable} b ON b.id = bi.bundle_id`
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!/does not exist/i.test(msg) || bundlesTable === 'bundles_v1') throw e;
+      console.warn(`[catalog-audit] ${bundlesTable} unreadable — falling back to bundles_v1 (${msg})`);
+      bundles = await dbAll<BundleRow>('SELECT * FROM bundles_v1');
+      bItems = await dbAll<BundleItemRow & { b_active?: number }>(
+        'SELECT bi.*, b.active as b_active FROM bundle_items_v1 bi JOIN bundles_v1 b ON b.id = bi.bundle_id'
+      );
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[catalog-audit] Skipping bundle rules (no readable bundles relations): ${msg}`);
+    pushIssue(allIssues, 'SCHEMA_GAP', 'bundle', '_', 'Bundles / bundle_items relations missing or unreadable', msg);
+  }
   const bundleAct = new Map(bundles.map((b) => [b.id, b.active]));
   const skus = new Set<string>();
   const idSet = new Set<string>(catalog.map((c) => String(c.id)));
@@ -448,9 +505,6 @@ async function run() {
     if (String(c.sku || '').trim()) skus.add(normSku(c.sku));
   }
 
-  const bItems = await dbAll<BundleItemRow & { b_active?: number }>(
-    `SELECT bi.*, b.active as b_active FROM bundle_items_v1 bi JOIN bundles_v1 b ON b.id = bi.bundle_id`
-  );
   for (const bi of bItems) {
     if (!bi.b_active) continue;
     if (bi.catalog_item_id && !idSet.has(bi.catalog_item_id)) {

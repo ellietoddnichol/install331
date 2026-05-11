@@ -18,6 +18,7 @@ import {
 } from './intakeCatalogMatching.ts';
 import { intakeAsText } from './metadataExtractorService.ts';
 import {
+  getCatalogAliasValueColumnSql,
   getCatalogItemAliasesReadTableName,
   getCatalogItemAttributesReadTableName,
 } from '../db/catalogTable.ts';
@@ -223,12 +224,13 @@ async function findStrongAliasCatalogItemId(
   const skuTokens = extractSkuLikeTokens([input.itemCode, input.description].filter(Boolean).join(' '));
 
   const aliasesRel = getCatalogItemAliasesReadTableName();
+  const aliasValCol = getCatalogAliasValueColumnSql();
 
   for (const token of skuTokens) {
     const row = await dbCatalogGet<{ catalog_item_id: string; alias_type: string; alias_value: string }>(
-      `SELECT catalog_item_id, alias_type, alias_value
+      `SELECT catalog_item_id, alias_type, ${aliasValCol} AS alias_value
          FROM ${aliasesRel}
-         WHERE lower(alias_value) = lower(?)
+         WHERE lower(${aliasValCol}) = lower(?)
            AND alias_type IN ('legacy_sku', 'vendor_sku')
          LIMIT 1`,
       [token]
@@ -238,10 +240,10 @@ async function findStrongAliasCatalogItemId(
 
   if (text.length >= 8) {
     const phraseRows = await dbCatalogAll<{ catalog_item_id: string; alias_type: string; alias_value: string }>(
-      `SELECT catalog_item_id, alias_type, alias_value
+      `SELECT catalog_item_id, alias_type, ${aliasValCol} AS alias_value
          FROM ${aliasesRel}
          WHERE alias_type IN ('parser_phrase', 'search_key', 'generic_name')
-           AND length(trim(alias_value)) >= 6
+           AND length(trim(${aliasValCol})) >= 6
          LIMIT 5000`
     );
     for (const r of phraseRows) {
