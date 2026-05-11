@@ -358,3 +358,13 @@ export function plausibleTitleFromFileName(fileName: string): string | null {
   if (!stem) return null;
   return isPlausibleProjectTitle(stem) ? stem : null;
 }
+
+/** First upload path whose file stem looks like a real job name (used when PDF/LLM title is missing). */
+export function plausibleProjectTitleFromSourcePaths(paths: string[]): string {
+  for (const p of paths) {
+    const base = String(p).split(/[/\\]/).pop() || '';
+    const t = plausibleTitleFromFileName(base);
+    if (t) return t;
+  }
+  return '';
+}

@@ -105,33 +105,44 @@ function mapSettingsRow(row: SettingsDbRow): SettingsRecord {
   }) as SettingsRecord;
 }
 
+function defaultGlobalSettingsDbRow(): SettingsDbRow {
+  return {
+    id: 'global',
+    company_name: '',
+    company_address: '',
+    company_phone: '',
+    company_email: '',
+    logo_url: '',
+    default_labor_rate_per_hour: 100,
+    default_overhead_percent: 0,
+    default_profit_percent: 0,
+    default_tax_percent: 8.25,
+    default_labor_burden_percent: 0,
+    default_labor_overhead_percent: 5,
+    proposal_intro: null,
+    proposal_terms: null,
+    proposal_exclusions: null,
+    proposal_clarifications: null,
+    proposal_acceptance_label: null,
+    intake_catalog_auto_apply_mode: 'off',
+    intake_catalog_tier_a_min_score: 0.82,
+    updated_at: new Date().toISOString(),
+  };
+}
+
 export async function getSettings(): Promise<SettingsRecord> {
-  const row = isPgDriver()
-    ? ((await dbGet('SELECT * FROM settings_v1 WHERE id = ?', ['global'])) as SettingsDbRow | undefined)
-    : (getEstimatorDb().prepare('SELECT * FROM settings_v1 WHERE id = ?').get('global') as SettingsDbRow | undefined);
+  let row: SettingsDbRow | undefined;
+  if (isPgDriver()) {
+    row = await tryOptionalPgRelation(
+      'settings settings_v1 read',
+      async () => (await dbGet('SELECT * FROM settings_v1 WHERE id = ?', ['global'])) as SettingsDbRow | undefined,
+      undefined,
+    );
+  } else {
+    row = getEstimatorDb().prepare('SELECT * FROM settings_v1 WHERE id = ?').get('global') as SettingsDbRow | undefined;
+  }
   if (!row) {
-    return mapSettingsRow({
-      id: 'global',
-      company_name: '',
-      company_address: '',
-      company_phone: '',
-      company_email: '',
-      logo_url: '',
-      default_labor_rate_per_hour: 100,
-      default_overhead_percent: 0,
-      default_profit_percent: 0,
-      default_tax_percent: 8.25,
-      default_labor_burden_percent: 0,
-      default_labor_overhead_percent: 5,
-      proposal_intro: null,
-      proposal_terms: null,
-      proposal_exclusions: null,
-      proposal_clarifications: null,
-      proposal_acceptance_label: null,
-      intake_catalog_auto_apply_mode: 'off',
-      intake_catalog_tier_a_min_score: 0.82,
-      updated_at: new Date().toISOString(),
-    } as SettingsDbRow);
+    return mapSettingsRow(defaultGlobalSettingsDbRow());
   }
   return mapSettingsRow(row);
 }

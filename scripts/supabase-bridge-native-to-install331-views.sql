@@ -205,7 +205,7 @@ SELECT
   d.id::text AS id,
   d.name AS bundle_name,
   d.category,
-  CASE WHEN d.active THEN 1 ELSE 0 END AS active,
+  (CASE WHEN d.active THEN 1 ELSE 0 END)::smallint AS active,
   to_char(d.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
 FROM public.bundle_defs d;
 
@@ -256,7 +256,7 @@ SELECT
   NULL::double precision AS material_delta_value,
   NULL::text AS labor_delta_type,
   NULL::double precision AS labor_delta_value,
-  true AS active,
+  1::smallint AS active,
   cad.sort_order,
   to_char(cia.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
   to_char(cia.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at

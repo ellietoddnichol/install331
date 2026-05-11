@@ -27,7 +27,12 @@ import {
 } from '../shared/utils/jobConditions';
 import { collectPastProjectDateErrors, mapProjectDateErrors } from '../shared/utils/projectDateValidation';
 import { OFFICE_ADDRESS, getDistanceInMiles } from '../utils/geo';
-import { coerceSafeProjectName, isPlausibleProjectTitle, plausibleTitleFromFileName } from '../shared/utils/intakeTextGuards';
+import {
+  coerceSafeProjectName,
+  isPlausibleProjectTitle,
+  plausibleProjectTitleFromSourcePaths,
+  plausibleTitleFromFileName,
+} from '../shared/utils/intakeTextGuards';
 import { formatCurrencySafe, formatNumberSafe } from '../utils/numberFormat';
 import { numericInputValue, parseNumericInput } from '../utils/numericInput';
 import { SiteAddressAutocomplete } from '../components/intake/SiteAddressAutocomplete';
@@ -570,7 +575,7 @@ function parseStructuredSpreadsheetRows(rows: Array<Array<string | number | bool
   };
 }
 
-function parseDocumentMetadata(text: string): Partial<ProjectRecord> {
+function parseDocumentMetadata(text: string, fileHint?: string): Partial<ProjectRecord> {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const findValue = (pattern: RegExp): string | null => {
     const matched = lines.find((line) => pattern.test(line));
@@ -596,8 +601,10 @@ function parseDocumentMetadata(text: string): Partial<ProjectRecord> {
       return tokenizeText(line).length >= 2;
     }) || null;
 
+  const fromFile = fileHint ? plausibleTitleFromFileName(fileHint.split(/[/\\]/).pop() || fileHint) : null;
+
   return {
-    projectName: labeledProjectSafe ?? inferredProjectLine ?? 'Imported Project',
+    projectName: labeledProjectSafe ?? inferredProjectLine ?? fromFile ?? 'Imported Project',
     projectNumber: findValue(/project\s*#|project\s*number|bid\s*package/i) ?? null,
     clientName: findValue(/client|gc|general\s*contractor/i) ?? null,
     address: findValue(/address|location|site/i) ?? null,
@@ -678,7 +685,7 @@ function classifyUploadedFile(file: File, extractedText: string): SourceKind {
 }
 
 function parseAdaptiveTextDocument(text: string, sourceReference: string): { metadata: Partial<ProjectRecord>; lines: ParsedImportLine[]; kind: SourceKind } {
-  const metadata = parseDocumentMetadata(text);
+  const metadata = parseDocumentMetadata(text, sourceReference);
   const rawLines = detectScopeLinesFromText(text);
   const lines = parseRawTextLinesToRows(rawLines, sourceReference);
 
@@ -1661,7 +1668,9 @@ export function ProjectIntake() {
       ...prev,
       projectName: prev.projectName?.trim()
         ? prev.projectName
-        : coerceSafeProjectName(result.projectMetadata.projectName || '', '') || 'Imported Project',
+        : coerceSafeProjectName(result.projectMetadata.projectName || '', '') ||
+            plausibleProjectTitleFromSourcePaths(result.projectMetadata.sourceFiles || []) ||
+            'Imported Project',
       projectNumber: prev.projectNumber || result.projectMetadata.projectNumber || prev.projectNumber,
       projectNumberSource: (() => {
         if (String(prev.projectNumber || '').trim()) return prev.projectNumberSource;
@@ -1966,7 +1975,7 @@ export function ProjectIntake() {
     }
 
     if (hasTextSource) {
-      const documentMetadata = parseDocumentMetadata(combinedText);
+      const documentMetadata = parseDocumentMetadata(combinedText, takeoffFileName || undefined);
       const detectedRooms = detectRoomsFromText(combinedText);
       if (detectedRooms.length > 0) roomNames = [...roomNames, ...detectedRooms];
 
@@ -2163,7 +2172,10 @@ export function ProjectIntake() {
     setProjectDraft((prev) => ({
       ...prev,
       projectName:
-        coerceSafeProjectName(metadata.projectName || '', '') || prev.projectName || 'Imported Project',
+        coerceSafeProjectName(metadata.projectName || '', '') ||
+        plausibleTitleFromFileName(file.name) ||
+        prev.projectName ||
+        'Imported Project',
       projectNumber: metadata.projectNumber || prev.projectNumber,
       projectNumberSource: String(metadata.projectNumber || '').trim() ? ('manual' as const) : prev.projectNumberSource,
       clientName: metadata.clientName || prev.clientName,

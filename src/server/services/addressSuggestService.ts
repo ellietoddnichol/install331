@@ -3,6 +3,8 @@
  * https://operations.osmfoundation.org/policies/nominatim/
  */
 
+import { applyNominatimRegionSearchParams } from '../../shared/geo/nominatimRegionBias.ts';
+
 export type AddressSuggestion = {
   label: string;
 };
@@ -18,14 +20,13 @@ export async function suggestAddresses(query: string): Promise<AddressSuggestion
   url.searchParams.set('q', q);
   url.searchParams.set('addressdetails', '1');
   url.searchParams.set('limit', '10');
-
-  const country = String(process.env.ADDRESS_SUGGEST_COUNTRY_CODES || '').trim();
-  if (country) url.searchParams.set('countrycodes', country);
+  applyNominatimRegionSearchParams(url, process.env);
 
   const res = await fetch(url.toString(), {
     headers: {
       'User-Agent': process.env.NOMINATIM_USER_AGENT || DEFAULT_UA,
       Accept: 'application/json',
+      'Accept-Language': 'en-US,en',
     },
   });
 

@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { sqlCatalogActiveEqualsOne } from '../db/catalogSql.ts';
 import { getBundlesReadTableNames } from '../db/catalogTable.ts';
 import { dbCatalogAll, dbCatalogGet, dbCatalogRun } from '../db/query.ts';
 import { BundleItemRecord, BundleRecord, TakeoffLineRecord } from '../../shared/types/estimator.ts';
@@ -32,7 +33,8 @@ function mapBundleItem(row: any): BundleItemRecord {
 
 export async function listBundles(): Promise<BundleRecord[]> {
   const { bundlesTable } = getBundlesReadTableNames();
-  const rows = await dbCatalogAll(`SELECT * FROM ${bundlesTable} WHERE active = 1 ORDER BY bundle_name`);
+  const act = sqlCatalogActiveEqualsOne('active');
+  const rows = await dbCatalogAll(`SELECT * FROM ${bundlesTable} WHERE ${act} ORDER BY bundle_name`);
   return rows.map(mapBundle);
 }
 

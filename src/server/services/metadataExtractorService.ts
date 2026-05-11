@@ -2,6 +2,7 @@ import type { IntakeProjectAssumption, IntakeProjectMetadata } from '../../share
 import {
   coerceSafeProjectName,
   isPlausibleProjectTitle,
+  plausibleProjectTitleFromSourcePaths,
   stripIntakeControlCharacters,
 } from '../../shared/utils/intakeTextGuards.ts';
 import { extractAssumptionsFromText, inferPricingBasis, mergeAssumptions } from './proposalAssistService.ts';
@@ -251,7 +252,9 @@ export function extractMetadataFromCells(cells: string[]): Partial<IntakeProject
 export function mergeResolvedMetadata(primary: Partial<IntakeProjectMetadata>, secondary: Partial<IntakeProjectMetadata>, sources: string[]): IntakeProjectMetadata {
   const primaryName = sanitizeProjectNameCandidate(primary.projectName || '');
   const secondaryName = sanitizeProjectNameCandidate(secondary.projectName || '');
-  const projectName = coerceSafeProjectName(primaryName || secondaryName || '', 'Imported Project');
+  const sourceFiles = Array.from(new Set([...(primary.sourceFiles || []), ...(secondary.sourceFiles || [])].filter(Boolean)));
+  const fromFileStem = plausibleProjectTitleFromSourcePaths(sourceFiles);
+  const projectName = coerceSafeProjectName(primaryName || secondaryName || fromFileStem || '', 'Imported Project');
   const projectNumber = primary.projectNumber || secondary.projectNumber || primary.bidPackage || secondary.bidPackage || '';
   const bidPackage = primary.bidPackage || secondary.bidPackage || projectNumber || '';
   const client = primary.client || secondary.client || '';
@@ -260,7 +263,6 @@ export function mergeResolvedMetadata(primary: Partial<IntakeProjectMetadata>, s
   const bidDate = primary.bidDate || secondary.bidDate || '';
   const proposalDate = primary.proposalDate || secondary.proposalDate || '';
   const estimator = primary.estimator || secondary.estimator || '';
-  const sourceFiles = Array.from(new Set([...(primary.sourceFiles || []), ...(secondary.sourceFiles || [])].filter(Boolean)));
   const assumptions = mergeAssumptions(primary.assumptions || [], secondary.assumptions || []);
   const pricingBasis = primary.pricingBasis || secondary.pricingBasis || '';
   const filledCount = [projectName, projectNumber, bidPackage, client, generalContractor, address, bidDate, proposalDate, estimator].filter(Boolean).length;

@@ -1,3 +1,13 @@
+import {
+  sqlCatalogActiveEqualsOne,
+  sqlCatalogActiveEqualsZero,
+  sqlCatalogCaseWhenActiveOne,
+  sqlCatalogCaseWhenActiveZero,
+  sqlCatalogDeprecatedCoalescedZeroExpr,
+  sqlCatalogForwardFacingPredicate,
+  sqlCatalogLiteralActiveTrue,
+  sqlCatalogNullableCanonicalOrOne,
+} from '../db/catalogSql.ts';
 import { dbCatalogAll, dbCatalogGet, dbCatalogRun } from '../db/query.ts';
 import type { CatalogItem } from '../../types.ts';
 import type { CatalogCategoryImageGapRow, CatalogPostCutoverHealthRecord, CatalogSyncStatusRecord } from '../../shared/types/estimator.ts';
@@ -70,7 +80,8 @@ function mapCatalogRow(row: any): CatalogItem {
 export async function listActiveCatalogItems(): Promise<CatalogItem[]> {
   await ensureTakeoffCatalogSeeded();
   const table = getCatalogItemsTableName();
-  const rows = await dbCatalogAll(`SELECT * FROM ${table} WHERE active = 1 ORDER BY category, description`);
+  const act = sqlCatalogActiveEqualsOne('active');
+  const rows = await dbCatalogAll(`SELECT * FROM ${table} WHERE ${act} ORDER BY category, description`);
   return rows.map(mapCatalogRow);
 }
 
@@ -78,9 +89,10 @@ export async function listActiveCatalogItems(): Promise<CatalogItem[]> {
 export async function listCatalogItemsForApi(includeInactive: boolean): Promise<CatalogItem[]> {
   await ensureTakeoffCatalogSeeded();
   const table = getCatalogItemsTableName();
+  const act = sqlCatalogActiveEqualsOne('active');
   const sql = includeInactive
     ? `SELECT * FROM ${table} ORDER BY category, description`
-    : `SELECT * FROM ${table} WHERE active = 1 ORDER BY category, description`;
+    : `SELECT * FROM ${table} WHERE ${act} ORDER BY category, description`;
   const rows = await dbCatalogAll(sql);
   return rows.map(mapCatalogRow);
 }
@@ -88,11 +100,13 @@ export async function listCatalogItemsForApi(includeInactive: boolean): Promise<
 export async function getCatalogInventoryCounts(): Promise<{ total: number; active: number; inactive: number }> {
   await ensureTakeoffCatalogSeeded();
   const table = getCatalogItemsTableName();
+  const caseActive = sqlCatalogCaseWhenActiveOne('active');
+  const caseInactive = sqlCatalogCaseWhenActiveZero('active');
   const row = await dbCatalogGet(
     `SELECT
       COUNT(*) AS total,
-      SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) AS active,
-      SUM(CASE WHEN active = 0 THEN 1 ELSE 0 END) AS inactive
+      SUM(${caseActive}) AS active,
+      SUM(${caseInactive}) AS inactive
     FROM ${table}`
   );
   const r = row as { total: number; active: number | null; inactive: number | null } | undefined;
@@ -102,8 +116,6 @@ export async function getCatalogInventoryCounts(): Promise<{ total: number; acti
     inactive: Number(r?.inactive ?? 0),
   };
 }
-
-const forwardFacingSql = `active = 1 AND COALESCE(deprecated, 0) = 0 AND is_canonical = 1`;
 
 /**
  * Summarizes forward-facing catalog rows in SQLite for post-cutover checks (sync vs sheet audit, image gaps).
@@ -115,24 +127,26 @@ export async function getCatalogPostCutoverHealth(params: {
 }): Promise<CatalogPostCutoverHealthRecord> {
   await ensureTakeoffCatalogSeeded();
   const readTable = getCatalogItemsTableName();
+  const fwd = sqlCatalogForwardFacingPredicate();
 
-  const forward = (await dbCatalogGet(`SELECT COUNT(*) AS n FROM ${readTable} WHERE ${forwardFacingSql}`)) as { n: number };
+  const forward = (await dbCatalogGet(`SELECT COUNT(*) AS n FROM ${readTable} WHERE ${fwd}`)) as { n: number };
   const missingImg = (await dbCatalogGet(
-    `SELECT COUNT(*) AS n FROM ${readTable} WHERE ${forwardFacingSql}
+    `SELECT COUNT(*) AS n FROM ${readTable} WHERE ${fwd}
        AND (image_url IS NULL OR TRIM(image_url) = '')`
   )) as { n: number };
   const mfrBackedMiss = (await dbCatalogGet(
-    `SELECT COUNT(*) AS n FROM ${readTable} WHERE ${forwardFacingSql}
+    `SELECT COUNT(*) AS n FROM ${readTable} WHERE ${fwd}
        AND (image_url IS NULL OR TRIM(image_url) = '')
        AND TRIM(COALESCE(manufacturer, '')) != ''
        AND (TRIM(COALESCE(model, '')) != '' OR TRIM(COALESCE(series, '')) != '')`
   )) as { n: number };
 
   const attrTable = getCatalogItemAttributesReadTableName();
+  const attrAct = sqlCatalogActiveEqualsOne('active');
   const attrDistinct = (await dbCatalogGet(
     `SELECT COUNT(DISTINCT catalog_item_id) AS n
        FROM ${attrTable}
-       WHERE active = 1`
+       WHERE ${attrAct}`
   )) as { n: number };
 
   const topRows = (await dbCatalogAll(
@@ -141,7 +155,7 @@ export async function getCatalogPostCutoverHealth(params: {
         SUM(CASE WHEN (image_url IS NULL OR TRIM(image_url) = '') THEN 1 ELSE 0 END) AS missing_image,
         COUNT(*) AS fwd
        FROM ${readTable}
-       WHERE ${forwardFacingSql}
+       WHERE ${fwd}
        GROUP BY category
        HAVING SUM(CASE WHEN (image_url IS NULL OR TRIM(image_url) = '') THEN 1 ELSE 0 END) > 0
        ORDER BY missing_image DESC, fwd DESC
@@ -180,7 +194,8 @@ export async function getCatalogPostCutoverHealth(params: {
 export async function reactivateAllCatalogItems(): Promise<number> {
   await ensureTakeoffCatalogSeeded();
   const wt = getCatalogItemsWriteTableName();
-  const result = await dbCatalogRun(`UPDATE ${wt} SET active = 1`, []);
+  const lit = sqlCatalogLiteralActiveTrue();
+  const result = await dbCatalogRun(`UPDATE ${wt} SET active = ${lit}`, []);
   return result.changes;
 }
 
@@ -225,9 +240,9 @@ export async function searchCatalogItemsForApi(input: {
   const where: string[] = [];
   const args: any[] = [];
 
-  if (!includeInactive) where.push('c.active = 1');
-  if (!includeDeprecated) where.push('(c.deprecated IS NULL OR c.deprecated = 0)');
-  if (!includeNonCanonical) where.push('(c.is_canonical IS NULL OR c.is_canonical = 1)');
+  if (!includeInactive) where.push(sqlCatalogActiveEqualsOne('c.active'));
+  if (!includeDeprecated) where.push(sqlCatalogDeprecatedCoalescedZeroExpr('c.deprecated'));
+  if (!includeNonCanonical) where.push(sqlCatalogNullableCanonicalOrOne('c.is_canonical'));
   if (category) {
     where.push('c.category = ?');
     args.push(category);
@@ -299,8 +314,8 @@ function buildCatalogPageWhere(params: {
 }): { whereSql: string; args: unknown[] } {
   const where: string[] = ['1=1'];
   const args: unknown[] = [];
-  if (params.activeFilter === 'active') where.push('c.active = 1');
-  else if (params.activeFilter === 'inactive') where.push('c.active = 0');
+  if (params.activeFilter === 'active') where.push(sqlCatalogActiveEqualsOne('c.active'));
+  else if (params.activeFilter === 'inactive') where.push(sqlCatalogActiveEqualsZero('c.active'));
 
   const cat = String(params.category || '').trim();
   if (cat && cat !== 'all') {
@@ -338,8 +353,10 @@ function buildCatalogPageWhere(params: {
   }
 
   if (params.imageSprintOnly) {
+    const act = sqlCatalogActiveEqualsOne('c.active');
+    const dep = sqlCatalogDeprecatedCoalescedZeroExpr('c.deprecated');
     where.push(
-      `(c.active = 1 AND (c.deprecated IS NULL OR c.deprecated = 0) AND nullif(trim(coalesce(c.manufacturer,'')),'') is not null AND (nullif(trim(coalesce(c.model,'')),'') is not null OR nullif(trim(coalesce(c.series,'')),'') is not null) AND (c.image_url IS NULL OR trim(c.image_url) = ''))`
+      `(${act} AND ${dep} AND nullif(trim(coalesce(c.manufacturer,'')),'') is not null AND (nullif(trim(coalesce(c.model,'')),'') is not null OR nullif(trim(coalesce(c.series,'')),'') is not null) AND (c.image_url IS NULL OR trim(c.image_url) = ''))`
     );
   }
 

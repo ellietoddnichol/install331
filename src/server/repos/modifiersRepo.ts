@@ -4,6 +4,7 @@ import { getTakeoffLinesTableName } from '../db/workspaceTable.ts';
 import { isPgCatalogBackend } from '../db/catalogBackend.ts';
 import { getEstimatorDb } from '../db/connection.ts';
 import { isPgDriver } from '../db/driver.ts';
+import { sqlCatalogActiveEqualsOne } from '../db/catalogSql.ts';
 import { dbAll, dbCatalogAll, dbCatalogGet, dbRun } from '../db/query.ts';
 import { LineModifierRecord, ModifierRecord } from '../../shared/types/estimator.ts';
 import { getConfiguredLaborRatePerHour, getTakeoffLineCore, resolveUnitLaborCostFromMinutes, updateTakeoffLine } from './takeoffRepo.ts';
@@ -39,9 +40,7 @@ function mapLineModifier(row: any): LineModifierRecord {
 }
 
 function modifiersActiveSql(): string {
-  // Postgres `modifiers_v1.active` is INTEGER (0/1). Use numeric equality only — `active IS TRUE`
-  // errors on integers; `active = true` errors on integers. `active = 1` is valid for int and for bool in PG.
-  return 'active = 1';
+  return sqlCatalogActiveEqualsOne('active');
 }
 
 export async function listModifiers(): Promise<ModifierRecord[]> {
@@ -122,7 +121,7 @@ export async function applyModifierToLine(
   const act = modifiersActiveSql();
   const modifierRow = isPgCatalogBackend()
     ? await dbCatalogGet(`SELECT * FROM ${rel} WHERE id = ? AND ${act}`, [modifierId])
-    : getEstimatorDb().prepare(`SELECT * FROM ${rel} WHERE id = ? AND active = 1`).get(modifierId);
+    : getEstimatorDb().prepare(`SELECT * FROM ${rel} WHERE id = ? AND ${modifiersActiveSql()}`).get(modifierId);
   if (!modifierRow) return null;
 
   const modifier = mapModifier(modifierRow);

@@ -1,3 +1,4 @@
+import { applyNominatimRegionSearchParams } from '../shared/geo/nominatimRegionBias.ts';
 import { apiFetch } from '../services/api';
 
 /**
@@ -49,7 +50,16 @@ async function geocodeAddress(address: string, fallback?: { lat: number; lon: nu
   };
 
   const geocodeWithNominatim = async (candidate: string): Promise<{ lat: number; lon: number } | null> => {
-    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(candidate)}&limit=1`);
+    const url = new URL('https://nominatim.openstreetmap.org/search');
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('q', candidate);
+    url.searchParams.set('limit', '1');
+    applyNominatimRegionSearchParams(url, {});
+    const response = await fetch(url.toString(), {
+      headers: {
+        'Accept-Language': 'en-US,en',
+      },
+    });
     if (!response.ok) return null;
     const data = await response.json();
     if (!Array.isArray(data) || data.length === 0) return null;

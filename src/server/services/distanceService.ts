@@ -1,5 +1,8 @@
+import { applyNominatimRegionSearchParams } from '../../shared/geo/nominatimRegionBias.ts';
+
 const OFFICE_ADDRESS = '512 S 70th Street Kansas City, KS 66111';
 const OFFICE_COORDS = { lat: 39.0911, lon: -94.7547 };
+const NOMINATIM_UA = 'CWA-Estimator/1.0 (+https://github.com/ellietoddnichol/install331)';
 
 function normalizeAddressKey(address: string): string {
   return String(address || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -29,7 +32,17 @@ async function geocodeAddress(address: string, fallback?: { lat: number; lon: nu
   };
 
   const geocodeWithNominatim = async (candidate: string): Promise<{ lat: number; lon: number } | null> => {
-    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(candidate)}&limit=1`);
+    const url = new URL('https://nominatim.openstreetmap.org/search');
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('q', candidate);
+    url.searchParams.set('limit', '1');
+    applyNominatimRegionSearchParams(url, process.env);
+    const response = await fetch(url.toString(), {
+      headers: {
+        'User-Agent': process.env.NOMINATIM_USER_AGENT || NOMINATIM_UA,
+        'Accept-Language': 'en-US,en',
+      },
+    });
     if (!response.ok) return null;
     const data = await response.json();
     if (!Array.isArray(data) || data.length === 0) return null;
