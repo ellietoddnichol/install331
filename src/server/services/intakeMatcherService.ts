@@ -22,6 +22,7 @@ import {
   getCatalogItemAliasesReadTableName,
   getCatalogItemAttributesReadTableName,
 } from '../db/catalogTable.ts';
+import { sqlCatalogActiveEqualsOne } from '../db/catalogSql.ts';
 import { dbCatalogAll, dbCatalogGet } from '../db/query.ts';
 import { getIntakeReviewOverridesForMatcherLines } from '../repos/intakeReviewOverridesRepo.ts';
 
@@ -280,7 +281,7 @@ async function inferExplicitAttributesForItem(params: {
   if (wanted.length === 0) return null;
 
   const attrRel = getCatalogItemAttributesReadTableName();
-  const act = 'active = 1';
+  const act = sqlCatalogActiveEqualsOne('active');
   const active = await dbCatalogAll<{ attribute_type: string; attribute_value: string }>(
     `SELECT attribute_type, attribute_value
        FROM ${attrRel}

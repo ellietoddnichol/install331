@@ -1,15 +1,19 @@
+import { useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { fetchCatalogMeta } from '../hooks/api/useCatalogWorkspaceQuery.ts';
+import { queryKeys } from '../lib/queryKeys.ts';
+
 /**
- * Catalog auto-sync (Google Sheets → DB) is disabled.
- *
- * Background: Install331 reads the catalog directly from Supabase Postgres,
- * so there's no need to pull from a Google Sheet on every shell mount. Auto-firing
- * the sync was hammering `/v1/settings/sync-catalog` every page load, persisting a
- * `failed` row on `catalog_sync_status_v1` (when Google credentials aren't configured),
- * and surfacing a red "Sync error" banner on the Catalog page.
- *
- * Re-enable by restoring the `useEffect` + `api.syncV1Catalog()` call once Google
- * service-account credentials are wired up.
+ * Postgres-only deployments: warm the React Query cache for catalog meta as soon as the app shell mounts
+ * (no Google Sheets sync). Reads go straight to Supabase via the Node API (`DB_DRIVER=pg`).
  */
 export function CatalogAutoSync() {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    void queryClient.prefetchQuery({
+      queryKey: queryKeys.catalog.meta,
+      queryFn: fetchCatalogMeta,
+    });
+  }, [queryClient]);
   return null;
 }

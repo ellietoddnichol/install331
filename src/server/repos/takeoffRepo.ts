@@ -7,11 +7,13 @@ import type { IntakeMatchConfidence, IntakeScopeBucket } from '../../shared/type
 import { TakeoffLineModifierRollup, TakeoffLineRecord, TakeoffPricingSource } from '../../shared/types/estimator.ts';
 import { recordIntakeCatalogMemoryFromAcceptedMatch } from './intakeCatalogMemoryRepo.ts';
 import { getRoom } from './roomsRepo.ts';
+import { sqlCatalogActiveEqualsOne } from '../db/catalogSql.ts';
 import { getCatalogItemAttributesReadTableName, getCatalogItemsTableName } from '../db/catalogTable.ts';
 import { getTakeoffLinesTableName } from '../db/workspaceTable.ts';
 import { useNativeSupabaseWorkspace } from '../db/nativeWorkspace.ts';
 import { tryOptionalPgRelation } from '../db/pgOptionalRelation.ts';
 import * as nativePricedTakeoff from './native/nativeTakeoffPricingLinesRepo.ts';
+import * as nativeTakeoffRows from './native/nativeTakeoffRowsWrite.ts';
 
 const DEFAULT_LABOR_RATE_PER_HOUR = Number(process.env.DEFAULT_LABOR_RATE_PER_HOUR || 100);
 
@@ -378,6 +380,7 @@ async function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): Promis
 
     const selected = new Set(snapshot.map((a) => `${a.attributeType}:${a.attributeValue}`));
     const attrRel = getCatalogItemAttributesReadTableName();
+    const attrActive = sqlCatalogActiveEqualsOne('active');
     const rows = isPgCatalogBackend()
       ? await dbCatalogAll<{
           attribute_type: string;
@@ -389,14 +392,14 @@ async function resolveCatalogDefaults(input: Partial<TakeoffLineRecord>): Promis
         }>(
           `SELECT attribute_type, attribute_value, material_delta_type, material_delta_value, labor_delta_type, labor_delta_value
          FROM ${attrRel}
-         WHERE catalog_item_id = ? AND active = 1`,
+         WHERE catalog_item_id = ? AND ${attrActive}`,
           [catalogItemId]
         )
       : (getEstimatorDb()
           .prepare(
             `SELECT attribute_type, attribute_value, material_delta_type, material_delta_value, labor_delta_type, labor_delta_value
          FROM ${attrRel}
-         WHERE catalog_item_id = ? AND active = 1`
+         WHERE catalog_item_id = ? AND ${attrActive}`
           )
           .all(catalogItemId) as Array<{
           attribute_type: string;
@@ -698,7 +701,10 @@ export async function createTakeoffLine(
     line.createdAt,
     line.updatedAt,
   ];
-  if (isPgDriver()) {
+  if (isPgDriver() && useNativeSupabaseWorkspace()) {
+    /** Native DB: physical `takeoff_rows` (see `nativeTakeoffRowsWrite.ts`); `takeoff_lines_v1` is typically a read-only VIEW. */
+    await nativeTakeoffRows.insertTakeoffRowNativeFromLine(line);
+  } else if (isPgDriver()) {
     await dbRun(
       `
     INSERT INTO ${takeoffTable} (
@@ -981,6 +987,9 @@ export async function updateTakeoffLine(lineId: string, input: Partial<TakeoffLi
 }
 
 export async function deleteTakeoffLine(lineId: string): Promise<boolean> {
+  if (isPgDriver() && useNativeSupabaseWorkspace()) {
+    return nativeTakeoffRows.deleteTakeoffRowNative(lineId);
+  }
   const takeoffTable = getTakeoffLinesTableName();
   const result = isPgDriver()
     ? await dbRun(`DELETE FROM ${takeoffTable} WHERE id = ?`, [lineId])
@@ -1013,7 +1022,11 @@ export async function bulkMoveTakeoffLinesToRoom(
   try {
     const now = new Date().toISOString();
     const takeoffTable = getTakeoffLinesTableName();
-    if (isPgDriver()) {
+    if (isPgDriver() && useNativeSupabaseWorkspace()) {
+      for (const id of uniqueIds) {
+        await nativeTakeoffRows.updateTakeoffRowAreaNative(id, trimmedRoom);
+      }
+    } else if (isPgDriver()) {
       await withPgTransaction(async (exec) => {
         for (const id of uniqueIds) {
           await exec.run(`UPDATE ${takeoffTable} SET room_id = ?, updated_at = ? WHERE id = ?`, [trimmedRoom, now, id]);
@@ -1045,6 +1058,16 @@ export async function duplicateTakeoffLine(sourceLineId: string, targetRoomId: s
   if (!room || room.projectId !== source.projectId) return null;
 
   const newId = randomUUID();
+  if (isPgDriver() && useNativeSupabaseWorkspace()) {
+    return createTakeoffLine({
+      ...source,
+      id: newId,
+      roomId: targetRoomId,
+      projectId: source.projectId,
+      description: source.description,
+    });
+  }
+
   const now = new Date().toISOString();
   const takeoffTable = getTakeoffLinesTableName();
   const insertSelectSql = `

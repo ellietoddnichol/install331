@@ -188,7 +188,8 @@ export function getCatalogItemAttributesReadTableName(): 'catalog_item_attribute
   return resolveSupportingReadTable({
     envVarName: 'CATALOG_ITEM_ATTRIBUTES_READ_TABLE',
     sqliteDefault: 'catalog_item_attributes',
-    pgDefaultClean: 'catalog_item_attributes_clean',
+    /** Live Supabase often has `catalog_item_attributes` only; `_clean` / `*_compat` are opt-in via env. */
+    pgDefaultClean: 'catalog_item_attributes',
     allowed: CATALOG_ITEM_ATTRIBUTES_READ,
   }) as 'catalog_item_attributes' | 'catalog_item_attributes_clean';
 }

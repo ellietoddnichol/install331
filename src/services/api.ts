@@ -449,6 +449,8 @@ export const api = {
     catalogAliasesLayout: 'sheet' | 'brain';
     catalogBundlesReadTable: string;
     catalogBundleItemsReadTable: string;
+    catalogItemsReadTable: string;
+    catalogModifiersReadTable: string;
   }> {
     const res = await apiFetch(`${API_BASE}/v1/settings/integration-health`);
     const payload = await handleResponse<{ data: {
@@ -469,6 +471,8 @@ export const api = {
       catalogAliasesLayout: 'sheet' | 'brain';
       catalogBundlesReadTable: string;
       catalogBundleItemsReadTable: string;
+      catalogItemsReadTable: string;
+      catalogModifiersReadTable: string;
     } }>(res);
     return payload.data;
   },

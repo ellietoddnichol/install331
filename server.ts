@@ -11,6 +11,7 @@ import { legacyRouter } from './src/server/routes/legacyRouter.ts';
 import { expressErrorHandler } from './src/server/http/jsonErrors.ts';
 import { prepareEstimatorDbForServer } from './src/server/db/connection.ts';
 import { logCatalogRuntimeHints } from './src/server/db/catalogRuntimeHints.ts';
+import { warmPostgresCatalogOnStartup } from './src/server/services/catalogStartupWarm.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -94,6 +95,7 @@ async function startServer() {
 
   await prepareEstimatorDbForServer();
   logCatalogRuntimeHints();
+  await warmPostgresCatalogOnStartup();
 
   app.use(express.json({ limit: '12mb' }));
 

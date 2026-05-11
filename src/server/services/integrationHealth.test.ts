@@ -16,4 +16,6 @@ test('getIntegrationHealthSnapshot returns stable keys', () => {
   assert.ok(snap.catalogAliasesLayout === 'sheet' || snap.catalogAliasesLayout === 'brain');
   assert.equal(typeof snap.catalogBundlesReadTable, 'string');
   assert.equal(typeof snap.catalogBundleItemsReadTable, 'string');
+  assert.equal(typeof snap.catalogItemsReadTable, 'string');
+  assert.equal(typeof snap.catalogModifiersReadTable, 'string');
 });

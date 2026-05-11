@@ -3,6 +3,8 @@ import {
   getCatalogItemAliasesReadLayout,
   getCatalogItemAliasesReadTableName,
   getCatalogItemAliasesWriteTableName,
+  getCatalogItemsTableName,
+  getCatalogModifiersReadTableName,
 } from '../db/catalogTable.ts';
 import { getTakeoffLinesTableName } from '../db/workspaceTable.ts';
 import { isCatalogSheetsWorkbookPushEnabled } from './catalogSheetsSyncPolicy.ts';
@@ -33,6 +35,10 @@ export type IntegrationHealthSnapshot = {
   catalogAliasesLayout: 'sheet' | 'brain';
   catalogBundlesReadTable: string;
   catalogBundleItemsReadTable: string;
+  /** Resolved items read relation (Postgres only); helps verify `CATALOG_ITEMS_TABLE` / migrations. */
+  catalogItemsReadTable: string;
+  /** Resolved modifiers read relation (Postgres only). */
+  catalogModifiersReadTable: string;
 };
 
 export function getIntegrationHealthSnapshot(): IntegrationHealthSnapshot {
@@ -64,5 +70,7 @@ export function getIntegrationHealthSnapshot(): IntegrationHealthSnapshot {
     catalogAliasesLayout: pg ? getCatalogItemAliasesReadLayout() : 'sheet',
     catalogBundlesReadTable: pg ? bundleReads.bundlesTable : '',
     catalogBundleItemsReadTable: pg ? bundleReads.bundleItemsTable : '',
+    catalogItemsReadTable: pg ? getCatalogItemsTableName() : '',
+    catalogModifiersReadTable: pg ? getCatalogModifiersReadTableName() : '',
   };
 }

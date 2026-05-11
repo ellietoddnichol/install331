@@ -1,3 +1,4 @@
+import { sqlCatalogActiveEqualsOne } from '../db/catalogSql.ts';
 import { dbCatalogAll, dbCatalogGet } from '../db/query.ts';
 import type {
   EstimatorCatalogItemAttribute,
@@ -60,9 +61,8 @@ function mapAlias(row: any): EstimatorSkuAlias {
 
 export async function listParametricModifiers(includeInactive = false): Promise<EstimatorParametricModifier[]> {
   const rel = getEstimatorParametricModifiersReadTableName();
-  const sql = includeInactive
-    ? `SELECT * FROM ${rel} ORDER BY modifier_key`
-    : `SELECT * FROM ${rel} WHERE active = 1 ORDER BY modifier_key`;
+  const act = sqlCatalogActiveEqualsOne('active');
+  const sql = includeInactive ? `SELECT * FROM ${rel} ORDER BY modifier_key` : `SELECT * FROM ${rel} WHERE ${act} ORDER BY modifier_key`;
   const rows = await dbCatalogAll(sql);
   return rows.map(mapParametric);
 }
@@ -70,13 +70,16 @@ export async function listParametricModifiers(includeInactive = false): Promise<
 export async function getParametricModifierByKey(key: string): Promise<EstimatorParametricModifier | null> {
   const k = String(key || '').trim();
   if (!k) return null;
-  const row = await dbCatalogGet(`SELECT * FROM ${getEstimatorParametricModifiersReadTableName()} WHERE modifier_key = ? AND active = 1`, [k]);
+  const row = await dbCatalogGet(
+    `SELECT * FROM ${getEstimatorParametricModifiersReadTableName()} WHERE modifier_key = ? AND ${sqlCatalogActiveEqualsOne('active')}`,
+    [k]
+  );
   return row ? mapParametric(row) : null;
 }
 
 export async function listSkuAliases(): Promise<EstimatorSkuAlias[]> {
   const rel = getEstimatorSkuAliasesReadTableName();
-  const rows = await dbCatalogAll(`SELECT * FROM ${rel} WHERE active = 1 ORDER BY lower(alias_text)`);
+  const rows = await dbCatalogAll(`SELECT * FROM ${rel} WHERE ${sqlCatalogActiveEqualsOne('active')} ORDER BY lower(alias_text)`);
   return rows.map(mapAlias);
 }
 
@@ -90,14 +93,14 @@ export async function resolveTargetCatalogItemIdBySkuOrAlias(raw: string): Promi
 
   const table = getCatalogItemsTableName();
   const bySku = await dbCatalogGet<{ id: string }>(
-    `SELECT id FROM ${table} WHERE active = 1 AND upper(trim(sku)) = upper(?)`,
+    `SELECT id FROM ${table} WHERE ${sqlCatalogActiveEqualsOne('active')} AND upper(trim(sku)) = upper(?)`,
     [t]
   );
   if (bySku) return bySku.id;
 
   const aliasRel = getEstimatorSkuAliasesReadTableName();
   const byAlias = await dbCatalogGet<{ target_catalog_item_id: string }>(
-    `SELECT target_catalog_item_id FROM ${aliasRel} WHERE active = 1 AND lower(trim(alias_text)) = lower(?)`,
+    `SELECT target_catalog_item_id FROM ${aliasRel} WHERE ${sqlCatalogActiveEqualsOne('active')} AND lower(trim(alias_text)) = lower(?)`,
     [t]
   );
   if (byAlias) return byAlias.target_catalog_item_id;

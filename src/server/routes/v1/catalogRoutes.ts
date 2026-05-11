@@ -6,8 +6,11 @@ import {
   listCatalogItemsPage,
   listDistinctCatalogCategories,
 } from '../../repos/catalogRepo.ts';
+import { getCatalogItemsTableName } from '../../db/catalogTable.ts';
 
 export const catalogRouter = Router();
+
+const catalogDebug = () => String(process.env.CATALOG_DEBUG || '').trim() === '1';
 
 catalogRouter.get('/categories', async (_req, res) => {
   const data = await listDistinctCatalogCategories();
@@ -43,6 +46,11 @@ catalogRouter.get('/items', async (req, res) => {
     imageSprintOnly,
     sortBy,
   });
+  if (catalogDebug()) {
+    console.log(
+      `[catalog] GET /v1/catalog/items read=${getCatalogItemsTableName()} total=${total} returned=${rows.length} offset=${offset} limit=${limit}`
+    );
+  }
   return res.json({ data: { items: rows, total, offset, limit } });
 });
 

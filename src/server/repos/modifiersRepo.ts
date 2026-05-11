@@ -46,7 +46,7 @@ function modifiersActiveSql(): string {
 export async function listModifiers(): Promise<ModifierRecord[]> {
   const rel = getCatalogModifiersReadTableName();
   const act = modifiersActiveSql();
-  if (isPgDriver()) {
+  if (isPgCatalogBackend()) {
     const rows = await dbCatalogAll(`SELECT * FROM ${rel} WHERE ${act} ORDER BY name`);
     return rows.map(mapModifier);
   }

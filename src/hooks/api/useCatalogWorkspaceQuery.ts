@@ -15,7 +15,8 @@ export interface CatalogMetaData {
   };
 }
 
-async function fetchCatalogMeta(): Promise<CatalogMetaData> {
+/** Used by `useCatalogMetaQuery` and shell prefetch so catalog reads hit the API once with a shared query key. */
+export async function fetchCatalogMeta(): Promise<CatalogMetaData> {
   const [modifierData, bundleData, syncData, inv, facets] = await Promise.all([
     api.getCatalogModifiers(),
     api.getCatalogBundles(),

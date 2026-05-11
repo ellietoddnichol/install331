@@ -485,37 +485,50 @@ export async function listCatalogItemFacets(): Promise<{
 }> {
   await ensureTakeoffCatalogSeeded();
   const readTable = getCatalogItemsTableName();
-  const [categories, itemTypes, tabRows, noneRow] = await Promise.all([
-    listDistinctCatalogCategories(),
-    dbCatalogAll<{ t: string }>(
-      `SELECT DISTINCT COALESCE(NULLIF(TRIM(c.item_type),''), NULLIF(TRIM(c.family),''), NULLIF(TRIM(c.subcategory),''), 'Standard') AS t
-       FROM ${readTable} c
-       ORDER BY t`
-    ),
-    dbCatalogAll<{ tab: string | null }>(
-      `SELECT DISTINCT
-         CASE
-           WHEN TRIM(COALESCE(c.catalog_source_tab,'')) != '' THEN TRIM(c.catalog_source_tab)
-           WHEN TRIM(COALESCE(c.catalog_source,'')) != '' THEN TRIM(c.catalog_source)
-           ELSE NULL
-         END AS tab
-       FROM ${readTable} c`
-    ),
-    dbCatalogGet<{ n: number }>(
-      `SELECT COUNT(*) AS n FROM ${readTable} c
-       WHERE nullif(trim(coalesce(c.catalog_source_tab,'')),'') is null
-         AND nullif(trim(coalesce(c.catalog_source,'')),'') is null`
-    ),
-  ]);
-  const sourceTabs = tabRows
-    .map((r) => (r.tab == null ? null : String(r.tab).trim()) || null)
-    .filter((t): t is string => Boolean(t && t.length));
-  return {
-    categories,
-    itemTypes: itemTypes.map((r) => String(r.t || '').trim()).filter(Boolean),
-    sourceTabs: [...new Set(sourceTabs)].sort((a, b) => a.localeCompare(b)),
-    hasUntaggedSource: Number((noneRow as { n?: number } | undefined)?.n ?? 0) > 0,
-  };
+  try {
+    const [categories, itemTypes, tabRows, noneRow] = await Promise.all([
+      listDistinctCatalogCategories(),
+      dbCatalogAll<{ t: string }>(
+        `SELECT DISTINCT COALESCE(NULLIF(TRIM(c.item_type),''), NULLIF(TRIM(c.family),''), NULLIF(TRIM(c.subcategory),''), 'Standard') AS t
+         FROM ${readTable} c
+         ORDER BY t`
+      ),
+      dbCatalogAll<{ tab: string | null }>(
+        `SELECT DISTINCT
+           CASE
+             WHEN TRIM(COALESCE(c.catalog_source_tab,'')) != '' THEN TRIM(c.catalog_source_tab)
+             WHEN TRIM(COALESCE(c.catalog_source,'')) != '' THEN TRIM(c.catalog_source)
+             ELSE NULL
+           END AS tab
+         FROM ${readTable} c`
+      ),
+      dbCatalogGet<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM ${readTable} c
+         WHERE nullif(trim(coalesce(c.catalog_source_tab,'')),'') is null
+           AND nullif(trim(coalesce(c.catalog_source,'')),'') is null`
+      ),
+    ]);
+    const sourceTabs = tabRows
+      .map((r) => (r.tab == null ? null : String(r.tab).trim()) || null)
+      .filter((t): t is string => Boolean(t && t.length));
+    return {
+      categories,
+      itemTypes: itemTypes.map((r) => String(r.t || '').trim()).filter(Boolean),
+      sourceTabs: [...new Set(sourceTabs)].sort((a, b) => a.localeCompare(b)),
+      hasUntaggedSource: Number((noneRow as { n?: number } | undefined)?.n ?? 0) > 0,
+    };
+  } catch (e) {
+    /** Narrow DBs may omit `item_type` / `catalog_source_tab` — keep categories so Catalog UI still loads. */
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[catalog] facets query degraded (${readTable}): ${msg}`);
+    const categories = await listDistinctCatalogCategories();
+    return {
+      categories,
+      itemTypes: [],
+      sourceTabs: [],
+      hasUntaggedSource: false,
+    };
+  }
 }
 
 const ID_TOKEN = /^[a-zA-Z0-9_-]{1,128}$/;
