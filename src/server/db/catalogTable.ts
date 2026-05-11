@@ -130,13 +130,14 @@ export function getBundlesReadTableNames(): { bundlesTable: string; bundleItemsT
     bundlesTable: resolveSupportingReadTable({
       envVarName: 'CATALOG_BUNDLES_READ_TABLE',
       sqliteDefault: 'bundles_v1',
-      pgDefaultClean: 'bundles_v1_clean',
+      /** Prefer bridge / physical names; `*_clean` views require extra migrations. */
+      pgDefaultClean: 'bundles_v1',
       allowed: BUNDLES_V1_READ,
     }),
     bundleItemsTable: resolveSupportingReadTable({
       envVarName: 'CATALOG_BUNDLE_ITEMS_READ_TABLE',
       sqliteDefault: 'bundle_items_v1',
-      pgDefaultClean: 'bundle_items_v1_clean',
+      pgDefaultClean: 'bundle_items_v1',
       allowed: BUNDLE_ITEMS_V1_READ,
     }),
   };
@@ -153,7 +154,7 @@ export function getCatalogItemAliasesReadTableName(): string {
   return resolveSupportingReadTable({
     envVarName: 'CATALOG_ITEM_ALIASES_READ_TABLE',
     sqliteDefault: 'catalog_item_aliases',
-    pgDefaultClean: 'catalog_item_aliases_clean',
+    pgDefaultClean: 'catalog_item_aliases',
     allowed: CATALOG_ITEM_ALIASES_READ,
   });
 }
@@ -199,7 +200,7 @@ export function getEstimatorParametricModifiersReadTableName():
   return resolveSupportingReadTable({
     envVarName: 'CATALOG_ESTIMATOR_PARAMETRIC_MODIFIERS_READ_TABLE',
     sqliteDefault: 'estimator_parametric_modifiers',
-    pgDefaultClean: 'estimator_parametric_modifiers_clean',
+    pgDefaultClean: 'estimator_parametric_modifiers',
     allowed: ESTIMATOR_PARAMETRIC_MODIFIERS_READ,
   }) as 'estimator_parametric_modifiers' | 'estimator_parametric_modifiers_clean';
 }
@@ -209,7 +210,7 @@ export function getEstimatorSkuAliasesReadTableName(): 'estimator_sku_aliases' |
   return resolveSupportingReadTable({
     envVarName: 'CATALOG_ESTIMATOR_SKU_ALIASES_READ_TABLE',
     sqliteDefault: 'estimator_sku_aliases',
-    pgDefaultClean: 'estimator_sku_aliases_clean',
+    pgDefaultClean: 'estimator_sku_aliases',
     allowed: ESTIMATOR_SKU_ALIASES_READ,
   }) as 'estimator_sku_aliases' | 'estimator_sku_aliases_clean';
 }
@@ -221,7 +222,7 @@ export function getEstimatorCatalogItemAttributesReadTableName():
   return resolveSupportingReadTable({
     envVarName: 'CATALOG_ESTIMATOR_ITEM_ATTRIBUTES_READ_TABLE',
     sqliteDefault: 'estimator_catalog_item_attributes',
-    pgDefaultClean: 'estimator_catalog_item_attributes_clean',
+    pgDefaultClean: 'estimator_catalog_item_attributes',
     allowed: ESTIMATOR_CATALOG_ITEM_ATTRIBUTES_READ,
   }) as 'estimator_catalog_item_attributes' | 'estimator_catalog_item_attributes_clean';
 }

@@ -121,36 +121,68 @@ export async function getCatalogInventoryCounts(): Promise<{ total: number; acti
  * Summarizes forward-facing catalog rows in SQLite for post-cutover checks (sync vs sheet audit, image gaps).
  * Forward-facing = active + canonical + not deprecated (typical estimator-facing set).
  */
+function postCutoverHealthErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export async function getCatalogPostCutoverHealth(params: {
   itemsSourceTab: string;
   lastCatalogSync: CatalogSyncStatusRecord;
 }): Promise<CatalogPostCutoverHealthRecord> {
   await ensureTakeoffCatalogSeeded();
+  const inventory = await getCatalogInventoryCounts();
   const readTable = getCatalogItemsTableName();
-  const fwd = sqlCatalogForwardFacingPredicate();
+  const notes: string[] = [];
+  notes.push(
+    'Items synced counts every sheet row with a description (including inactive rows). Compare to CLEAN_ITEMS “Active rows” only when you expect inactive sheet rows.'
+  );
+  notes.push('Forward-facing rows here: active + canonical + not deprecated — use Catalog filters to match.');
 
-  const forward = (await dbCatalogGet(`SELECT COUNT(*) AS n FROM ${readTable} WHERE ${fwd}`)) as { n: number };
-  const missingImg = (await dbCatalogGet(
-    `SELECT COUNT(*) AS n FROM ${readTable} WHERE ${fwd}
+  let fwd = sqlCatalogForwardFacingPredicate();
+  try {
+    await dbCatalogGet(`SELECT 1 AS ok FROM ${readTable} WHERE ${fwd} LIMIT 1`);
+  } catch (e: unknown) {
+    const code = typeof e === 'object' && e !== null ? (e as { code?: string }).code : undefined;
+    if (code === '42883' || code === '42703') {
+      fwd = sqlCatalogActiveEqualsOne('active');
+      notes.push(
+        'Forward-facing counts use active rows only; canonical/deprecated columns are missing or incompatible on this database.'
+      );
+    } else {
+      throw e;
+    }
+  }
+
+  try {
+    const forward = (await dbCatalogGet(`SELECT COUNT(*) AS n FROM ${readTable} WHERE ${fwd}`)) as { n: number };
+    const missingImg = (await dbCatalogGet(
+      `SELECT COUNT(*) AS n FROM ${readTable} WHERE ${fwd}
        AND (image_url IS NULL OR TRIM(image_url) = '')`
-  )) as { n: number };
-  const mfrBackedMiss = (await dbCatalogGet(
-    `SELECT COUNT(*) AS n FROM ${readTable} WHERE ${fwd}
+    )) as { n: number };
+    const mfrBackedMiss = (await dbCatalogGet(
+      `SELECT COUNT(*) AS n FROM ${readTable} WHERE ${fwd}
        AND (image_url IS NULL OR TRIM(image_url) = '')
        AND TRIM(COALESCE(manufacturer, '')) != ''
        AND (TRIM(COALESCE(model, '')) != '' OR TRIM(COALESCE(series, '')) != '')`
-  )) as { n: number };
+    )) as { n: number };
 
-  const attrTable = getCatalogItemAttributesReadTableName();
-  const attrAct = sqlCatalogActiveEqualsOne('active');
-  const attrDistinct = (await dbCatalogGet(
-    `SELECT COUNT(DISTINCT catalog_item_id) AS n
-       FROM ${attrTable}
-       WHERE ${attrAct}`
-  )) as { n: number };
+    const attrTable = getCatalogItemAttributesReadTableName();
+    const attrAct = sqlCatalogActiveEqualsOne('active');
+    let attrDistinct: { n: number };
+    try {
+      attrDistinct = (await dbCatalogGet(
+        `SELECT COUNT(DISTINCT catalog_item_id) AS n
+         FROM ${attrTable}
+         WHERE ${attrAct}`
+      )) as { n: number };
+    } catch (e: unknown) {
+      console.warn('[catalog] attribute relation count skipped:', e);
+      attrDistinct = { n: 0 };
+      notes.push(`Attribute coverage count skipped: ${postCutoverHealthErrorMessage(e)}`);
+    }
 
-  const topRows = (await dbCatalogAll(
-    `SELECT
+    const topRows = (await dbCatalogAll(
+      `SELECT
         COALESCE(NULLIF(TRIM(category), ''), '(Uncategorized)') AS category,
         SUM(CASE WHEN (image_url IS NULL OR TRIM(image_url) = '') THEN 1 ELSE 0 END) AS missing_image,
         COUNT(*) AS fwd
@@ -160,34 +192,45 @@ export async function getCatalogPostCutoverHealth(params: {
        HAVING SUM(CASE WHEN (image_url IS NULL OR TRIM(image_url) = '') THEN 1 ELSE 0 END) > 0
        ORDER BY missing_image DESC, fwd DESC
        LIMIT 12`
-  )) as Array<{ category: string; missing_image: number; fwd: number }>;
+    )) as Array<{ category: string; missing_image: number; fwd: number }>;
 
-  const topCategoriesByMissingImage: CatalogCategoryImageGapRow[] = topRows.map((row) => ({
-    category: row.category,
-    forwardFacingActive: row.fwd,
-    missingImageUrl: row.missing_image,
-    pctMissingImage: row.fwd > 0 ? Math.round((row.missing_image / row.fwd) * 100) : 0,
-  }));
+    const topCategoriesByMissingImage: CatalogCategoryImageGapRow[] = topRows.map((row) => ({
+      category: row.category,
+      forwardFacingActive: row.fwd,
+      missingImageUrl: row.missing_image,
+      pctMissingImage: row.fwd > 0 ? Math.round((row.missing_image / row.fwd) * 100) : 0,
+    }));
 
-  const notes: string[] = [];
-  notes.push(
-    'Items synced counts every sheet row with a description (including inactive rows). Compare to CLEAN_ITEMS “Active rows” only when you expect inactive sheet rows.'
-  );
-  notes.push('Forward-facing rows here: active + canonical + not deprecated — use Catalog filters to match.');
-
-  return {
-    itemsSourceTab: params.itemsSourceTab,
-    inventory: await getCatalogInventoryCounts(),
-    forwardFacing: {
-      count: Number(forward.n),
-      missingImageUrl: Number(missingImg.n),
-      missingImageManufacturerBacked: Number(mfrBackedMiss.n),
-      distinctItemsWithAttributes: Number(attrDistinct.n),
-    },
-    topCategoriesByMissingImage,
-    validationNotes: notes,
-    lastCatalogSync: params.lastCatalogSync,
-  };
+    return {
+      itemsSourceTab: params.itemsSourceTab,
+      inventory,
+      forwardFacing: {
+        count: Number(forward.n),
+        missingImageUrl: Number(missingImg.n),
+        missingImageManufacturerBacked: Number(mfrBackedMiss.n),
+        distinctItemsWithAttributes: Number(attrDistinct.n),
+      },
+      topCategoriesByMissingImage,
+      validationNotes: notes,
+      lastCatalogSync: params.lastCatalogSync,
+    };
+  } catch (e: unknown) {
+    console.warn('[catalog] getCatalogPostCutoverHealth failed:', e);
+    notes.push(`Post-cutover health detail unavailable: ${postCutoverHealthErrorMessage(e)}`);
+    return {
+      itemsSourceTab: params.itemsSourceTab,
+      inventory,
+      forwardFacing: {
+        count: 0,
+        missingImageUrl: 0,
+        missingImageManufacturerBacked: 0,
+        distinctItemsWithAttributes: 0,
+      },
+      topCategoriesByMissingImage: [],
+      validationNotes: notes,
+      lastCatalogSync: params.lastCatalogSync,
+    };
+  }
 }
 
 /** Use after bulk DB import or when Sheet sync left most rows inactive. */

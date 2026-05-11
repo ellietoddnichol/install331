@@ -6,6 +6,7 @@ import {
   upsertModifierInGoogleSheet,
 } from '../services/googleSheetsCatalogSync.ts';
 import { isCatalogSheetsWorkbookPushEnabled } from '../services/catalogSheetsSyncPolicy.ts';
+import { sqlCatalogActiveEqualsOne } from '../db/catalogSql.ts';
 import { dbCatalogAll, dbCatalogGet, dbCatalogRun } from '../db/query.ts';
 import { getBundlesReadTableNames, getCatalogModifiersReadTableName } from '../db/catalogTable.ts';
 import { listCatalogItemsForApi, searchCatalogItemsForApi } from '../repos/catalogRepo.ts';
@@ -434,7 +435,8 @@ legacyRouter.delete('/catalog/items/:id', async (req, res) => {
 legacyRouter.get('/catalog/modifiers', async (_req, res) => {
   try {
     const modRel = getCatalogModifiersReadTableName();
-    const rows = await dbCatalogAll<any>(`SELECT * FROM ${modRel} ORDER BY name`);
+    const act = sqlCatalogActiveEqualsOne('active');
+    const rows = await dbCatalogAll<any>(`SELECT * FROM ${modRel} WHERE ${act} ORDER BY name`);
     res.json(
       rows.map((row) => ({
         id: row.id,
