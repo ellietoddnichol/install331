@@ -510,8 +510,8 @@ export function Settings() {
                           Historical
                         </span>
                       ) : (
-                        <span className="ui-mono-chip ui-mono-chip--mute text-[10px]" title="No run_context_json; workbook fields use current server env">
-                          Legacy row
+                        <span className="ui-mono-chip ui-mono-chip--mute text-[10px]" title="Older sync records without saved run context; counts use current server settings">
+                          Limited context
                         </span>
                       )}
                     </td>

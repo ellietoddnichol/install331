@@ -6,7 +6,19 @@ import { api } from '../services/api';
 import { useCatalogWorkspaceQuery } from '../hooks/api/useCatalogWorkspaceQuery.ts';
 import { queryKeys } from '../lib/queryKeys.ts';
 import { CatalogSyncStatusRecord, BundleRecord, ModifierRecord } from '../shared/types/estimator';
-import { CatalogItem } from '../types';
+import { CatalogAliasType, CatalogItem } from '../types';
+
+const CATALOG_ALIAS_TYPE_LABEL: Record<CatalogAliasType, string> = {
+  legacy_sku: 'Alternate SKU',
+  vendor_sku: 'Vendor SKU',
+  parser_phrase: 'Parser phrase',
+  generic_name: 'Generic name',
+  search_key: 'Search key',
+};
+
+function catalogAliasTypeLabel(t: CatalogAliasType): string {
+  return CATALOG_ALIAS_TYPE_LABEL[t] ?? t;
+}
 import { formatCurrencySafe, formatNumberSafe, formatPercentSafe } from '../utils/numberFormat';
 import { isDisplayableCatalogImageUrl } from '../shared/utils/catalogImageUrl';
 import { getErrorMessage } from '../shared/utils/errorMessage';
@@ -14,7 +26,6 @@ import { INSTALL_LABOR_FAMILY_OPTIONS } from '../shared/utils/installLaborFamily
 import {
   CATALOG_REVIEW_QUEUE_KEYS,
   catalogCuratorPath,
-  catalogCuratorPathDeep,
   guessCatalogReviewSkuToken,
   mergeCatalogReviewSources,
   resolveCatalogReviewExportLines,
@@ -51,11 +62,6 @@ function parseCatalogTabParam(raw: string | null): CatalogTab {
   return raw === 'modifiers' || raw === 'bundles' ? raw : 'items';
 }
 
-function parseCanonFilterParam(raw: string | null): 'all' | 'canonical' | 'non-canonical' {
-  if (raw === 'canonical' || raw === 'non-canonical') return raw;
-  return 'all';
-}
-
 function parseActiveFilterParam(raw: string | null): 'all' | 'active' | 'inactive' {
   if (raw === 'active' || raw === 'inactive') return raw;
   return 'all';
@@ -83,11 +89,6 @@ function catalogFiltersFromSearchParams(sp: URLSearchParams) {
     activeFilter: parseActiveFilterParam(sp.get('act')),
     sourceTabFilter: sp.get('sheet')?.trim() || 'all',
     sortBy: isSortKeyParam(sortRaw) ? sortRaw : 'sku-asc',
-    canonFilter: parseCanonFilterParam(sp.get('canon')),
-    duplicatesOnly: sp.get('dup') === '1',
-    deprecatedOnly: sp.get('dep') === '1',
-    showDuplicateReview: sp.get('drev') === '1',
-    showQualityReport: sp.get('qual') === '1',
     imageSprintOnly: sp.get('img') === '1',
     catalogItemId: sp.get('catalogItem')?.trim() || null,
   };
@@ -101,11 +102,6 @@ function buildCatalogWorkspaceSearchParams(input: {
   activeFilter: 'all' | 'active' | 'inactive';
   sourceTabFilter: string;
   sortBy: SortKey;
-  canonFilter: 'all' | 'canonical' | 'non-canonical';
-  duplicatesOnly: boolean;
-  deprecatedOnly: boolean;
-  showDuplicateReview: boolean;
-  showQualityReport: boolean;
   imageSprintOnly: boolean;
   catalogItemId: string | null;
 }): URLSearchParams {
@@ -117,11 +113,6 @@ function buildCatalogWorkspaceSearchParams(input: {
   if (input.activeFilter !== 'all') p.set('act', input.activeFilter);
   if (input.sourceTabFilter !== 'all') p.set('sheet', input.sourceTabFilter);
   if (input.sortBy !== 'sku-asc') p.set('sort', input.sortBy);
-  if (input.canonFilter !== 'all') p.set('canon', input.canonFilter);
-  if (input.duplicatesOnly) p.set('dup', '1');
-  if (input.deprecatedOnly) p.set('dep', '1');
-  if (input.showDuplicateReview) p.set('drev', '1');
-  if (input.showQualityReport) p.set('qual', '1');
   if (input.imageSprintOnly) p.set('img', '1');
   if (input.catalogItemId) p.set('catalogItem', input.catalogItemId);
   return p;
@@ -179,21 +170,6 @@ function catalogItemReadOnlyRows(item: CatalogItem): Array<{ label: string; valu
   add('catalogSourceTab', item.catalogSourceTab);
   if (item.catalogSourceRow != null) add('catalogSourceRow', String(item.catalogSourceRow));
   add('catalogSyncBatchId', item.catalogSyncBatchId);
-  add('skuNormalized', item.skuNormalized);
-  add('manufacturerNormalized', item.manufacturerNormalized);
-  add('categoryMain', item.categoryMain);
-  add('materialFamily', item.materialFamily);
-  add('systemSeries', item.systemSeries);
-  add('privacyLevel', item.privacyLevel);
-  add('defaultUnit', item.defaultUnit);
-  add('laborUnitType', item.laborUnitType);
-  add('laborBasis', item.laborBasis);
-  add('defaultMountingType', item.defaultMountingType);
-  add('attributeGroup', item.attributeGroup);
-  add('manufacturerConfiguredItem', item.manufacturerConfiguredItem);
-  add('canonicalMatchAnchor', item.canonicalMatchAnchor);
-  add('exactComponentSku', item.exactComponentSku);
-  add('requiresProjectConfiguration', item.requiresProjectConfiguration);
   add('notes', item.notes);
   add('estimatorNotes', item.estimatorNotes);
   add('tags', item.tags);
@@ -220,13 +196,13 @@ const CATALOG_SYNC_UI_REVIEW_CAP = 50;
 const MANUAL_REVIEW_TABLE_CAP = 8;
 
 const MANUAL_REVIEW_QUEUE_LABELS: Record<CatalogReviewQueueKey, string> = {
-  duplicate_sku_groups: 'Duplicate SKU groups',
-  alias_collisions: 'Alias collisions',
-  labor_outliers: 'Labor outliers',
-  orphan_bundle_skus: 'Orphan bundle SKUs',
+  duplicate_sku_groups: 'Duplicate SKUs',
+  alias_collisions: 'Alias conflicts',
+  labor_outliers: 'Unusual labor times',
+  orphan_bundle_skus: 'Bundle SKU issues',
   unknown_modifiers: 'Unknown modifiers',
-  orphan_attribute_skus: 'Orphan attribute canonical SKUs',
-  orphan_alias_skus: 'Orphan alias canonical SKUs',
+  orphan_attribute_skus: 'Attribute references',
+  orphan_alias_skus: 'Alias references',
 };
 
 
@@ -320,32 +296,9 @@ function CatalogSyncReviewPanel({ syncStatus }: { syncStatus: CatalogSyncStatusR
                 : '(not configured)'}
             </div>
             <div className="mt-0.5 text-app-muted">
-              Tabs — items read: {syncStatus.workbook.tabs.itemsFetch}
-              {syncStatus.workbook.tabs.itemsConfigured !== syncStatus.workbook.tabs.itemsFetch
-                ? ` (GOOGLE_SHEETS_TAB_ITEMS ${syncStatus.workbook.tabs.itemsConfigured})`
-                : ''}{' '}
-              · CLEAN_ITEMS env: {syncStatus.workbook.tabs.cleanItemsTabEnv ?? '—'} · modifiers read:{' '}
-              {syncStatus.workbook.tabs.modifiersFetch}
-              {syncStatus.workbook.tabs.modifiersConfigured !== syncStatus.workbook.tabs.modifiersFetch
-                ? ` (GOOGLE_SHEETS_TAB_MODIFIERS ${syncStatus.workbook.tabs.modifiersConfigured})`
-                : ''}{' '}
-              · CLEAN_MODIFIERS env: {syncStatus.workbook.tabs.cleanModifiersTabEnv ?? '—'} · bundles:{' '}
-              {syncStatus.workbook.tabs.bundles} · aliases: {syncStatus.workbook.tabs.aliases} · attributes:{' '}
-              {syncStatus.workbook.tabs.attributes}
+              Tabs: {syncStatus.workbook.tabs.itemsFetch}, {syncStatus.workbook.tabs.modifiersFetch},{' '}
+              {syncStatus.workbook.tabs.bundles}, {syncStatus.workbook.tabs.aliases}, {syncStatus.workbook.tabs.attributes}
             </div>
-            {syncStatus.serverConfigNow ? (
-              <details className="mt-1.5">
-                <summary className="cursor-pointer text-[10px] text-slate-600">Live server config (now)</summary>
-                <div className="mt-1 text-[9px] text-slate-600">
-                  Items read: {syncStatus.serverConfigNow.tabs.itemsFetch} · legacy ITEMS tab:{' '}
-                  {syncStatus.serverConfigNow.importEnv.catalogSyncAllowLegacyItemsTab ? 'yes' : 'no'} · modifiers read:{' '}
-                  {syncStatus.serverConfigNow.tabs.modifiersFetch} · legacy MODIFIERS tab:{' '}
-                  {syncStatus.serverConfigNow.importEnv.catalogSyncAllowLegacyModifiersTab ? 'yes' : 'no'} · replace mode:{' '}
-                  {syncStatus.serverConfigNow.importEnv.catalogSyncReplaceMode ? 'yes' : 'no'} · skip staging rows:{' '}
-                  {syncStatus.serverConfigNow.importEnv.catalogSyncSkipStagingSheetImportRows ? 'yes' : 'no'}
-                </div>
-              </details>
-            ) : null}
           </div>
         ) : null}
         {sum ? (
@@ -593,28 +546,24 @@ export function Catalog() {
   const [categoryFilter, setCategoryFilter] = useState(initialUrlFilters.categoryFilter);
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>(initialUrlFilters.activeFilter);
   const [typeFilter, setTypeFilter] = useState(initialUrlFilters.typeFilter);
-  /** Resolved sheet tab name (`catalogSourceTab` or legacy `catalogSource`). */
+  /** Resolved sheet tab name (`catalogSourceTab` or `catalogSource`). */
   const [sourceTabFilter, setSourceTabFilter] = useState(initialUrlFilters.sourceTabFilter);
   const [sortBy, setSortBy] = useState<SortKey>(initialUrlFilters.sortBy);
-  const [canonFilter, setCanonFilter] = useState<'all' | 'canonical' | 'non-canonical'>(initialUrlFilters.canonFilter);
-  const [duplicatesOnly, setDuplicatesOnly] = useState(initialUrlFilters.duplicatesOnly);
-  const [deprecatedOnly, setDeprecatedOnly] = useState(initialUrlFilters.deprecatedOnly);
-  const [showDuplicateReview, setShowDuplicateReview] = useState(initialUrlFilters.showDuplicateReview);
-  const [showQualityReport, setShowQualityReport] = useState(initialUrlFilters.showQualityReport);
-  /** Forward-facing rows that are manufacturer-backed but still missing ImageURL (image sprint). */
+  /** Manufacturer-backed active rows still missing an image (narrow filter). */
   const [imageSprintOnly, setImageSprintOnly] = useState(initialUrlFilters.imageSprintOnly);
-  const [duplicateCanonicalSelection, setDuplicateCanonicalSelection] = useState<Record<string, string>>({});
-  const [duplicateResolvingKey, setDuplicateResolvingKey] = useState<string | null>(null);
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
   const [editingModifier, setEditingModifier] = useState<ModifierRecord | null>(null);
+  /** Avoids reopening the item editor when URL still has `catalogItem` for one frame after close (searchParams lag vs state). */
+  const suppressCatalogItemUrlOpenRef = useRef(false);
 
   const closeItemEditor = useCallback(() => {
-    setEditingItem(null);
+    suppressCatalogItemUrlOpenRef.current = true;
     const next = new URLSearchParams(searchParams);
     next.delete('catalogItem');
     if (next.toString() !== searchParams.toString()) {
       setSearchParams(next, { replace: true });
     }
+    setEditingItem(null);
   }, [searchParams, setSearchParams]);
 
   const [editingBundle, setEditingBundle] = useState<BundleRecord | null>(null);
@@ -684,18 +633,17 @@ export function Catalog() {
     setActiveFilter(f.activeFilter);
     setSourceTabFilter(f.sourceTabFilter);
     setSortBy(f.sortBy);
-    setCanonFilter(f.canonFilter);
-    setDuplicatesOnly(f.duplicatesOnly);
-    setDeprecatedOnly(f.deprecatedOnly);
-    setShowDuplicateReview(f.showDuplicateReview);
-    setShowQualityReport(f.showQualityReport);
     setImageSprintOnly(f.imageSprintOnly);
   }, [searchParams]);
 
   useEffect(() => {
     const idInUrl = searchParams.get('catalogItem')?.trim() || null;
 
-    if (items.length > 0 && idInUrl) {
+    if (!idInUrl && suppressCatalogItemUrlOpenRef.current) {
+      suppressCatalogItemUrlOpenRef.current = false;
+    }
+
+    if (items.length > 0 && idInUrl && !suppressCatalogItemUrlOpenRef.current) {
       const found = items.find((i) => i.id === idInUrl);
       if (!found) {
         const next = new URLSearchParams(searchParams);
@@ -721,11 +669,6 @@ export function Catalog() {
       activeFilter,
       sourceTabFilter,
       sortBy,
-      canonFilter,
-      duplicatesOnly,
-      deprecatedOnly,
-      showDuplicateReview,
-      showQualityReport,
       imageSprintOnly,
       catalogItemId: catalogItemIdForUrl,
     });
@@ -743,11 +686,6 @@ export function Catalog() {
     activeFilter,
     sourceTabFilter,
     sortBy,
-    canonFilter,
-    duplicatesOnly,
-    deprecatedOnly,
-    showDuplicateReview,
-    showQualityReport,
     imageSprintOnly,
   ]);
 
@@ -863,26 +801,15 @@ export function Catalog() {
           sourceTabFilter === 'all' ||
           (sourceTabFilter === '__none__' ? !itemTab : itemTab === sourceTabFilter);
 
-        const isCanonical = item.isCanonical !== false;
-        const canonMatch =
-          canonFilter === 'all' ||
-          (canonFilter === 'canonical' && isCanonical) ||
-          (canonFilter === 'non-canonical' && !isCanonical);
-
-        const hasDupKey = Boolean(item.duplicateGroupKey && String(item.duplicateGroupKey).trim());
-        const duplicatesMatch = !duplicatesOnly || hasDupKey;
-
         const isDeprecated = Boolean(item.deprecated);
-        const deprecatedMatch = !deprecatedOnly || isDeprecated;
-
-        const forwardFacing = item.active && !isDeprecated && isCanonical;
+        const forwardFacing = item.active && !isDeprecated;
         const mfrBacked =
           Boolean(String(item.manufacturer || '').trim()) &&
           (Boolean(String(item.model || '').trim()) || Boolean(String(item.series || '').trim()));
         const missingImage = !String(item.imageUrl || '').trim();
         const imageSprintMatch = !imageSprintOnly || (forwardFacing && mfrBacked && missingImage);
 
-        return textMatch && categoryMatch && activeMatch && typeMatch && sourceTabMatch && canonMatch && duplicatesMatch && deprecatedMatch && imageSprintMatch;
+        return textMatch && categoryMatch && activeMatch && typeMatch && sourceTabMatch && imageSprintMatch;
       })
       .sort((a, b) => {
         if (sortBy === 'sku-asc') return a.sku.localeCompare(b.sku);
@@ -894,169 +821,17 @@ export function Catalog() {
         if (sortBy === 'labor-desc') return b.baseLaborMinutes - a.baseLaborMinutes;
         return 0;
       });
-  }, [items, search, categoryFilter, activeFilter, typeFilter, sourceTabFilter, sortBy, canonFilter, duplicatesOnly, deprecatedOnly, imageSprintOnly]);
+  }, [items, search, categoryFilter, activeFilter, typeFilter, sourceTabFilter, sortBy, imageSprintOnly]);
 
   const curatorEditorContextBadges = useMemo(() => {
     const tags: string[] = [];
-    if (duplicatesOnly) tags.push('Duplicates-only');
-    if (deprecatedOnly) tags.push('Deprecated-only');
-    if (showDuplicateReview) tags.push('Duplicate review');
-    if (showQualityReport) tags.push('Quality report');
     if (imageSprintOnly) tags.push('Image sprint');
     if (sourceTabFilter !== 'all') {
       tags.push(`Sheet tab: ${sourceTabFilter === '__none__' ? 'none / unknown' : sourceTabFilter}`);
     }
-    if (canonFilter !== 'all') {
-      tags.push(canonFilter === 'canonical' ? 'Canonical only' : 'Non-canonical only');
-    }
     if (search.trim()) tags.push(`Search: '${search.trim()}'`);
     return tags;
-  }, [
-    duplicatesOnly,
-    deprecatedOnly,
-    showDuplicateReview,
-    showQualityReport,
-    imageSprintOnly,
-    sourceTabFilter,
-    canonFilter,
-    search,
-  ]);
-
-  const catalogQualityByCategory = useMemo(() => {
-    const byCat = new Map<string, {
-      category: string;
-      total: number;
-      active: number;
-      canonical: number;
-      deprecated: number;
-      missingManufacturer: number;
-      missingModelSeries: number;
-      missingImage: number;
-      missingRealSku: number;
-      missingDescription: number;
-      missingMaterialCost: number;
-      missingLaborMinutes: number;
-      missingInstallLaborFamily: number;
-    }>();
-
-    const skuLooksReal = (sku: string) => {
-      const s = String(sku || '').trim();
-      if (!s) return false;
-      if (/^(temp|tbd|unknown|null|none|na)$/i.test(s)) return false;
-      if (s.length < 3) return false;
-      // "GENERIC-XYZ" is allowed for canonicals, but treat as "not real" for cleanup reporting.
-      if (/^generic[-_]/i.test(s)) return false;
-      return true;
-    };
-
-    for (const item of items) {
-      const category = String(item.category || 'Uncategorized').trim() || 'Uncategorized';
-      const row = byCat.get(category) || {
-        category,
-        total: 0,
-        active: 0,
-        canonical: 0,
-        deprecated: 0,
-        missingManufacturer: 0,
-        missingModelSeries: 0,
-        missingImage: 0,
-        missingRealSku: 0,
-        missingDescription: 0,
-        missingMaterialCost: 0,
-        missingLaborMinutes: 0,
-        missingInstallLaborFamily: 0,
-      };
-      row.total += 1;
-      if (item.active) row.active += 1;
-      if (item.isCanonical !== false) row.canonical += 1;
-      if (item.deprecated) row.deprecated += 1;
-      if (!String(item.manufacturer || '').trim()) row.missingManufacturer += 1;
-      if (!String(item.model || '').trim() && !String(item.series || '').trim()) row.missingModelSeries += 1;
-      if (!String(item.imageUrl || '').trim()) row.missingImage += 1;
-      if (!skuLooksReal(item.sku)) row.missingRealSku += 1;
-      if (!String(item.description || '').trim()) row.missingDescription += 1;
-      if (!Number.isFinite(item.baseMaterialCost) || item.baseMaterialCost <= 0) row.missingMaterialCost += 1;
-      if (!Number.isFinite(item.baseLaborMinutes) || item.baseLaborMinutes <= 0) row.missingLaborMinutes += 1;
-      if ((!String(item.installLaborFamily || '').trim()) && (!Number.isFinite(item.baseLaborMinutes) || item.baseLaborMinutes <= 0)) {
-        row.missingInstallLaborFamily += 1;
-      }
-      byCat.set(category, row);
-    }
-
-    return Array.from(byCat.values()).sort((a, b) =>
-      (b.missingImage - a.missingImage) ||
-      (b.missingManufacturer + b.missingModelSeries + b.missingRealSku + b.missingMaterialCost + b.missingLaborMinutes) -
-      (a.missingManufacturer + a.missingModelSeries + a.missingRealSku + a.missingMaterialCost + a.missingLaborMinutes)
-      || b.total - a.total
-      || a.category.localeCompare(b.category)
-    );
-  }, [items]);
-
-  async function copyImageSprintCsv() {
-    const header = ['Category', 'SKU', 'Manufacturer', 'Model', 'Series', 'Description'].join(',');
-    const lines = items
-      .filter((i) => i.active && !i.deprecated && i.isCanonical !== false)
-      .filter((i) => String(i.manufacturer || '').trim() && (String(i.model || '').trim() || String(i.series || '').trim()))
-      .filter((i) => !String(i.imageUrl || '').trim())
-      .sort((a, b) => a.category.localeCompare(b.category) || a.sku.localeCompare(b.sku))
-      .map((i) => {
-        const safe = (v: string) => `"${String(v || '').replace(/"/g, '""')}"`;
-        return [
-          safe(i.category || ''),
-          safe(i.sku || ''),
-          safe(i.manufacturer || ''),
-          safe(i.model || ''),
-          safe(i.series || ''),
-          safe(i.description || ''),
-        ].join(',');
-      });
-
-    const csv = [header, ...lines].join('\n');
-    await navigator.clipboard.writeText(csv);
-    window.alert(`Copied ${lines.length} manufacturer-backed row(s) missing ImageURL (forward-facing) to clipboard.`);
-  }
-
-  async function copyCatalogResearchQueueCsv() {
-    const header = ['Category', 'SKU', 'Description', 'MissingFields'].join(',');
-    const lines = filteredItems
-      .filter((i) => i.active && !i.deprecated && i.isCanonical !== false)
-      .map((i) => {
-        const missing: string[] = [];
-        if (!String(i.manufacturer || '').trim()) missing.push('Manufacturer');
-        if (!String(i.model || '').trim() && !String(i.series || '').trim()) missing.push('Model/Series');
-        if (!String(i.imageUrl || '').trim()) missing.push('ImageURL');
-        if (!String(i.sku || '').trim() || /^generic[-_]/i.test(String(i.sku || '').trim())) missing.push('RealSKU');
-        if (!Number.isFinite(i.baseMaterialCost) || i.baseMaterialCost <= 0) missing.push('MaterialCost');
-        if (!Number.isFinite(i.baseLaborMinutes) || i.baseLaborMinutes <= 0) missing.push('LaborMinutes');
-        if ((!String(i.installLaborFamily || '').trim()) && (!Number.isFinite(i.baseLaborMinutes) || i.baseLaborMinutes <= 0)) {
-          missing.push('InstallLaborFamily');
-        }
-        if (missing.length === 0) return null;
-        const safe = (v: string) => `"${String(v || '').replace(/"/g, '""')}"`;
-        return [safe(i.category || ''), safe(i.sku || ''), safe(i.description || ''), safe(missing.join('; '))].join(',');
-      })
-      .filter(Boolean) as string[];
-
-    const csv = [header, ...lines].join('\n');
-    await navigator.clipboard.writeText(csv);
-    window.alert(`Copied ${lines.length} row(s) to clipboard as CSV (Category / SKU / Description / MissingFields).`);
-  }
-
-  const duplicateGroups = useMemo(() => {
-    const groups = new Map<string, CatalogItem[]>();
-    for (const item of items) {
-      const key = (item.duplicateGroupKey || '').trim();
-      if (!key) continue;
-      const list = groups.get(key) || [];
-      list.push(item);
-      groups.set(key, list);
-    }
-    const entries = Array.from(groups.entries())
-      .map(([key, group]) => [key, group.sort((a, b) => a.sku.localeCompare(b.sku))] as const)
-      .filter(([, group]) => group.length > 1)
-      .sort((a, b) => b[1].length - a[1].length);
-    return entries;
-  }, [items]);
+  }, [imageSprintOnly, sourceTabFilter, search]);
 
   const filteredModifiers = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -1100,6 +875,7 @@ export function Catalog() {
   }, [bundles, search, activeFilter]);
 
   const handleCreateItem = () => {
+    suppressCatalogItemUrlOpenRef.current = false;
     const newItem: CatalogItem = {
       id: crypto.randomUUID(),
       sku: 'SKU-' + Math.floor(Math.random() * 10000),
@@ -1234,54 +1010,6 @@ export function Catalog() {
     } catch (err) {
       console.error('Failed to delete alias', err);
       window.alert(err instanceof Error ? err.message : 'Failed to delete alias.');
-    }
-  }
-
-  async function resolveDuplicateGroup(key: string, canonicalId: string) {
-    const group = duplicateGroups.find(([k]) => k === key)?.[1] || [];
-    const canonical = group.find((i) => i.id === canonicalId) || null;
-    if (!canonical) return;
-
-    setDuplicateResolvingKey(key);
-    try {
-      // Ensure canonical row is marked as canonical and not deprecated.
-      await api.updateCatalogItem({
-        ...canonical,
-        canonicalSku: canonical.sku,
-        isCanonical: true,
-        aliasOf: null,
-        deprecated: false,
-        deprecatedReason: null,
-      });
-
-      for (const row of group) {
-        if (row.id === canonical.id) continue;
-
-        // Convert duplicate SKU into a legacy alias for the canonical row.
-        try {
-          await api.createCatalogItemAlias({ catalogItemId: canonical.id, aliasType: 'legacy_sku', aliasValue: row.sku });
-        } catch {
-          // Ignore duplicates / uniqueness collisions.
-        }
-
-        // Mark duplicate row non-canonical + deprecated (no deletes).
-        await api.updateCatalogItem({
-          ...row,
-          canonicalSku: canonical.sku,
-          isCanonical: false,
-          aliasOf: canonical.id,
-          deprecated: true,
-          deprecatedReason: row.deprecatedReason || `Duplicate of ${canonical.sku} (${canonical.description})`,
-        });
-      }
-
-      await invalidateWorkspace();
-      await loadAliasesForItem(canonical.id);
-    } catch (err) {
-      console.error('Duplicate resolution failed', err);
-      window.alert(err instanceof Error ? err.message : 'Duplicate resolution failed.');
-    } finally {
-      setDuplicateResolvingKey(null);
     }
   }
 
@@ -1576,7 +1304,7 @@ export function Catalog() {
           <p className="ui-mono-kicker">Browse & filter</p>
           <p className="mt-1 text-xs text-slate-500">
             {activeTab === 'items'
-              ? 'Filter items by category, type, activation, and canonical flags; row click opens the editor.'
+              ? 'Filter items by category, type, and activation; click a row to edit.'
               : activeTab === 'modifiers'
                 ? 'Modifiers extend labor and material from the catalog workbook.'
                 : 'Bundles group catalog SKUs for packaged estimating.'}
@@ -1690,43 +1418,9 @@ export function Catalog() {
                 ))}
               </select>
             </label>
-          </div>
-        ) : null}
-
-        {activeTab === 'items' ? (
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-            <label className="inline-flex items-center gap-2 rounded-md border border-app-line bg-app-surface px-2 py-1">
-              <span className="text-app-muted">Canonical</span>
-              <select value={canonFilter} onChange={(e) => setCanonFilter(e.target.value as typeof canonFilter)} className="ui-input h-7 px-2 text-[11px]">
-                <option value="all">All</option>
-                <option value="canonical">Only canonical</option>
-                <option value="non-canonical">Only non-canonical</option>
-              </select>
-            </label>
-
-            <label className="inline-flex items-center gap-2 rounded-md border border-app-line bg-app-surface px-2 py-1 text-[11px] text-app">
-              <input type="checkbox" checked={duplicatesOnly} onChange={(e) => setDuplicatesOnly(e.target.checked)} />
-              Duplicates only
-            </label>
-
-            <label className="inline-flex items-center gap-2 rounded-md border border-app-line bg-app-surface px-2 py-1 text-[11px] text-app">
-              <input type="checkbox" checked={deprecatedOnly} onChange={(e) => setDeprecatedOnly(e.target.checked)} />
-              Deprecated only
-            </label>
-
-            <label className="ml-auto inline-flex items-center gap-2 rounded-md border border-app-line bg-app-surface px-2 py-1 text-[11px] text-app">
-              <input type="checkbox" checked={showDuplicateReview} onChange={(e) => setShowDuplicateReview(e.target.checked)} />
-              Duplicate review
-            </label>
-
-            <label className="inline-flex items-center gap-2 rounded-md border border-app-line bg-app-surface px-2 py-1 text-[11px] text-app">
-              <input type="checkbox" checked={showQualityReport} onChange={(e) => setShowQualityReport(e.target.checked)} />
-              Quality report
-            </label>
-
             <label className="inline-flex items-center gap-2 rounded-md border border-app-line bg-app-surface px-2 py-1 text-[11px] text-app">
               <input type="checkbox" checked={imageSprintOnly} onChange={(e) => setImageSprintOnly(e.target.checked)} />
-              Image sprint (mfr-backed, missing photo)
+              Missing photos only (active rows, manufacturer + model)
             </label>
           </div>
         ) : null}
@@ -1735,210 +1429,6 @@ export function Catalog() {
           {activeTab === 'items' ? `Showing ${filteredItems.length} of ${items.length} item records` : activeTab === 'modifiers' ? `Showing ${filteredModifiers.length} of ${modifiers.length} modifier records` : `Showing ${filteredBundles.length} of ${bundles.length} bundle records`}
         </div>
       </section>
-
-      {activeTab === 'items' && showDuplicateReview ? (
-        <section className="ui-surface p-3">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="ui-mono-kicker">Duplicates</p>
-              <p className="mt-1 text-xs text-slate-500">
-                Grouped by <span className="font-mono">duplicateGroupKey</span>. Pick a canonical record, then deprecate the rest (no deletes).
-              </p>
-            </div>
-            <span className="ui-chip-soft">{duplicateGroups.length} groups</span>
-          </div>
-
-          {duplicateGroups.length === 0 ? (
-            <div className="mt-3 ui-panel-muted p-3 text-xs text-slate-600">No duplicate groups detected yet.</div>
-          ) : (
-            <div className="mt-3 space-y-2">
-              {duplicateGroups.slice(0, 25).map(([key, group]) => (
-                <details key={key} className="ui-panel-muted p-3">
-                  <summary className="cursor-pointer list-none">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-slate-500">Group</p>
-                        <p className="mt-0.5 truncate text-xs font-semibold text-slate-900">{key}</p>
-                      </div>
-                      <span className="ui-chip-soft">{group.length} rows</span>
-                    </div>
-                  </summary>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <label className="text-[11px] font-medium text-slate-600">
-                      Canonical row
-                      <select
-                        className="ui-input mt-1 h-8 px-2 text-[11px]"
-                        value={duplicateCanonicalSelection[key] || group.find((r) => r.isCanonical !== false && !r.deprecated)?.id || group[0]?.id || ''}
-                        onChange={(e) => setDuplicateCanonicalSelection((prev) => ({ ...prev, [key]: e.target.value }))}
-                      >
-                        {group.map((r) => (
-                          <option key={r.id} value={r.id}>
-                            {r.sku}{r.deprecated ? ' (deprecated)' : ''}{r.isCanonical === false ? ' (non-canonical)' : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button
-                      type="button"
-                      className="ui-btn-cta h-8 px-3 text-[11px]"
-                      onClick={() => {
-                        const selected =
-                          duplicateCanonicalSelection[key] || group.find((r) => r.isCanonical !== false && !r.deprecated)?.id || group[0]?.id || '';
-                        if (!selected) return;
-                        void resolveDuplicateGroup(key, selected);
-                      }}
-                      disabled={duplicateResolvingKey === key}
-                    >
-                      {duplicateResolvingKey === key ? 'Resolving…' : 'Resolve group'}
-                    </button>
-                    <p className="text-[11px] text-slate-500">
-                      Converts duplicate SKUs into <span className="font-mono">legacy_sku</span> aliases on the canonical row and deprecates the rest.
-                    </p>
-                  </div>
-                  <div className="mt-3 overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b border-app-line text-[10px] uppercase tracking-[0.08em] text-slate-500">
-                          <th className="py-2 pr-2 text-left">SKU</th>
-                          <th className="py-2 pr-2 text-left">Canonical</th>
-                          <th className="py-2 pr-2 text-left">Finish</th>
-                          <th className="py-2 pr-2 text-left">Deprecated</th>
-                          <th className="py-2 text-right">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[color-mix(in_srgb,var(--line)_55%,white)]">
-                        {group.map((item) => (
-                          <tr key={item.id} className="align-top">
-                            <td className="py-2 pr-2 font-mono text-[11px] text-slate-900">{item.sku}</td>
-                            <td className="py-2 pr-2 font-mono text-[11px] text-slate-600">{item.canonicalSku || '—'}</td>
-                            <td className="py-2 pr-2 text-slate-600">{item.finishGroup || '—'}</td>
-                            <td className="py-2 pr-2">{item.deprecated ? <span className="ui-mono-chip ui-mono-chip--mute">yes</span> : <span className="ui-mono-chip ui-mono-chip--ok">no</span>}</td>
-                            <td className="py-2 text-right">
-                              <div className="flex flex-wrap items-center justify-end gap-1">
-                                <button
-                                  type="button"
-                                  className="ui-btn-secondary h-8 px-2 text-[11px]"
-                                  onClick={() => setEditingItem(item)}
-                                >
-                                  Open
-                                </button>
-                                <Link
-                                  to={catalogCuratorPathDeep({
-                                    q: item.sku,
-                                    catalogItem: item.id,
-                                    dup: true,
-                                    drev: true,
-                                  })}
-                                  className="ui-btn-secondary inline-flex h-8 items-center px-2 text-[11px]"
-                                >
-                                  Link
-                                </Link>
-                                <button
-                                  type="button"
-                                  className="ui-btn-secondary inline-flex h-8 items-center gap-1 px-2 text-[11px]"
-                                  title="Copy deep link to this row"
-                                  onClick={() =>
-                                    void copyTextToClipboard(
-                                      `${typeof window !== 'undefined' ? window.location.origin : ''}${catalogCuratorPathDeep({
-                                        q: item.sku,
-                                        catalogItem: item.id,
-                                        dup: true,
-                                        drev: true,
-                                      })}`,
-                                    ).catch(() => {
-                                      window.alert('Could not copy link.');
-                                    })
-                                  }
-                                >
-                                  <Clipboard className="h-3 w-3 shrink-0" aria-hidden />
-                                  Copy
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </details>
-              ))}
-            </div>
-          )}
-        </section>
-      ) : null}
-
-      {activeTab === 'items' && showQualityReport ? (
-        <section className="ui-surface p-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <p className="ui-mono-kicker">Catalog quality</p>
-              <p className="mt-1 text-xs text-slate-500">
-                Highlights categories with missing manufacturer / model-series / image / real SKU / cost / labor. Uses current DB rows (no Google Sheet writes).
-              </p>
-            </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
-              <button
-                type="button"
-                className="ui-btn-secondary h-8 px-3 text-[11px]"
-                onClick={() => void copyCatalogResearchQueueCsv()}
-                disabled={filteredItems.length === 0}
-              >
-                Copy research queue CSV
-              </button>
-              <button type="button" className="ui-btn-secondary h-8 px-3 text-[11px]" onClick={() => void copyImageSprintCsv()}>
-                Copy image sprint CSV
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-app-line text-[10px] uppercase tracking-[0.08em] text-slate-500">
-                  <th className="py-2 pr-2 text-left">Category</th>
-                  <th className="py-2 pr-2 text-right">Total</th>
-                  <th className="py-2 pr-2 text-right">Active</th>
-                  <th className="py-2 pr-2 text-right">Canonical</th>
-                  <th className="py-2 pr-2 text-right">Deprecated</th>
-                  <th className="py-2 pr-2 text-right">Missing Mfr</th>
-                  <th className="py-2 pr-2 text-right">Missing Model/Series</th>
-                  <th className="py-2 pr-2 text-right">Missing Image</th>
-                  <th className="py-2 text-right">Missing Real SKU</th>
-                  <th className="py-2 pr-2 text-right">Missing Material</th>
-                  <th className="py-2 pr-2 text-right">Missing Labor</th>
-                  <th className="py-2 text-right">Missing Install Family</th>
-                </tr>
-              </thead>
-              <tbody>
-                {catalogQualityByCategory.slice(0, 60).map((row) => (
-                  <tr
-                    key={row.category}
-                    className="border-b border-slate-200/60 cursor-pointer hover:bg-slate-50/70"
-                    title="Click to filter items by this category"
-                    onClick={() => {
-                      setActiveTab('items');
-                      setCategoryFilter(row.category);
-                    }}
-                  >
-                    <td className="py-2 pr-2 font-medium text-slate-900">{row.category}</td>
-                    <td className="py-2 pr-2 text-right text-slate-700">{row.total}</td>
-                    <td className="py-2 pr-2 text-right text-slate-700">{row.active}</td>
-                    <td className="py-2 pr-2 text-right text-slate-700">{row.canonical}</td>
-                    <td className="py-2 pr-2 text-right text-slate-700">{row.deprecated}</td>
-                    <td className="py-2 pr-2 text-right text-slate-700">{row.missingManufacturer}</td>
-                    <td className="py-2 pr-2 text-right text-slate-700">{row.missingModelSeries}</td>
-                    <td className="py-2 pr-2 text-right text-slate-700">{row.missingImage}</td>
-                    <td className="py-2 pr-2 text-right text-slate-700">{row.missingRealSku}</td>
-                    <td className="py-2 pr-2 text-right text-slate-700">{row.missingMaterialCost}</td>
-                    <td className="py-2 pr-2 text-right text-slate-700">{row.missingLaborMinutes}</td>
-                    <td className="py-2 text-right text-slate-700">{row.missingInstallLaborFamily}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
 
       <section className="ui-surface overflow-hidden" aria-label="Catalog browse results">
         <div className="max-h-[68vh] overflow-auto">
@@ -1978,7 +1468,7 @@ export function Catalog() {
                     <div>
                       <p className="text-sm font-semibold text-slate-800">No rows match these filters</p>
                       <p className="mt-2 max-w-md text-xs leading-relaxed text-slate-600">
-                        Clear search text or reset category / type / activation / canonical toggles. If you expected inactive rows, choose &quot;Inactive only&quot; in the activation filter.
+                        Clear search or widen category / type / activation filters. Choose &quot;Inactive only&quot; to see deactivated rows.
                       </p>
                     </div>
                   </>
@@ -1997,7 +1487,7 @@ export function Catalog() {
                     <th className="ui-table-th">UoM</th>
                     <th className="ui-table-th-end">Labor</th>
                     <th className="ui-table-th-end">Material</th>
-                    <th className="ui-table-th">Record status</th>
+                    <th className="ui-table-th">Status</th>
                     <th className="ui-table-th">Sheet source</th>
                     <th className="ui-table-th-end">Actions</th>
                   </tr>
@@ -2022,10 +1512,14 @@ export function Catalog() {
                       tabIndex={0}
                       title="Click row to edit"
                       className={`cursor-pointer border-b border-slate-100 border-l-[3px] ${accent} outline-none hover:bg-slate-50/70 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400/50`}
-                      onClick={() => setEditingItem(item)}
+                      onClick={() => {
+                        suppressCatalogItemUrlOpenRef.current = false;
+                        setEditingItem(item);
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
+                          suppressCatalogItemUrlOpenRef.current = false;
                           setEditingItem(item);
                         }
                       }}
@@ -2106,16 +1600,6 @@ export function Catalog() {
                           >
                             {item.active ? 'Active' : 'Inactive'}
                           </span>
-                          {item.deprecated ? (
-                            <span className="ui-mono-chip ui-mono-chip--mute text-[10px]" title={item.deprecatedReason?.trim() || undefined}>
-                              Deprecated
-                            </span>
-                          ) : null}
-                          {item.isCanonical === false ? (
-                            <span className="ui-mono-chip ui-mono-chip--warn text-[10px]" title={item.aliasOf ? `aliasOf ${item.aliasOf}` : 'Non-canonical row'}>
-                              Non-canon
-                            </span>
-                          ) : null}
                           {item.taxable === false ? (
                             <span className="rounded border border-slate-200 px-1 py-0.5 text-[10px] text-slate-600">Non-tax</span>
                           ) : null}
@@ -2339,8 +1823,14 @@ export function Catalog() {
       </section>
 
       {editingItem ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 sm:p-6">
-          <form onSubmit={handleSaveItem} className="ui-panel w-full max-w-2xl overflow-hidden p-0 shadow-2xl">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 sm:p-6"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) closeItemEditor();
+          }}
+        >
+          <form onSubmit={handleSaveItem} className="ui-panel w-full max-w-2xl overflow-hidden p-0 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-app-line px-4 py-3.5">
               <div>
                 <p className="ui-mono-kicker">Module 01 / Catalog Record</p>
@@ -2526,6 +2016,16 @@ export function Catalog() {
                   />
                 </div>
                 <div>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Finish / variant group</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. SS, matte black"
+                    className="ui-input"
+                    value={editingItem.finishGroup ?? ''}
+                    onChange={(e) => setEditingItem({ ...editingItem, finishGroup: e.target.value.trim() ? e.target.value.trim() : null })}
+                  />
+                </div>
+                <div>
                   <label className="block text-[11px] font-medium text-slate-600 mb-1">Base Material Cost ($)</label>
                   <input
                     type="number"
@@ -2617,87 +2117,37 @@ export function Catalog() {
                     />
                     Taxable
                   </label>
+                  <label className="inline-flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(editingItem.deprecated)}
+                      onChange={(e) =>
+                        setEditingItem({
+                          ...editingItem,
+                          deprecated: e.target.checked,
+                          deprecatedReason: e.target.checked ? editingItem.deprecatedReason : null,
+                        })
+                      }
+                    />
+                    Deprecated
+                  </label>
                 </div>
-
-                <div className="col-span-2 ui-panel-muted p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="ui-mono-kicker">Canonicalization</p>
-                      <p className="mt-1 text-[11px] text-slate-500">Transitional fields used to collapse duplicate finish rows safely.</p>
-                    </div>
-                    <span className="ui-chip-soft">{editingItem.isCanonical === false ? 'non-canonical' : 'canonical'}</span>
+                {editingItem.deprecated ? (
+                  <div className="col-span-2">
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">Deprecated note (optional)</label>
+                    <input
+                      className="ui-input"
+                      placeholder="Why this row is retired"
+                      value={editingItem.deprecatedReason ?? ''}
+                      onChange={(e) =>
+                        setEditingItem({
+                          ...editingItem,
+                          deprecatedReason: e.target.value.trim() ? e.target.value.trim() : null,
+                        })
+                      }
+                    />
                   </div>
-
-                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <label className="block text-[11px] font-medium text-slate-600">
-                      Canonical SKU
-                      <input
-                        className="ui-input mt-1"
-                        value={editingItem.canonicalSku || ''}
-                        onChange={(e) => setEditingItem({ ...editingItem, canonicalSku: e.target.value || null })}
-                        placeholder="Base SKU (no finish token)"
-                      />
-                    </label>
-
-                    <label className="block text-[11px] font-medium text-slate-600">
-                      Finish group
-                      <input
-                        className="ui-input mt-1"
-                        value={editingItem.finishGroup || ''}
-                        onChange={(e) => setEditingItem({ ...editingItem, finishGroup: e.target.value || null })}
-                        placeholder="SS / CH / PB / …"
-                      />
-                    </label>
-
-                    <label className="block text-[11px] font-medium text-slate-600 sm:col-span-2">
-                      Duplicate group key
-                      <input
-                        className="ui-input mt-1 font-mono text-[11px]"
-                        value={editingItem.duplicateGroupKey || ''}
-                        onChange={(e) => setEditingItem({ ...editingItem, duplicateGroupKey: e.target.value || null })}
-                        placeholder="category|baseSku"
-                      />
-                    </label>
-
-                    <label className="inline-flex items-center gap-2 text-xs text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={editingItem.isCanonical !== false}
-                        onChange={(e) => setEditingItem({ ...editingItem, isCanonical: e.target.checked })}
-                      />
-                      Is canonical
-                    </label>
-
-                    <label className="inline-flex items-center gap-2 text-xs text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(editingItem.deprecated)}
-                        onChange={(e) => setEditingItem({ ...editingItem, deprecated: e.target.checked })}
-                      />
-                      Deprecated
-                    </label>
-
-                    <label className="block text-[11px] font-medium text-slate-600 sm:col-span-2">
-                      Deprecated reason
-                      <input
-                        className="ui-input mt-1"
-                        value={editingItem.deprecatedReason || ''}
-                        onChange={(e) => setEditingItem({ ...editingItem, deprecatedReason: e.target.value || null })}
-                        placeholder="Why this row should no longer be used"
-                      />
-                    </label>
-
-                    <label className="block text-[11px] font-medium text-slate-600 sm:col-span-2">
-                      Alias of (catalog item id)
-                      <input
-                        className="ui-input mt-1 font-mono text-[11px]"
-                        value={editingItem.aliasOf || ''}
-                        onChange={(e) => setEditingItem({ ...editingItem, aliasOf: e.target.value || null })}
-                        placeholder="canonical item id (optional)"
-                      />
-                    </label>
-                  </div>
-                </div>
+                ) : null}
 
                 <div className="col-span-2 ui-panel-muted p-3">
                   <details className="group">
@@ -2732,9 +2182,7 @@ export function Catalog() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="ui-mono-kicker">Aliases</p>
-                      <p className="mt-1 text-[11px] text-slate-500">
-                        First-class aliases used by parsers and vendor variants (keeps catalog rows canonical).
-                      </p>
+                      <p className="mt-1 text-[11px] text-slate-500">Alternate SKUs and search phrases that map to this item.</p>
                     </div>
                     <button
                       type="button"
@@ -2754,11 +2202,11 @@ export function Catalog() {
                         value={aliasDraftType}
                         onChange={(e) => setAliasDraftType(e.target.value as import('../types').CatalogAliasType)}
                       >
-                        <option value="legacy_sku">legacy_sku</option>
-                        <option value="vendor_sku">vendor_sku</option>
-                        <option value="parser_phrase">parser_phrase</option>
-                        <option value="generic_name">generic_name</option>
-                        <option value="search_key">search_key</option>
+                        <option value="legacy_sku">Alternate SKU</option>
+                        <option value="vendor_sku">Vendor SKU</option>
+                        <option value="parser_phrase">Parser phrase</option>
+                        <option value="generic_name">Generic name</option>
+                        <option value="search_key">Search key</option>
                       </select>
                     </label>
                     <label className="min-w-[14rem] flex-1 text-[11px] font-medium text-slate-600">
@@ -2784,7 +2232,7 @@ export function Catalog() {
                           <tbody className="divide-y divide-[color-mix(in_srgb,var(--line)_55%,white)]">
                             {itemAliases[editingItem.id].map((a) => (
                               <tr key={a.id}>
-                                <td className="py-2 pr-2 font-mono text-[11px] text-slate-600">{a.aliasType}</td>
+                                <td className="py-2 pr-2 text-[11px] text-slate-600">{catalogAliasTypeLabel(a.aliasType)}</td>
                                 <td className="py-2 pr-2 font-mono text-[11px] text-slate-900">{a.aliasValue}</td>
                                 <td className="py-2 text-right">
                                   <button type="button" className="ui-btn-secondary h-7 px-2 text-[11px]" onClick={() => void handleDeleteAlias(editingItem.id, a.id)}>
