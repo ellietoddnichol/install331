@@ -259,12 +259,17 @@ export function looksLikeSectionHeader(text: string): boolean {
   return Boolean(inferCategoryFromText(text) || /^[A-Za-z][A-Za-z/&,\- ]+$/.test(text));
 }
 
-export function looksLikeIgnoreChunk(text: string): boolean {
+/**
+ * @param multiFieldRow - When true, skip the "long blob" heuristic. Joining room/category/notes
+ *   with item fields often exceeds the old 180-char cutoff and incorrectly dropped valid Gemini
+ *   / spreadsheet scope rows.
+ */
+export function looksLikeIgnoreChunk(text: string, multiFieldRow = false): boolean {
   const normalized = normalizeComparableText(text);
   if (!normalized) return true;
   if (/^(clarifications?|exclusions?|inclusions?|alternates?|terms(?: and conditions)?|proposal|scope of work|invitation to bid)$/.test(normalized)) return true;
   if (/^(we propose to|the following|furnish and install|base bid|bid package)\b/.test(normalized)) return true;
-  if (normalized.length > 180 && !/^\d/.test(normalized)) return true;
+  if (!multiFieldRow && normalized.length > 600 && !/^\d/.test(normalized)) return true;
   return false;
 }
 
@@ -322,7 +327,7 @@ export function classifyParsedChunk(cells: string[], lineIndex: number, knownMet
   if (looksLikeAdderOption(text)) return { kind: 'adder_option', metadata };
   if (looksLikeLogisticsNote(text)) return { kind: 'logistics_note', metadata };
   if (looksLikeBundleItemLine(text)) return { kind: 'bundle_item', metadata };
-  if (looksLikeIgnoreChunk(text)) return { kind: 'ignore', metadata };
+  if (looksLikeIgnoreChunk(text, compactCells.length >= 2)) return { kind: 'ignore', metadata };
   if (compactCells.length === 1 && looksLikeSectionHeader(text)) return { kind: 'section_header', metadata };
 
   const quantityHint = /^\d+(?:\.\d+)?\s*[xX-]?\s+/.test(text);
@@ -342,14 +347,12 @@ export function shouldKeepNormalizedLine(line: RowClassifierLineLike, lineIndex:
   if (matchesDiv10CommercialOrMetadataLine(identity)) return false;
   if (looksLikeIntakeSectionHeaderOrTitleLine(identity)) return false;
 
-  const classification = classifyParsedChunk([
-    line.roomName,
-    line.category,
-    line.itemCode,
-    line.itemName,
-    line.description,
-    line.notes,
-  ], lineIndex, knownMetadata);
+  const scopeCells = [line.itemCode, line.itemName, line.description].map((cell) => intakeAsText(cell)).filter(Boolean);
+  const classification = classifyParsedChunk(
+    scopeCells.length > 0 ? scopeCells : [line.roomName, line.category, line.itemCode, line.itemName, line.description, line.notes],
+    lineIndex,
+    knownMetadata
+  );
 
   // Bundle items are real installable scope; they're only flagged so we can pre-expand them before matching.
   if (classification.kind !== 'actual_scope_line' && classification.kind !== 'bundle_item') return false;

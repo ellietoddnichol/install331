@@ -60,6 +60,15 @@ test('isPlausibleProjectTitle accepts real warehouse-style job names', () => {
   assert.equal(isPlausibleProjectTitle('K-12 Modernization'), true);
 });
 
+test('isPlausibleProjectTitle rejects PDF page-tree / dictionary strings misread as Title', () => {
+  assert.equal(
+    isPlausibleProjectTitle('<<Type/Pages/Count 2/Kids[ 3 0 R 22 0 R] >>'),
+    false
+  );
+  assert.equal(isPlausibleProjectTitle('<< /Root 1 0 R >>'), false);
+  assert.equal(isPlausibleProjectTitle('/Type /Pages /Count 12'), false);
+});
+
 test('coerceSafeProjectName replaces mojibake with fallback', () => {
   assert.equal(coerceSafeProjectName('F¼Æ"%1Ð½zÎÔ¹ùÝkfWp·+P$nWà`Ó', 'Imported Project'), 'Imported Project');
   assert.equal(coerceSafeProjectName('Black & McDonald Warehouse', 'Imported Project'), 'Black & McDonald Warehouse');

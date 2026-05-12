@@ -19,6 +19,18 @@ function longestAsciiLetterRun(text: string): number {
   return Math.max(...runs.map((run) => run.length));
 }
 
+/** PDF /Trailer or page-tree objects sometimes land in the Info Title field or body text as one line. */
+function looksLikePdfInternalSyntaxTitle(t: string): boolean {
+  const s = String(t || '').trim();
+  if (!s) return false;
+  if (s.startsWith('<<')) return true;
+  if (s.endsWith('>>') && s.includes('<<')) return true;
+  if (/\/Type\s*\/Pages\b/i.test(s)) return true;
+  if (/\/Kids\s*\[/i.test(s) && /\d\s+\d\s+0\s+R/i.test(s)) return true;
+  if (/\[\s*(?:\d{1,6}\s+\d{1,3}\s+0\s+R\s*){2,}]/.test(s)) return true;
+  return false;
+}
+
 /**
  * Reject PDF mojibake / binary soup masquerading as a title (common with Latin-1 buffer dumps).
  * Favors readable Latin job names; allows a Unicode fallback when the title is clearly letter-based.
@@ -28,6 +40,7 @@ export function isPlausibleProjectTitle(value: string): boolean {
   if (raw.includes('\uFFFD')) return false;
 
   const t = intakeTrim(stripIntakeControlCharacters(raw)).replace(/\s+/g, ' ').trim();
+  if (looksLikePdfInternalSyntaxTitle(t)) return false;
   if (t.length < 2 || t.length > 180) return false;
 
   const nonSpace = t.replace(/\s/g, '');

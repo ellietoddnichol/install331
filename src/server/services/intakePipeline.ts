@@ -90,7 +90,7 @@ interface StructuredSpreadsheetResult {
   preludeText: string;
 }
 
-const SPREADSHEET_GEMINI_TIMEOUT_MS = Number.parseInt(process.env.INTAKE_SPREADSHEET_GEMINI_TIMEOUT_MS || '12000', 10);
+const SPREADSHEET_GEMINI_TIMEOUT_MS = Number.parseInt(process.env.INTAKE_SPREADSHEET_GEMINI_TIMEOUT_MS || '120000', 10);
 
 type ParsedChunkType =
   | 'project_metadata'
@@ -349,12 +349,12 @@ function looksLikeSectionHeader(text: string): boolean {
   return Boolean(inferCategory(text) || /^[A-Za-z][A-Za-z/&,\- ]+$/.test(text));
 }
 
-function looksLikeIgnoreChunk(text: string): boolean {
+function looksLikeIgnoreChunk(text: string, multiFieldRow = false): boolean {
   const normalized = normalizeComparableText(text);
   if (!normalized) return true;
   if (/^(clarifications?|exclusions?|inclusions?|alternates?|terms(?: and conditions)?|proposal|scope of work|invitation to bid)$/.test(normalized)) return true;
   if (/^(we propose to|the following|furnish and install|base bid|bid package)\b/.test(normalized)) return true;
-  if (normalized.length > 180 && !/^\d/.test(normalized)) return true;
+  if (!multiFieldRow && normalized.length > 600 && !/^\d/.test(normalized)) return true;
   return false;
 }
 
@@ -382,7 +382,7 @@ function classifyParsedChunk(cells: string[], lineIndex: number, knownMetadata?:
       return { kind: 'bundle_item', metadata };
     }
   }
-  if (looksLikeIgnoreChunk(text)) return { kind: 'ignore', metadata };
+  if (looksLikeIgnoreChunk(text, compactCells.length >= 2)) return { kind: 'ignore', metadata };
   if (compactCells.length === 1 && looksLikeSectionHeader(text)) return { kind: 'section_header', metadata };
 
   const quantityHint = /^\d+(?:\.\d+)?\s*[xX-]?\s+/.test(text);

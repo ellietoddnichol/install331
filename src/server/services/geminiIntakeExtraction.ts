@@ -282,6 +282,31 @@ async function enrichGeminiResultWithMapsGrounding(
   };
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableGeminiCallError(error: unknown): boolean {
+  const msg = String(error instanceof Error ? error.message : error).toLowerCase();
+  return /\b429\b|resource_exhausted|rate limit|quota|503|500|502|504|unavailable|econnreset|socket|fetch failed|timed out|timeout|overloaded\b/.test(msg);
+}
+
+async function withGeminiRetries<T>(fn: () => Promise<T>): Promise<T> {
+  const attempts = Math.max(1, Math.min(5, Number.parseInt(process.env.INTAKE_GEMINI_MAX_RETRIES || '3', 10)));
+  const baseMs = Math.max(300, Math.min(8000, Number.parseInt(process.env.INTAKE_GEMINI_RETRY_BASE_MS || '1000', 10)));
+  let last: unknown;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await fn();
+    } catch (e) {
+      last = e;
+      if (!isRetryableGeminiCallError(e) || i === attempts - 1) throw e;
+      await sleep(baseMs * (i + 1));
+    }
+  }
+  throw last;
+}
+
 export async function extractIntakeFromGemini(input: ExtractInput): Promise<GeminiExtractionResult> {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || '';
   if (!apiKey) {
@@ -364,13 +389,15 @@ export async function extractIntakeFromGemini(input: ExtractInput): Promise<Gemi
       tempFilePath = path.join(tmpDir, input.fileName || 'upload.pdf');
       await fs.writeFile(tempFilePath, Buffer.from(input.dataBase64, 'base64'));
 
-      const uploaded = await ai.files.upload({
-        file: tempFilePath,
-        config: {
-          mimeType: input.mimeType,
-          displayName: input.fileName,
-        },
-      });
+      const uploaded = await withGeminiRetries(() =>
+        ai.files.upload({
+          file: tempFilePath,
+          config: {
+            mimeType: input.mimeType,
+            displayName: input.fileName,
+          },
+        })
+      );
 
       if (uploaded.uri) {
         parts.push({
@@ -390,14 +417,16 @@ export async function extractIntakeFromGemini(input: ExtractInput): Promise<Gemi
       }
     }
 
-    const response = await ai.models.generateContent({
-      model: INTAKE_GEMINI_MODEL,
-      contents: [{ role: 'user', parts }],
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: intakeGeminiResponseSchema,
-      },
-    });
+    const response = await withGeminiRetries(() =>
+      ai.models.generateContent({
+        model: INTAKE_GEMINI_MODEL,
+        contents: [{ role: 'user', parts }],
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: intakeGeminiResponseSchema,
+        },
+      })
+    );
 
     let parsed: any = {};
     try {
