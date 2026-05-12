@@ -1,6 +1,6 @@
 import { Type } from '@google/genai';
 
-export const INTAKE_GEMINI_MODEL = process.env.INTAKE_GEMINI_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+export const INTAKE_GEMINI_MODEL = process.env.INTAKE_GEMINI_MODEL || process.env.GEMINI_MODEL || 'gemini-1.5-flash';
 
 export const intakeGeminiResponseSchema = {
   type: Type.OBJECT,
