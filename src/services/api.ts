@@ -17,7 +17,8 @@ async function handleResponse<T>(res: Response): Promise<T> {
     let errorMessage = `Request failed with status ${res.status}`;
     try {
       const errorData = await res.json();
-      errorMessage = errorData.error || errorData.message || errorMessage;
+      const code = errorData.code ? ` (${errorData.code})` : '';
+      errorMessage = (errorData.error || errorData.message || errorMessage) + code;
     } catch (e) {
       // If not JSON, try text
       try {
@@ -665,7 +666,19 @@ export const api = {
     sourceTabFilter?: string;
     imageSprintOnly?: boolean;
     sortBy?: string;
-  }): Promise<{ items: CatalogItem[]; total: number; offset: number; limit: number }> {
+  }): Promise<{
+    items: CatalogItem[];
+    total: number;
+    offset: number;
+    limit: number;
+    meta?: {
+      catalogItemsReadTable: string;
+      dbDriver: string;
+      catalogBackend: 'postgres' | 'sqlite';
+      emptyUnfiltered: boolean;
+      emptyHint: string | null;
+    };
+  }> {
     const p = new URLSearchParams();
     p.set('offset', String(Math.max(0, input.offset)));
     p.set('limit', String(Math.min(200, Math.max(1, input.limit ?? 75))));
@@ -679,8 +692,15 @@ export const api = {
     const res = await apiFetch(`${API_BASE}/v1/catalog/items?${p.toString()}`);
     const payload = await handleResponse<{
       data: { items: CatalogItem[]; total: number; offset: number; limit: number };
+      meta?: {
+        catalogItemsReadTable: string;
+        dbDriver: string;
+        catalogBackend: 'postgres' | 'sqlite';
+        emptyUnfiltered: boolean;
+        emptyHint: string | null;
+      };
     }>(res);
-    return payload.data;
+    return { ...payload.data, meta: payload.meta };
   },
 
   async getV1CatalogItem(id: string): Promise<CatalogItem> {

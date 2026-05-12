@@ -37,6 +37,12 @@ export function useCatalogMetaQuery() {
   return useQuery({
     queryKey: queryKeys.catalog.meta,
     queryFn: fetchCatalogMeta,
+    retry: (failureCount, err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('API_NOT_READY') || msg.includes('initializing')) return failureCount < 12;
+      return failureCount < 2;
+    },
+    retryDelay: (attempt) => Math.min(500 + attempt * 400, 4000),
   });
 }
 
@@ -81,6 +87,12 @@ export function useCatalogItemsPageQuery(params: CatalogItemsPageQueryInput) {
         imageSprintOnly: params.imageSprintOnly,
         sortBy: params.sortBy,
       }),
+    retry: (failureCount, err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('API_NOT_READY') || msg.includes('initializing')) return failureCount < 12;
+      return failureCount < 2;
+    },
+    retryDelay: (attempt) => Math.min(500 + attempt * 400, 4000),
   });
 }
 

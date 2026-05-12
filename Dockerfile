@@ -31,7 +31,8 @@ EXPOSE 8080
 # Type-check then bundle (matches local `npm run lint` + `npm run build`).
 RUN npm run lint && npm run build
 
-# `/healthz` is served before DB init; `/api/v1/health` only exists after `prepareEstimatorDbForServer` completes.
+# `/healthz` + static SPA are available as soon as the process listens; `/api/*` returns 503 until DB prep completes;
+# `/api/v1/health` succeeds only after the DB ping passes (see `server.ts` boot comments).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 

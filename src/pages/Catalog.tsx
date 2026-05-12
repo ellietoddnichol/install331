@@ -556,12 +556,19 @@ export function Catalog() {
   const [syncing, setSyncing] = useState(false);
   const [syncActionError, setSyncActionError] = useState<string | null>(null);
   const [integrationHealth, setIntegrationHealth] = useState<Awaited<ReturnType<typeof api.getV1IntegrationHealth>> | null>(null);
+  const [integrationHealthError, setIntegrationHealthError] = useState<string | null>(null);
 
   useEffect(() => {
     void api
       .getV1IntegrationHealth()
-      .then(setIntegrationHealth)
-      .catch(() => setIntegrationHealth(null));
+      .then((h) => {
+        setIntegrationHealth(h);
+        setIntegrationHealthError(null);
+      })
+      .catch((e: unknown) => {
+        setIntegrationHealth(null);
+        setIntegrationHealthError(getErrorMessage(e, 'Could not load integration diagnostics from the server.'));
+      });
   }, []);
 
   const [search, setSearch] = useState(initialUrlFilters.search);
@@ -597,6 +604,7 @@ export function Catalog() {
   });
   const items = itemsPageQuery.data?.items ?? [];
   const totalItemRows = itemsPageQuery.data?.total ?? 0;
+  const itemsPageMeta = itemsPageQuery.data?.meta;
 
   const invalidateWorkspace = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: queryKeys.catalog.meta });
@@ -1161,6 +1169,11 @@ export function Catalog() {
               </span>
             </div>
             <h1 className="mt-2 text-[24px] font-semibold leading-tight tracking-tight text-slate-950 md:text-[28px]">Catalog</h1>
+            {integrationHealthError ? (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-950">
+                <span className="font-semibold">Integration diagnostics unavailable.</span> {integrationHealthError}
+              </div>
+            ) : null}
             <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.06em] text-slate-500">
               {!integrationHealth
                 ? 'Items, modifiers, and bundles from the catalog database.'
@@ -1587,6 +1600,11 @@ export function Catalog() {
                   <>
                     <div>
                       <p className="text-sm font-semibold text-slate-800">No catalog items in the database yet</p>
+                      {itemsPageMeta?.emptyHint ? (
+                        <p className="mt-3 max-w-lg rounded-md border border-amber-200/90 bg-amber-50/90 px-3 py-2 text-left text-xs leading-relaxed text-amber-950">
+                          {itemsPageMeta.emptyHint}
+                        </p>
+                      ) : null}
                       <p className="mt-2 max-w-md text-xs leading-relaxed text-slate-600">
                         {catalogDbIsPostgres ? (
                           <>

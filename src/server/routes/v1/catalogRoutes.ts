@@ -7,6 +7,7 @@ import {
   listDistinctCatalogCategories,
 } from '../../repos/catalogRepo.ts';
 import { getCatalogItemsTableName } from '../../db/catalogTable.ts';
+import { isPgCatalogBackend } from '../../db/catalogBackend.ts';
 
 export const catalogRouter = Router();
 
@@ -46,12 +47,33 @@ catalogRouter.get('/items', async (req, res) => {
     imageSprintOnly,
     sortBy,
   });
+  const readTable = getCatalogItemsTableName();
+  const hasUserFilters =
+    Boolean(category) ||
+    Boolean(q) ||
+    Boolean(typeFilter) ||
+    Boolean(sourceTabFilter) ||
+    imageSprintOnly ||
+    activeFilter !== 'all';
+  const meta = {
+    catalogItemsReadTable: readTable,
+    dbDriver: String(process.env.DB_DRIVER || 'sqlite').trim() || 'sqlite',
+    catalogBackend: isPgCatalogBackend() ? ('postgres' as const) : ('sqlite' as const),
+    /** When total is 0 with no filters, the UI should not assume "bad filters" — table may be empty or mis-pointed. */
+    emptyUnfiltered: total === 0 && !hasUserFilters,
+    emptyHint:
+      total === 0 && !hasUserFilters
+        ? isPgCatalogBackend()
+          ? `Read ${readTable} returned 0 rows. In Supabase: confirm rows exist and that CATALOG_ITEMS_TABLE matches your schema (catalog_items vs catalog_items_clean / public prefix).`
+          : 'Local catalog_items has 0 rows — seed the DB or run a sheet import when enabled.'
+        : null,
+  };
   if (catalogDebug()) {
     console.log(
-      `[catalog] GET /v1/catalog/items read=${getCatalogItemsTableName()} total=${total} returned=${rows.length} offset=${offset} limit=${limit}`
+      `[catalog] GET /v1/catalog/items read=${readTable} total=${total} returned=${rows.length} offset=${offset} limit=${limit}`
     );
   }
-  return res.json({ data: { items: rows, total, offset, limit } });
+  return res.json({ data: { items: rows, total, offset, limit }, meta });
 });
 
 catalogRouter.get('/items/:id', async (req, res) => {

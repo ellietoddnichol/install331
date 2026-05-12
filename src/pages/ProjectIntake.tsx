@@ -25,6 +25,7 @@ import {
   recommendDeliveryPlan,
   recommendedPhasedWorkMultiplier,
 } from '../shared/utils/jobConditions';
+import { getErrorMessage } from '../shared/utils/errorMessage';
 import { collectPastProjectDateErrors, mapProjectDateErrors } from '../shared/utils/projectDateValidation';
 import { OFFICE_ADDRESS, getDistanceInMiles } from '../utils/geo';
 import {
@@ -33,6 +34,7 @@ import {
   plausibleProjectTitleFromSourcePaths,
   plausibleTitleFromFileName,
 } from '../shared/utils/intakeTextGuards';
+import { inferDefaultLocationFromProjectTitle } from '../shared/utils/inferLocationFromProjectTitle';
 import { formatCurrencySafe, formatNumberSafe } from '../utils/numberFormat';
 import { numericInputValue, parseNumericInput } from '../utils/numericInput';
 import { SiteAddressAutocomplete } from '../components/intake/SiteAddressAutocomplete';
@@ -68,6 +70,13 @@ import { normalizeProjectSizeSelectValue, PROJECT_JOB_SIZE_OPTIONS } from '../sh
 
 type CreationMode = 'blank' | 'takeoff' | 'document' | 'template';
 type IntakeStep = 1 | 2 | 3 | 4 | 5;
+
+const INTAKE_VALID_PRICING_MODES: readonly PricingMode[] = [
+  'material_only',
+  'labor_only',
+  'labor_and_material',
+  'material_with_optional_install_quote',
+];
 
 type CatalogPickerTarget =
   | { kind: 'line'; lineId: string }
@@ -575,6 +584,14 @@ function parseStructuredSpreadsheetRows(rows: Array<Array<string | number | bool
   };
 }
 
+const GENERIC_INTAKE_PROJECT_NAMES = new Set(
+  ['imported project', 'takeoff imported project', 'new project', 'division 10 template project'].map((s) => s.toLowerCase())
+);
+
+function isGenericIntakeProjectName(value: string | undefined | null): boolean {
+  return GENERIC_INTAKE_PROJECT_NAMES.has(String(value || '').trim().toLowerCase());
+}
+
 function parseDocumentMetadata(text: string, fileHint?: string): Partial<ProjectRecord> {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const findValue = (pattern: RegExp): string | null => {
@@ -764,16 +781,22 @@ function buildGeminiFallbackWarning(error: unknown, mode: 'spreadsheet' | 'docum
     : 'Gemini extraction was unavailable. Raw lines were preserved for manual review.';
 }
 
-async function extractTextFromUploadedTakeoffFile(file: File): Promise<string> {
-  const fileName = file.name.toLowerCase();
+function looksLikePdfBuffer(buffer: ArrayBuffer): boolean {
+  if (buffer.byteLength < 4) return false;
+  const b = new Uint8Array(buffer);
+  return b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46;
+}
 
-  if (fileName.endsWith('.csv') || fileName.endsWith('.txt')) {
-    return file.text();
+/** Plain-text / spreadsheet extraction for takeoff "document" uploads only — never treat PDF bytes as text. */
+async function extractTextFromTakeoffBuffer(fileName: string, buffer: ArrayBuffer): Promise<string> {
+  const lower = fileName.toLowerCase();
+
+  if (lower.endsWith('.csv') || lower.endsWith('.txt')) {
+    return new TextDecoder('utf-8', { fatal: false }).decode(buffer);
   }
 
-  if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+  if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
     const xlsx = await import('xlsx');
-    const buffer = await file.arrayBuffer();
     const workbook = xlsx.read(buffer, { type: 'array' });
     const chunks: string[] = [];
 
@@ -789,23 +812,10 @@ async function extractTextFromUploadedTakeoffFile(file: File): Promise<string> {
     return chunks.join('\n');
   }
 
-  if (fileName.endsWith('.pdf')) {
-    const buffer = await file.arrayBuffer();
-    const asText = new TextDecoder('latin1').decode(buffer);
-    const matches = asText.match(/\(([^\)]{2,})\)/g) || [];
-    const extracted = matches
-      .map((token) => token.slice(1, -1))
-      .map((token) => token.replace(/\\[rn]/g, ' '))
-      .join('\n');
-
-    return extracted || asText;
-  }
-
-  return file.text();
+  return new TextDecoder('utf-8', { fatal: false }).decode(buffer);
 }
 
-async function toBase64Payload(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
   let binary = '';
   const bytes = new Uint8Array(buffer);
   const chunkSize = 0x8000;
@@ -814,6 +824,10 @@ async function toBase64Payload(file: File): Promise<string> {
     binary += String.fromCharCode(...chunk);
   }
   return btoa(binary);
+}
+
+async function toBase64Payload(file: File): Promise<string> {
+  return arrayBufferToBase64(await file.arrayBuffer());
 }
 
 function isLikelyBinaryBuffer(buffer: ArrayBuffer): boolean {
@@ -1203,7 +1217,8 @@ export function ProjectIntake() {
     if (key.includes('client')) return 'client-name';
     if (key.includes('site address')) return 'site-address';
     if (key.includes('bid due')) return 'bid-due-date';
-    if (key.includes('price mode')) return 'pricing-mode';
+    if (key.includes('project type')) return 'project-type';
+    if ((key.includes('pricing') || key.includes('price')) && key.includes('mode')) return 'pricing-mode';
     if (key.includes('scope category')) return 'scope-categories';
     return undefined;
   }, []);
@@ -1213,6 +1228,18 @@ export function ProjectIntake() {
     const el = document.getElementById(targetId);
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, []);
+
+  const reportValidationWithScroll = useCallback(
+    (items: Array<{ text: string; targetId?: string | null }>) => {
+      const mapped = items.map((item) => ({ text: item.text, targetId: item.targetId || undefined }));
+      setValidationMessages(mapped);
+      const firstId = mapped.find((i) => i.targetId)?.targetId;
+      if (firstId) {
+        window.setTimeout(() => handleValidationSelect(firstId), 80);
+      }
+    },
+    [handleValidationSelect]
+  );
 
   const [projectDraft, setProjectDraft] = useState<Partial<ProjectRecord>>(() => createInitialProjectDraft());
   const preferredBrands = useMemo(() => projectDraft.preferredBrands || [], [projectDraft.preferredBrands]);
@@ -1290,18 +1317,7 @@ export function ProjectIntake() {
   }, [filteredReviewSuggestions, selectedReviewLineId]);
 
   useEffect(() => {
-    if (!userEmail) return;
-    setProjectDraft((prev) => {
-      if (String(prev.estimator || '').trim()) return prev;
-      return {
-        ...prev,
-        estimator: userEmail,
-      };
-    });
-  }, [userEmail]);
-
-  useEffect(() => {
-    if (!userEmail) return;
+    if (!String(userEmail || '').trim()) return;
     setProjectDraft((prev) => {
       if (String(prev.estimator || '').trim()) return prev;
       return {
@@ -1494,28 +1510,27 @@ export function ProjectIntake() {
   const basicsChecklist = useMemo(() => {
     const missing: string[] = [];
     if (!String(projectDraft.projectName || '').trim()) missing.push('Project name');
-    if (!String(projectDraft.clientName || '').trim()) missing.push('Client');
     if (!String(projectDraft.address || '').trim()) missing.push('Site address');
     if (!String(projectDraft.projectType || '').trim()) missing.push('Project type');
     if (!String(projectDraft.bidDate || '').trim()) {
       missing.push('Bid due date');
     }
     return missing;
-  }, [projectDraft.address, projectDraft.bidDate, projectDraft.clientName, projectDraft.projectName, projectDraft.projectType]);
+  }, [projectDraft.address, projectDraft.bidDate, projectDraft.projectName, projectDraft.projectType]);
 
   const unifiedProjectDate = projectDraft.bidDate || projectDraft.proposalDate || projectDraft.dueDate || '';
 
   const pricingChecklist = useMemo(() => {
     const missing: string[] = [];
-    if (!String(projectDraft.pricingMode || '').trim()) missing.push('Pricing mode');
+    const effectivePm = (String(projectDraft.pricingMode || '').trim() || 'labor_and_material') as PricingMode;
+    if (!INTAKE_VALID_PRICING_MODES.includes(effectivePm)) {
+      missing.push('Pricing mode');
+    }
     if (scopeCategoryOptions.length > 0 && !(projectDraft.selectedScopeCategories || []).length) {
       missing.push('At least one scope category');
     }
-    if (Number(normalizeProjectJobConditions(projectDraft.jobConditions).installerCount || 0) <= 0) {
-      missing.push('Crew size');
-    }
     return missing;
-  }, [projectDraft.jobConditions, projectDraft.pricingMode, projectDraft.selectedScopeCategories, scopeCategoryOptions.length]);
+  }, [projectDraft.pricingMode, projectDraft.selectedScopeCategories, scopeCategoryOptions.length]);
 
   const includedRoomCount = useMemo(
     () => roomSuggestions.filter((room) => room.include).length,
@@ -1662,36 +1677,70 @@ export function ProjectIntake() {
   }
 
   function applyIntakeParseToDraft(result: IntakeParseResult, sourceLabel: string) {
-    const importedAddress = result.projectMetadata.address || projectDraft.address;
     const assumptionNotes = summarizeAssumptions(result);
-    setProjectDraft((prev) => ({
-      ...prev,
-      projectName: prev.projectName?.trim()
-        ? prev.projectName
-        : coerceSafeProjectName(result.projectMetadata.projectName || '', '') ||
-            plausibleProjectTitleFromSourcePaths(result.projectMetadata.sourceFiles || []) ||
-            'Imported Project',
-      projectNumber: prev.projectNumber || result.projectMetadata.projectNumber || prev.projectNumber,
-      projectNumberSource: (() => {
-        if (String(prev.projectNumber || '').trim()) return prev.projectNumberSource;
-        if (String(result.projectMetadata.projectNumber || '').trim()) return 'manual' as const;
-        return prev.projectNumberSource;
-      })(),
-      clientName: prev.clientName || result.projectMetadata.client || prev.clientName,
-      generalContractor: prev.generalContractor || result.projectMetadata.generalContractor || prev.generalContractor,
-      estimator: prev.estimator || result.projectMetadata.estimator || prev.estimator,
-      address: prev.address || result.projectMetadata.address || prev.address,
-      bidDate: prev.bidDate || normalizeDateString(result.projectMetadata.bidDate || result.projectMetadata.proposalDate) || prev.bidDate,
-      proposalDate: prev.proposalDate || normalizeDateString(result.projectMetadata.proposalDate) || prev.proposalDate,
-      pricingMode: prev.pricingMode || result.projectMetadata.pricingBasis || prev.pricingMode,
-      notes: mergeDistinctText(mergeSourceNote(prev.notes, sourceLabel), [assumptionNotes]),
-      specialNotes: prev.specialNotes,
-      jobConditions: normalizeProjectJobConditions({
+    setProjectDraft((prev) => {
+      const prevName = String(prev.projectName || '').trim();
+      const parsedName =
+        coerceSafeProjectName(result.projectMetadata.projectName || '', '') ||
+        plausibleProjectTitleFromSourcePaths(result.projectMetadata.sourceFiles || []) ||
+        '';
+      const takeParsedName = !prevName || isGenericIntakeProjectName(prevName);
+      const nextProjectName = takeParsedName ? parsedName || prevName || 'Imported Project' : prevName;
+
+      const fromParseEstimator = String(result.projectMetadata.estimator || '').trim();
+      const nextEstimator = fromParseEstimator || String(prev.estimator || '').trim();
+
+      const prevAddr = String(prev.address || '').trim();
+      const fromParseAddr = String(result.projectMetadata.address || '').trim();
+      let nextAddress = prevAddr || fromParseAddr;
+      let nextJob = normalizeProjectJobConditions({
         ...(prev.jobConditions || createDefaultProjectJobConditions()),
         ...bondJobConditionsPatchFromAssumptions(result.projectMetadata.assumptions || []),
-      }),
-    }));
+      });
+      if (!nextAddress && nextProjectName) {
+        const loc = inferDefaultLocationFromProjectTitle({ projectName: nextProjectName });
+        if (loc?.address) {
+          nextAddress = loc.address;
+          nextJob = normalizeProjectJobConditions({
+            ...nextJob,
+            locationLabel: loc.locationLabel,
+            locationLabelSource: 'auto',
+          });
+        }
+      }
 
+      return {
+        ...prev,
+        projectName: nextProjectName,
+        projectNumber: prev.projectNumber || result.projectMetadata.projectNumber || prev.projectNumber,
+        projectNumberSource: (() => {
+          if (String(prev.projectNumber || '').trim()) return prev.projectNumberSource;
+          if (String(result.projectMetadata.projectNumber || '').trim()) return 'manual' as const;
+          return prev.projectNumberSource;
+        })(),
+        clientName: prev.clientName || result.projectMetadata.client || prev.clientName,
+        generalContractor: prev.generalContractor || result.projectMetadata.generalContractor || prev.generalContractor,
+        estimator: nextEstimator,
+        address: nextAddress || prev.address,
+        bidDate: prev.bidDate || normalizeDateString(result.projectMetadata.bidDate || result.projectMetadata.proposalDate) || prev.bidDate,
+        proposalDate: prev.proposalDate || normalizeDateString(result.projectMetadata.proposalDate) || prev.proposalDate,
+        pricingMode: prev.pricingMode || result.projectMetadata.pricingBasis || prev.pricingMode,
+        notes: mergeDistinctText(mergeSourceNote(prev.notes, sourceLabel), [assumptionNotes]),
+        specialNotes: prev.specialNotes,
+        jobConditions: nextJob,
+      };
+    });
+
+    const importedAddress =
+      String(result.projectMetadata.address || '').trim() ||
+      String(projectDraft.address || '').trim() ||
+      (() => {
+        const nm =
+          coerceSafeProjectName(result.projectMetadata.projectName || '', '') ||
+          plausibleProjectTitleFromSourcePaths(result.projectMetadata.sourceFiles || []) ||
+          String(projectDraft.projectName || '').trim();
+        return inferDefaultLocationFromProjectTitle({ projectName: nm })?.address || '';
+      })();
     if (String(importedAddress || '').trim()) {
       void refreshDraftDistance(importedAddress, true);
     }
@@ -1751,12 +1800,22 @@ export function ProjectIntake() {
       setEstimateReviewJobConditions({});
       setEstimateReviewProjectMods({});
     }
-    setProjectDraft((prev) => ({
-      ...prev,
-      selectedScopeCategories: prev.selectedScopeCategories && prev.selectedScopeCategories.length > 0
-        ? prev.selectedScopeCategories
-        : mergeDetectedScopeCategories(prev.selectedScopeCategories, suggestions.map((line) => line.category), allowed),
-    }));
+    setProjectDraft((prev) => {
+      const keepPrev = prev.selectedScopeCategories && prev.selectedScopeCategories.length > 0;
+      const merged = mergeDetectedScopeCategories(prev.selectedScopeCategories, suggestions.map((line) => line.category), allowed);
+      const inferred =
+        keepPrev
+          ? prev.selectedScopeCategories!
+          : merged.length > 0
+            ? merged
+            : allowed.length > 0
+              ? [...allowed]
+              : [];
+      return {
+        ...prev,
+        selectedScopeCategories: inferred,
+      };
+    });
     return suggestions;
   }
 
@@ -1882,7 +1941,7 @@ export function ProjectIntake() {
             sourceKind: 'text-document',
             metadataSources: [],
             metadataFound: [],
-            metadataMissing: ['projectNumber', 'client', 'address', 'bidDate', 'proposalDate', 'estimator'],
+            metadataMissing: ['projectNumber', 'address', 'bidDate', 'proposalDate'],
             warnings: [],
             totalLines: 0,
             completeLines: 0,
@@ -1979,24 +2038,42 @@ export function ProjectIntake() {
       const detectedRooms = detectRoomsFromText(combinedText);
       if (detectedRooms.length > 0) roomNames = [...roomNames, ...detectedRooms];
 
-      setProjectDraft((prev) => ({
-        ...prev,
-        projectName:
-          prev.projectName ||
-          documentMetadata.projectName ||
-          plausibleTitleFromFileName(takeoffFileName || '') ||
-          'Takeoff Imported Project',
-        projectNumber: prev.projectNumber || documentMetadata.projectNumber || prev.projectNumber,
-        projectNumberSource: (() => {
-          if (String(prev.projectNumber || '').trim()) return prev.projectNumberSource;
-          if (String(documentMetadata.projectNumber || '').trim()) return 'manual' as const;
-          return prev.projectNumberSource;
-        })(),
-        clientName: prev.clientName || documentMetadata.clientName || prev.clientName,
-        address: prev.address || documentMetadata.address || prev.address,
-        bidDate: prev.bidDate || documentMetadata.bidDate || prev.bidDate,
-        notes: mergeSourceNote(prev.notes, takeoffFileName || 'pasted text')
-      }));
+      setProjectDraft((prev) => {
+        const prevN = String(prev.projectName || '').trim();
+        const meta = String(documentMetadata.projectName || '').trim();
+        const metaUse = meta && !isGenericIntakeProjectName(meta) ? meta : null;
+        const nextTitle =
+          prevN && !isGenericIntakeProjectName(prevN)
+            ? prevN
+            : metaUse || plausibleTitleFromFileName(takeoffFileName || '') || 'Takeoff Imported Project';
+        const prevA = String(prev.address || '').trim();
+        const metaA = String(documentMetadata.address || '').trim();
+        const locFromTitle = !prevA && !metaA ? inferDefaultLocationFromProjectTitle({ projectName: nextTitle }) : null;
+        const nextAddress = prevA || metaA || locFromTitle?.address || prev.address;
+        const baseJob = normalizeProjectJobConditions(prev.jobConditions || createDefaultProjectJobConditions());
+        const nextJob = locFromTitle
+          ? normalizeProjectJobConditions({
+              ...baseJob,
+              locationLabel: locFromTitle.locationLabel,
+              locationLabelSource: 'auto',
+            })
+          : baseJob;
+        return {
+          ...prev,
+          projectName: nextTitle,
+          projectNumber: prev.projectNumber || documentMetadata.projectNumber || prev.projectNumber,
+          projectNumberSource: (() => {
+            if (String(prev.projectNumber || '').trim()) return prev.projectNumberSource;
+            if (String(documentMetadata.projectNumber || '').trim()) return 'manual' as const;
+            return prev.projectNumberSource;
+          })(),
+          clientName: prev.clientName || documentMetadata.clientName || prev.clientName,
+          address: nextAddress,
+          bidDate: prev.bidDate || documentMetadata.bidDate || prev.bidDate,
+          notes: mergeSourceNote(prev.notes, takeoffFileName || 'pasted text'),
+          jobConditions: nextJob,
+        };
+      });
     }
 
     const uniqueRooms = Array.from(new Set(roomNames.map(normalizeRoomName))).filter(Boolean);
@@ -2063,19 +2140,24 @@ export function ProjectIntake() {
 
     try {
       const lowerMime = (file.type || '').toLowerCase();
-      const sourceType =
+      const buffer = await file.arrayBuffer();
+      let sourceType: 'spreadsheet' | 'pdf' | 'document' =
         fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.csv') || lowerMime.includes('spreadsheet') || lowerMime.includes('excel') || lowerMime.includes('csv')
           ? 'spreadsheet'
           : fileName.endsWith('.pdf') || lowerMime.includes('pdf')
             ? 'pdf'
             : 'document';
 
-      const extractedText = sourceType === 'document' ? await extractTextFromUploadedTakeoffFile(file) : undefined;
+      if (sourceType !== 'spreadsheet' && looksLikePdfBuffer(buffer)) {
+        sourceType = 'pdf';
+      }
+
+      const extractedText = sourceType === 'document' ? await extractTextFromTakeoffBuffer(file.name, buffer) : undefined;
       const result = await api.parseV1Intake({
         fileName: file.name,
         mimeType: file.type || (sourceType === 'spreadsheet' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : sourceType === 'pdf' ? 'application/pdf' : 'text/plain'),
         sourceType,
-        dataBase64: await toBase64Payload(file),
+        dataBase64: arrayBufferToBase64(buffer),
         extractedText,
         matchCatalog: true,
       });
@@ -2135,7 +2217,9 @@ export function ProjectIntake() {
     }
 
     const buffer = await file.arrayBuffer();
-    if (isLikelyBinaryBuffer(buffer) && !lower.endsWith('.pdf')) {
+    const isPdf = lower.endsWith('.pdf') || mime.includes('pdf') || looksLikePdfBuffer(buffer);
+
+    if (isLikelyBinaryBuffer(buffer) && !isPdf) {
       setUploadedText('');
       setIntakeWarnings([
         'Unsupported binary document for text parsing. Upload PDF/TXT for document intake, or use Create from Takeoff for spreadsheets.',
@@ -2143,17 +2227,17 @@ export function ProjectIntake() {
       return;
     }
 
-    const text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
-    setUploadedText(text || file.name);
+    const text = isPdf ? '' : new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+    setUploadedText(isPdf ? '' : text.trim() ? text : file.name);
 
+    const dataBase64 = arrayBufferToBase64(buffer);
     try {
-      const sourceType: 'pdf' | 'document' = lower.endsWith('.pdf') ? 'pdf' : 'document';
       const result = await api.parseV1Intake({
         fileName: file.name,
-        mimeType: file.type || (sourceType === 'pdf' ? 'application/pdf' : 'text/plain'),
-        sourceType,
-        dataBase64: await toBase64Payload(file),
-        extractedText: sourceType === 'document' ? text : undefined,
+        mimeType: file.type || (isPdf ? 'application/pdf' : 'text/plain'),
+        sourceType: isPdf ? 'pdf' : 'document',
+        dataBase64,
+        extractedText: isPdf ? undefined : text,
         matchCatalog: true,
       });
 
@@ -2162,9 +2246,22 @@ export function ProjectIntake() {
         await applyIntakeParseToReview(result, file.name);
         return;
       }
-    } catch (_error) {
-      // Fall through to raw-line preservation parser.
-      setIntakeWarnings(['Gemini extraction failed. Preserving raw lines for manual review.']);
+
+      if (isPdf) {
+        setIntakeWarnings([
+          'No structured lines were returned for this PDF after server parse. Try a different export, another PDF, or Create from Takeoff if you have a spreadsheet.',
+        ]);
+        setLineSuggestions([]);
+        return;
+      }
+    } catch (error) {
+      // Fall through to raw-line preservation parser for plain-text only (PDF bytes must not be interpreted as UTF-8).
+      const detail = getErrorMessage(error, 'Request failed.');
+      setIntakeWarnings([`Server intake parse failed (${detail}). Preserving raw lines for manual review.`]);
+      if (isPdf) {
+        setLineSuggestions([]);
+        return;
+      }
     }
 
     const adaptive = parseAdaptiveTextDocument(text, file.name);
@@ -3112,21 +3209,60 @@ function applyRoomToVisible(roomName: string) {
     });
     if (dateErrors.length > 0) {
       setProjectDateErrors(mapProjectDateErrors(dateErrors));
-      alert(dateErrors[0].message);
+      reportValidationWithScroll([{ text: dateErrors[0].message, targetId: 'bid-due-date' }]);
       return;
     }
     if (basicsChecklist.length > 0) {
-      alert(`Complete the required project basics before continuing:\n- ${basicsChecklist.join('\n- ')}`);
+      reportValidationWithScroll(
+        basicsChecklist.map((entry) => ({ text: `Missing: ${entry}`, targetId: targetIdForChecklistEntry(entry) }))
+      );
       return;
     }
+    reportValidation([]);
     setStep(4);
   }
 
   function proceedToReviewItems() {
-    if (pricingChecklist.length > 0) {
-      alert(`Complete the pricing and scope setup before reviewing items:\n- ${pricingChecklist.join('\n- ')}`);
+    const allowedCats = uniqueSortedCatalogCategories(catalog);
+    let nextScope = [...(projectDraft.selectedScopeCategories || [])];
+    if (scopeCategoryOptions.length > 0 && nextScope.length === 0) {
+      if (allowedCats.length > 0) {
+        const merged = mergeDetectedScopeCategories([], lineSuggestions.map((l) => l.category), allowedCats);
+        nextScope = merged.length > 0 ? merged : [...allowedCats];
+      } else {
+        nextScope = [scopeCategoryOptions[0]];
+      }
+    }
+
+    const effectivePm = (String(projectDraft.pricingMode || '').trim() || 'labor_and_material') as PricingMode;
+    const missing: string[] = [];
+    if (!INTAKE_VALID_PRICING_MODES.includes(effectivePm)) missing.push('Pricing mode');
+    if (scopeCategoryOptions.length > 0 && nextScope.length === 0) missing.push('At least one scope category');
+
+    if (missing.length > 0) {
+      reportValidationWithScroll(
+        missing.map((entry) => ({
+          text:
+            entry === 'Pricing mode'
+              ? 'Choose a valid price mode under Estimate setup (Section 1).'
+              : 'Select at least one scope category under Estimate setup (Section 1).',
+          targetId: targetIdForChecklistEntry(entry),
+        }))
+      );
       return;
     }
+
+    const draftPatches: Partial<ProjectRecord> = {};
+    if ((projectDraft.selectedScopeCategories || []).length === 0 && nextScope.length > 0) {
+      draftPatches.selectedScopeCategories = nextScope;
+    }
+    if (!String(projectDraft.pricingMode || '').trim()) {
+      draftPatches.pricingMode = effectivePm;
+    }
+    if (Object.keys(draftPatches).length > 0) {
+      setProjectDraft((prev) => ({ ...prev, ...draftPatches }));
+    }
+    reportValidation([]);
     setStep(5);
   }
 
@@ -3139,29 +3275,19 @@ function applyRoomToVisible(roomName: string) {
     });
     if (dateErrors.length > 0) {
       setProjectDateErrors(mapProjectDateErrors(dateErrors));
-      alert(dateErrors[0].message);
+      reportValidationWithScroll([{ text: dateErrors[0].message, targetId: 'bid-due-date' }]);
       return;
     }
     if (basicsChecklist.length > 0) {
-      alert(`Complete the required project basics before creating the project:\n- ${basicsChecklist.join('\n- ')}`);
+      reportValidationWithScroll(
+        basicsChecklist.map((entry) => ({ text: `Missing: ${entry}`, targetId: targetIdForChecklistEntry(entry) }))
+      );
       return;
     }
     if (pricingChecklist.length > 0) {
-      alert(`Complete the pricing and scope setup before creating the project:\n- ${pricingChecklist.join('\n- ')}`);
-      return;
-    }
-    if (basicsChecklist.length > 0) {
-      reportValidation([
-        { text: 'Complete the required project basics before creating the project.' },
-        ...basicsChecklist.map((entry) => ({ text: `Missing: ${entry}`, targetId: targetIdForChecklistEntry(entry) })),
-      ]);
-      return;
-    }
-    if (pricingChecklist.length > 0) {
-      reportValidation([
-        { text: 'Complete the pricing and scope setup before creating the project.' },
-        ...pricingChecklist.map((entry) => ({ text: `Missing: ${entry}`, targetId: targetIdForChecklistEntry(entry) })),
-      ]);
+      reportValidationWithScroll(
+        pricingChecklist.map((entry) => ({ text: `Missing: ${entry}`, targetId: targetIdForChecklistEntry(entry) }))
+      );
       return;
     }
     reportValidation([]);
@@ -3715,7 +3841,7 @@ function applyRoomToVisible(roomName: string) {
                 <div className="rounded-2xl border border-slate-200/70 bg-slate-50/50 p-4">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Job basics</p>
                   <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <label className="text-xs text-slate-600">Project Name<input className="ui-input mt-1" value={projectDraft.projectName || ''} onChange={(e) => patchProjectDraft({ projectName: e.target.value })} /></label>
+                    <label className="text-xs text-slate-600">Project Name<input id="project-name" className="ui-input mt-1" value={projectDraft.projectName || ''} onChange={(e) => patchProjectDraft({ projectName: e.target.value })} /></label>
                     <label className="text-xs text-slate-600">Bid Package / Job #<input className="ui-input mt-1" value={projectDraft.projectNumber || ''} onChange={(e) => {
                         const v = e.target.value;
                         patchProjectDraft({
@@ -3723,8 +3849,20 @@ function applyRoomToVisible(roomName: string) {
                           projectNumberSource: isBlankOrPlaceholderBidNumber(v) ? 'auto' : 'manual',
                         });
                       }} /></label>
-                    <label className="text-xs text-slate-600">Client<input className="ui-input mt-1" value={projectDraft.clientName || ''} onChange={(e) => patchProjectDraft({ clientName: e.target.value })} /></label>
-                    <label className="text-xs text-slate-600">Estimator<input className="ui-input mt-1" value={projectDraft.estimator || ''} onChange={(e) => patchProjectDraft({ estimator: e.target.value })} /></label>
+                    <label className="text-xs text-slate-600">
+                      <span className="inline-flex items-center">
+                        Client
+                        <IntakeFieldBadge kind="optional" />
+                      </span>
+                      <input id="client-name" className="ui-input mt-1" value={projectDraft.clientName || ''} onChange={(e) => patchProjectDraft({ clientName: e.target.value })} />
+                    </label>
+                    <label className="text-xs text-slate-600">
+                      <span className="inline-flex items-center">
+                        Estimator
+                        <IntakeFieldBadge kind="optional" />
+                      </span>
+                      <input className="ui-input mt-1" value={projectDraft.estimator || ''} onChange={(e) => patchProjectDraft({ estimator: e.target.value })} />
+                    </label>
                     <label className="text-xs text-slate-600 md:col-span-2">Project Type
                       <select className="ui-input mt-1" value={projectDraft.projectType || 'Commercial'} onChange={(e) => patchProjectDraft({ projectType: e.target.value })}>
                         <option value="Commercial">Commercial</option>
@@ -3734,12 +3872,13 @@ function applyRoomToVisible(roomName: string) {
                         <option value="Multi-Family">Multi-Family</option>
                       </select>
                     </label>
-                    <label className="text-xs text-slate-600 md:col-span-2">Bid Due Date<input type="date" className={`ui-input mt-1 ${projectDateErrors.bidDate ? 'border-red-300 ring-1 ring-red-200' : ''}`} value={unifiedProjectDate} onChange={(e) => patchProjectDate(e.target.value)} />{projectDateErrors.bidDate ? <span className="mt-1 block text-[11px] text-red-600">{projectDateErrors.bidDate}</span> : null}</label>
+                    <label className="text-xs text-slate-600 md:col-span-2">Bid Due Date<input id="bid-due-date" type="date" className={`ui-input mt-1 ${projectDateErrors.bidDate ? 'border-red-300 ring-1 ring-red-200' : ''}`} value={unifiedProjectDate} onChange={(e) => patchProjectDate(e.target.value)} />{projectDateErrors.bidDate ? <span className="mt-1 block text-[11px] text-red-600">{projectDateErrors.bidDate}</span> : null}</label>
                     <label className="text-xs text-slate-600 md:col-span-2">Site Address
                       <span className="mt-1 block text-[11px] font-normal text-slate-500">
                         Type a few characters — pick a suggestion to fill the full address, or keep typing manually.
                       </span>
                       <SiteAddressAutocomplete
+                        id="site-address"
                         className="mt-1"
                         value={projectDraft.address || ''}
                         onChange={(v) => {
@@ -3771,6 +3910,7 @@ function applyRoomToVisible(roomName: string) {
                               <IntakeFieldBadge kind="required" />
                             </span>
                             <select
+                              id="pricing-mode"
                               className="ui-input mt-1.5 h-10"
                               value={(projectDraft.pricingMode as PricingMode) || 'labor_and_material'}
                               onChange={(e) => patchProjectDraft({ pricingMode: e.target.value as PricingMode })}
@@ -3894,7 +4034,7 @@ function applyRoomToVisible(roomName: string) {
                           </div>
                         </details>
 
-                        <div>
+                        <div id="scope-categories">
                           <p className="text-[11px] font-semibold text-slate-800">
                             <span className="inline-flex items-center">
                               Scope categories
@@ -4059,7 +4199,7 @@ function applyRoomToVisible(roomName: string) {
                       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-500">Required Before Pricing</p>
                         <div className="mt-3 space-y-2">
-                          {['Project name', 'Client', 'Site address', 'Project type', 'Bid due date'].map((label) => {
+                          {['Project name', 'Site address', 'Project type', 'Bid due date'].map((label) => {
                             const missing = basicsChecklist.includes(label);
                             return (
                               <div key={label} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 text-sm">

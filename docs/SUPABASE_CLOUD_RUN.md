@@ -32,13 +32,14 @@ supabase db push
 
 ### Startup / health checks
 
-The Node process **listens on `PORT` before** `prepareEstimatorDbForServer()` finishes (SQLite restore from Supabase/GCS can take tens of seconds). That way Supabase Preview, Cloud Run, and Docker health checks can get HTTP responses immediately.
+The Node process **listens on `PORT` before** `prepareEstimatorDbForServer()` finishes (SQLite restore from Supabase/GCS can take tens of seconds). Production builds register **`dist/` static + SPA** as soon as the process listens so the browser shell loads while DB prep runs.
 
 | Path | When it works | Use |
 |------|----------------|-----|
 | `GET /healthz` | Immediately after listen | **Startup probes**, Docker `HEALTHCHECK`, quick “is the process up?” |
 | `GET /` and static assets | Immediately in production (`dist/`) | Preview UIs that fetch the deployed URL |
-| `GET /api/v1/health` | After DB preparation completes | Full stack “API + DB path” check |
+| `GET /api/*` | After `prepareEstimatorDbForServer()` completes | Until then returns **503** JSON `{ "code": "API_NOT_READY" }` — clients should retry briefly. |
+| `GET /api/v1/health` | After DB preparation completes | Readiness: `{ status: "ok", dbOk: true, database: "pg"|"sqlite" }` or **503** `{ status: "degraded", dbOk: false, error }` if the DB ping fails |
 
 If a preview still fails on a short timeout, point its health URL at **`/healthz`** (or `/` for the SPA shell), not `/api/v1/health`.
 
