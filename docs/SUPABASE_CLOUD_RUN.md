@@ -10,18 +10,99 @@
 3. In **Settings → API → JWT Settings**, copy **JWT Secret** → `SUPABASE_JWT_SECRET` (Express verifies access tokens with this).
 4. In **Settings → Database**, copy the **URI** (pooler recommended for Cloud Run) → `DATABASE_URL`.
 
-## 2. Schema on Postgres
+## 2. Postgres tables and views (`public`)
 
-Apply SQL migrations in repo order:
+The app expects objects in the **`public`** schema. How you create them depends on whether this Supabase project is **empty / estimator-first** or already has a **native** estimating schema (`projects`, `takeoff_rows`, …).
+
+### 2.1 Estimator-first (greenfield or “only install331”)
+
+Use the SQL files under **`supabase/migrations/`** in **exactly this order** (do **not** sort by filename alone: `20260414…` must run **after** the core `catalog_items` + clean-view migrations so `0001`’s `catalog_items` table remains the TEXT-key workbook shape the rest of the chain expects).
+
+| Step | File | What it adds (short) |
+|------|------|------------------------|
+| 1 | `0001_v1_baseline.sql` | Workspace `*_v1` tables, **`catalog_items`** (TEXT id), modifiers/bundles, intake memory, catalog sync status, etc. |
+| 2 | `0002_project_files_storage.sql` | Storage-related metadata for `project_files_v1`. |
+| 3 | `0003_estimator_catalog_normalization_v1.sql` | `estimator_*` normalization tables. |
+| 4 | `20260430130000_catalog_items_clean_view.sql` | Read view **`catalog_items_clean`**. |
+| 5 | `20260430131500_estimator_catalog_columns.sql` | Extra catalog columns aligned with the estimator. |
+| 6 | `20260504140000_catalog_sheet_import_and_provenance.sql` | **`catalog_sheet_import_rows`**. |
+| 7 | `20260504180000_catalog_item_aliases_attributes_sheet_sync.sql` | **`catalog_item_aliases`**, **`catalog_item_attributes`** (required for catalog search + intake when env points at sheet-style aliases/attrs). |
+| 8 | `20260504210000_supporting_catalog_clean_views.sql` | `*_clean` views for modifiers, bundles, aliases, attributes. |
+| 9 | `20260504221500_catalog_sync_run_context.sql` | Extra columns/context on catalog sync runs. |
+| 10 | `20260506193000_workspace_sqlite_parity_columns.sql` | Workspace column parity vs SQLite. |
+| 11 | `20260507141500_catalog_sync_aliases_attributes_columns.sql` | Sync metadata for aliases/attributes. |
+| 12 | `20260512180000_catalog_item_attributes_clean_native_fallback.sql` | Fixes **`catalog_item_attributes_clean`** when `public.catalog_item_attributes` is a **native** shape (no `attribute_type`): rebinds the clean view to **`catalog_item_attributes_compat`** if that bridge view exists. |
+| 13 | `20260414120000_div10_brain_init.sql` | **Optional:** `vector` + **`knowledge_*`**, **`estimate_examples`**, etc. Uses `CREATE TABLE IF NOT EXISTS` for `catalog_items` — if step 1 already created `catalog_items`, this step **does not replace** it; you still get Brain-side tables. Enable **`pgvector`** in Supabase (**Database → Extensions**) if the script errors on `vector`. |
+
+**Apply with `psql` (bash)** — from the **repository root**:
 
 ```bash
-# Option A: psql
-psql "$DATABASE_URL" -f supabase/migrations/0001_v1_baseline.sql
-psql "$DATABASE_URL" -f supabase/migrations/0002_project_files_storage.sql
+export DATABASE_URL='postgresql://...'   # pooler URI from Supabase → Settings → Database
 
-# Option B: Supabase CLI (if linked)
-supabase db push
+run() { psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$1"; }
+
+run supabase/migrations/0001_v1_baseline.sql
+run supabase/migrations/0002_project_files_storage.sql
+run supabase/migrations/0003_estimator_catalog_normalization_v1.sql
+run supabase/migrations/20260430130000_catalog_items_clean_view.sql
+run supabase/migrations/20260430131500_estimator_catalog_columns.sql
+run supabase/migrations/20260504140000_catalog_sheet_import_and_provenance.sql
+run supabase/migrations/20260504180000_catalog_item_aliases_attributes_sheet_sync.sql
+run supabase/migrations/20260504210000_supporting_catalog_clean_views.sql
+run supabase/migrations/20260504221500_catalog_sync_run_context.sql
+run supabase/migrations/20260506193000_workspace_sqlite_parity_columns.sql
+run supabase/migrations/20260507141500_catalog_sync_aliases_attributes_columns.sql
+run supabase/migrations/20260512180000_catalog_item_attributes_clean_native_fallback.sql
+# optional:
+run supabase/migrations/20260414120000_div10_brain_init.sql
 ```
+
+**Apply with `psql` (PowerShell)** — from the **repository root**, with `psql` on `PATH`:
+
+```powershell
+Set-Location "C:\path\to\install331"   # your clone
+$env:DATABASE_URL = "postgresql://..."   # same URI as server .env
+
+function Run-Migration($relativePath) {
+  psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f $relativePath
+  if ($LASTEXITCODE -ne 0) { throw "Failed: $relativePath" }
+}
+
+Run-Migration "supabase/migrations/0001_v1_baseline.sql"
+Run-Migration "supabase/migrations/0002_project_files_storage.sql"
+Run-Migration "supabase/migrations/0003_estimator_catalog_normalization_v1.sql"
+Run-Migration "supabase/migrations/20260430130000_catalog_items_clean_view.sql"
+Run-Migration "supabase/migrations/20260430131500_estimator_catalog_columns.sql"
+Run-Migration "supabase/migrations/20260504140000_catalog_sheet_import_and_provenance.sql"
+Run-Migration "supabase/migrations/20260504180000_catalog_item_aliases_attributes_sheet_sync.sql"
+Run-Migration "supabase/migrations/20260504210000_supporting_catalog_clean_views.sql"
+Run-Migration "supabase/migrations/20260504221500_catalog_sync_run_context.sql"
+Run-Migration "supabase/migrations/20260506193000_workspace_sqlite_parity_columns.sql"
+Run-Migration "supabase/migrations/20260507141500_catalog_sync_aliases_attributes_columns.sql"
+Run-Migration "supabase/migrations/20260512180000_catalog_item_attributes_clean_native_fallback.sql"
+# optional Div10 Brain + vector:
+Run-Migration "supabase/migrations/20260414120000_div10_brain_init.sql"
+```
+
+**Supabase Dashboard:** **SQL → New query** → paste a migration file → **Run**. Repeat in the same order (good for one-off fixes; tedious for all migrations in the table).
+
+**Supabase CLI:** `supabase db push` only works if this repo is **linked** as a Supabase project with migration history in sync; otherwise prefer `psql` or the SQL Editor.
+
+### 2.2 Native Supabase schema + install331 Node (bridge)
+
+If you already have **native** tables (`projects`, `project_areas`, `takeoff_rows`, native catalog attribute defs, …) and want the Node app to read them via the **`*_v1`** names and **`catalog_item_attributes_compat`**:
+
+1. Apply **every migration your database is still missing** from §2.1 (at minimum anything the app queries: often **`catalog_item_aliases`** / **`catalog_item_attributes`** from step 7 if those relations are absent).
+2. Run **`scripts/supabase-bridge-native-to-install331-views.sql`** once (staging first). It creates/replaces views such as **`projects_v1`**, **`rooms_v1`**, **`takeoff_lines_v1`**, **`modifiers_v1`**, **`bundles_v1`**, **`bundle_items_v1`**, **`catalog_item_attributes_compat`**, and depends on native tables documented at the top of that file.
+
+Then set env overrides as in **`.env.example`** (e.g. `CATALOG_ITEM_ATTRIBUTES_READ_TABLE=catalog_item_attributes_compat`, modifiers/bundles read tables pointing at `*_v1` or native names allowed in `src/server/db/catalogTable.ts`).
+
+### 2.3 Verify and fix drift
+
+1. In **SQL Editor**, run **`scripts/supabase-install331-readiness-audit.sql`** — one row per check (**PASS** / **FAIL** / **WARN**) plus a summary row; fix all **FAIL** before treating the DB as ready for the app.
+2. Run **`scripts/supabase-public-schema-audit.sql`** — section **1** lists every `public` table/view; sections **2–3** compare to names the repo expects.
+3. Hit **`GET /api/v1/health`** and **`GET /api/v1/settings/integration-health`** after the server is up (`DB_DRIVER=pg`, valid `DATABASE_URL`).
+4. Common missing objects that break **intake** or **catalog**: **`public.catalog_item_aliases`**, **`public.catalog_item_attributes`** (sheet columns), **`attribute_type`** on attributes read surfaces, or bridge views when using native data — create or point env at an existing equivalent (see **`CATALOG_ITEM_ALIASES_READ_TABLE`** / **`catalog_aliases`** in `.env.example`).
 
 ## 3. Storage bucket
 

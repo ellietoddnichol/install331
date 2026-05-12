@@ -3180,7 +3180,10 @@ function applyRoomToVisible(roomName: string) {
     }
 
     if (mode === 'document') {
-      if (!uploadedText.trim() && lineSuggestions.length === 0) {
+      // PDFs keep `uploadedText` empty (binary must not be UTF-8 decoded); rely on the File handle too.
+      const hasDocumentSource =
+        Boolean(uploadedDocumentFile) || uploadedText.trim().length > 0 || lineSuggestions.length > 0;
+      if (!hasDocumentSource) {
         reportValidation([{ text: 'Upload a source file first.' }]);
         return false;
       }

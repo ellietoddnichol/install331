@@ -4,6 +4,7 @@
 --
 -- Use the results to align .env.local (see comments in expected_surface) and
 -- code table whitelists under src/server/db/catalogTable.ts, workspaceTable.ts.
+-- For PASS/FAIL column + relation checks first, run scripts/supabase-install331-readiness-audit.sql.
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------

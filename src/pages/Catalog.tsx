@@ -559,16 +559,41 @@ export function Catalog() {
   const [integrationHealthError, setIntegrationHealthError] = useState<string | null>(null);
 
   useEffect(() => {
-    void api
-      .getV1IntegrationHealth()
-      .then((h) => {
+    let cancelled = false;
+    const maxAttempts = 24;
+    const delayMs = 1500;
+
+    async function loadIntegrationHealth(attempt: number): Promise<void> {
+      if (cancelled) return;
+      try {
+        const h = await api.getV1IntegrationHealth();
+        if (cancelled) return;
         setIntegrationHealth(h);
         setIntegrationHealthError(null);
-      })
-      .catch((e: unknown) => {
+      } catch (e: unknown) {
+        if (cancelled) return;
+        const msg = getErrorMessage(e, '');
+        const apiNotReady =
+          msg.includes('API_NOT_READY') || /API initializing|API_NOT_READY|still running/i.test(msg);
+        if (apiNotReady && attempt + 1 < maxAttempts) {
+          setIntegrationHealth(null);
+          setIntegrationHealthError(
+            'Server is still preparing the database (this is normal for a few seconds after start). Retrying diagnostics…'
+          );
+          window.setTimeout(() => {
+            if (!cancelled) void loadIntegrationHealth(attempt + 1);
+          }, delayMs);
+          return;
+        }
         setIntegrationHealth(null);
         setIntegrationHealthError(getErrorMessage(e, 'Could not load integration diagnostics from the server.'));
-      });
+      }
+    }
+
+    void loadIntegrationHealth(0);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const [search, setSearch] = useState(initialUrlFilters.search);
