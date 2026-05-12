@@ -15,7 +15,7 @@ export interface ParsedTakeoffItem {
 export const gemini = {
   async parseTakeoffDocument(fileBase64: string, mimeType: string): Promise<ParsedTakeoffItem[]> {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: process.env.GEMINI_MODEL || "gemini-2.0-flash-exp",
       contents: [
         {
           parts: [
