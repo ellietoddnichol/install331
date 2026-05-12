@@ -107,21 +107,33 @@ settingsRouter.get('/catalog-sync-review-csv', async (req, res) => {
   return res.send(built.csv);
 });
 
-settingsRouter.get('/catalog-inventory', async (_req, res) => {
-  return res.json({ data: await getCatalogInventoryCounts() });
+settingsRouter.get('/catalog-inventory', async (_req, res, next) => {
+  try {
+    return res.json({ data: await getCatalogInventoryCounts() });
+  } catch (error: unknown) {
+    next(error);
+  }
 });
 
 /** Post–CLEAN_ITEMS cutover: DB forward-facing counts, image gaps, vs last sync (for manual comparison to sheet META audit). */
-settingsRouter.get('/catalog-post-cutover-health', async (_req, res) => {
-  const { fetch: itemsSourceTab } = resolveConfiguredAndFetchItemsTabs();
-  const sync = await getCatalogSyncStatus();
-  return res.json({ data: await getCatalogPostCutoverHealth({ itemsSourceTab, lastCatalogSync: sync }) });
+settingsRouter.get('/catalog-post-cutover-health', async (_req, res, next) => {
+  try {
+    const { fetch: itemsSourceTab } = resolveConfiguredAndFetchItemsTabs();
+    const sync = await getCatalogSyncStatus();
+    return res.json({ data: await getCatalogPostCutoverHealth({ itemsSourceTab, lastCatalogSync: sync }) });
+  } catch (error: unknown) {
+    next(error);
+  }
 });
 
 /** Sets every catalog row to active (e.g. after SQLite import). Sheet sync normally deactivates rows not in the sheet. */
-settingsRouter.post('/activate-all-catalog-items', async (_req, res) => {
-  const changed = await reactivateAllCatalogItems();
-  return res.json({ data: { changed, ...(await getCatalogInventoryCounts()) } });
+settingsRouter.post('/activate-all-catalog-items', async (_req, res, next) => {
+  try {
+    const changed = await reactivateAllCatalogItems();
+    return res.json({ data: { changed, ...(await getCatalogInventoryCounts()) } });
+  } catch (error: unknown) {
+    next(error);
+  }
 });
 
 settingsRouter.post('/sync-catalog', async (_req, res) => {
