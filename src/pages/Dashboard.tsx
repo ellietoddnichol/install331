@@ -103,7 +103,7 @@ export function Dashboard() {
   /** Primary workflow link for “needs attention” projects (control center). */
   function projectControlCenterPath(project: ProjectRecord): string {
     if (project.status === 'Submitted') return `/project/${project.id}/proposal`;
-    if (project.status === 'Draft') return `/project/${project.id}/scope-review`;
+    if (project.status === 'Draft') return `/project/${project.id}/quotes`;
     return `/project/${project.id}/estimate`;
   }
 
@@ -156,7 +156,7 @@ export function Dashboard() {
                     {project.clientName || 'No Client'} · {project.status} · {formatDateOrNA(resolveDateValue(project))}
                     {getNavigateTo ? (
                       <span className="ml-1 text-slate-400">
-                        → {getNavigateTo(project).includes('scope-review') ? 'Scope review' : getNavigateTo(project).includes('proposal') ? 'Proposal' : 'Estimate'}
+                        → {getNavigateTo(project).includes('quotes') ? 'Quotes' : getNavigateTo(project).includes('proposal') ? 'Proposal' : 'Estimate'}
                       </span>
                     ) : null}
                   </p>
@@ -233,7 +233,7 @@ export function Dashboard() {
               </button>
             ) : null}
             <button type="button" onClick={() => navigate('/project/new')} className="ui-chip-soft">
-              <ClipboardList className="h-3.5 w-3.5" aria-hidden /> Start intake
+              <ClipboardList className="h-3.5 w-3.5" aria-hidden /> Start project
             </button>
           </div>
         </div>

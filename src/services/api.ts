@@ -1,6 +1,6 @@
 
 import { CatalogAliasType, CatalogAttributeType, CatalogDeltaType, CatalogItem, CatalogItemAlias, CatalogItemAttribute } from '../types';
-import { BundleRecord, CatalogPostCutoverHealthRecord, CatalogSyncRunHistoryRecord, CatalogSyncStatusRecord, DbPersistenceStatusRecord, EstimateSummary, InstallReviewEmailDraft, ModifierRecord, PeerIntakeDefaultsResponse, ProjectFileRecord, ProjectRecord, RoomRecord, SettingsRecord, TakeoffLineRecord } from '../shared/types/estimator';
+import { BundleRecord, CatalogPostCutoverHealthRecord, CatalogSyncRunHistoryRecord, CatalogSyncStatusRecord, DbPersistenceStatusRecord, EstimateSummary, InstallReviewEmailDraft, ModifierRecord, PeerIntakeDefaultsResponse, ProjectFileRecord, ProjectRecord, RoomRecord, SettingsRecord, SourceQuoteLineRecord, SourceQuoteRecord, TakeoffLineRecord } from '../shared/types/estimator';
 import type { CatalogSyncRunAuditSummary } from '../shared/types/catalogSyncAudit.ts';
 import type { CatalogReviewQueueKey } from '../shared/catalogReviewQueues.ts';
 import { IntakeParseRequest, IntakeParseResult } from '../shared/types/intake';
@@ -147,6 +147,99 @@ export const api = {
       method: 'DELETE',
     });
     await handleResponse<{ data: { deleted: boolean } }>(res);
+  },
+  async getV1SourceQuotes(projectId: string): Promise<SourceQuoteRecord[]> {
+    const query = new URLSearchParams({ projectId });
+    const res = await apiFetch(`${API_BASE}/v1/quotes?${query.toString()}`);
+    const payload = await handleResponse<{ data: SourceQuoteRecord[] }>(res);
+    return readDataArray<SourceQuoteRecord>(payload);
+  },
+  async createV1SourceQuote(input: Partial<SourceQuoteRecord> & { projectId: string; vendorName: string }): Promise<SourceQuoteRecord> {
+    const res = await apiFetch(`${API_BASE}/v1/quotes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const payload = await handleResponse<{ data: SourceQuoteRecord }>(res);
+    return readDataObject<SourceQuoteRecord>(payload, 'Source quote creation response was missing data.');
+  },
+  async updateV1SourceQuote(quoteId: string, input: Partial<SourceQuoteRecord>): Promise<SourceQuoteRecord> {
+    const res = await apiFetch(`${API_BASE}/v1/quotes/${encodeURIComponent(quoteId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const payload = await handleResponse<{ data: SourceQuoteRecord }>(res);
+    return readDataObject<SourceQuoteRecord>(payload, 'Source quote update response was missing data.');
+  },
+  async deleteV1SourceQuote(quoteId: string): Promise<void> {
+    const res = await apiFetch(`${API_BASE}/v1/quotes/${encodeURIComponent(quoteId)}`, { method: 'DELETE' });
+    await handleResponse<{ data: { deleted: boolean } }>(res);
+  },
+  async getV1SourceQuoteLines(quoteId: string): Promise<SourceQuoteLineRecord[]> {
+    const res = await apiFetch(`${API_BASE}/v1/quotes/${encodeURIComponent(quoteId)}/lines`);
+    const payload = await handleResponse<{ data: SourceQuoteLineRecord[] }>(res);
+    return readDataArray<SourceQuoteLineRecord>(payload);
+  },
+  async createV1SourceQuoteLine(quoteId: string, input: Partial<SourceQuoteLineRecord> & { rawDescription: string }): Promise<SourceQuoteLineRecord> {
+    const res = await apiFetch(`${API_BASE}/v1/quotes/${encodeURIComponent(quoteId)}/lines`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const payload = await handleResponse<{ data: SourceQuoteLineRecord }>(res);
+    return readDataObject<SourceQuoteLineRecord>(payload, 'Source quote line creation response was missing data.');
+  },
+  async createV1SourceQuoteLinesBulk(quoteId: string, rows: Array<Partial<SourceQuoteLineRecord> & { rawDescription: string }>): Promise<SourceQuoteLineRecord[]> {
+    const res = await apiFetch(`${API_BASE}/v1/quotes/${encodeURIComponent(quoteId)}/lines/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rows }),
+    });
+    const payload = await handleResponse<{ data: SourceQuoteLineRecord[] }>(res);
+    return readDataArray<SourceQuoteLineRecord>(payload);
+  },
+  async updateV1SourceQuoteLine(quoteId: string, lineId: string, input: Partial<SourceQuoteLineRecord>): Promise<SourceQuoteLineRecord> {
+    const res = await apiFetch(`${API_BASE}/v1/quotes/${encodeURIComponent(quoteId)}/lines/${encodeURIComponent(lineId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const payload = await handleResponse<{ data: SourceQuoteLineRecord }>(res);
+    return readDataObject<SourceQuoteLineRecord>(payload, 'Source quote line update response was missing data.');
+  },
+  async deleteV1SourceQuoteLine(quoteId: string, lineId: string): Promise<void> {
+    const res = await apiFetch(`${API_BASE}/v1/quotes/${encodeURIComponent(quoteId)}/lines/${encodeURIComponent(lineId)}`, { method: 'DELETE' });
+    await handleResponse<{ data: { deleted: boolean } }>(res);
+  },
+  async importV1SelectedQuoteLines(quoteId: string): Promise<TakeoffLineRecord[]> {
+    const res = await apiFetch(`${API_BASE}/v1/quotes/${encodeURIComponent(quoteId)}/import-selected`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const payload = await handleResponse<{ data: TakeoffLineRecord[] }>(res);
+    return readDataArray<TakeoffLineRecord>(payload);
+  },
+  async promoteV1QuoteLinesToCatalogCandidates(
+    quoteId: string,
+    input: { selectedLineIds: string[]; includeNonCatalogTypes?: boolean }
+  ): Promise<{ promotedCount: number; skippedCount: number }> {
+    const res = await apiFetch(`${API_BASE}/v1/quotes/${encodeURIComponent(quoteId)}/promote-candidates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const payload = await handleResponse<{ data: { promotedCount: number; skippedCount: number } }>(res);
+    return readDataObject(payload, 'Quote candidate promotion response was missing data.');
+  },
+  async extractV1SourceQuoteFromFile(quoteId: string, input?: { replaceExisting?: boolean }): Promise<{ quote: SourceQuoteRecord | null; rowsCreated: number; warnings: string[] }> {
+    const res = await apiFetch(`${API_BASE}/v1/quotes/${encodeURIComponent(quoteId)}/extract-source`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ replaceExisting: Boolean(input?.replaceExisting) }),
+    });
+    const payload = await handleResponse<{ data: { quote: SourceQuoteRecord | null; rowsCreated: number; warnings: string[] } }>(res);
+    return readDataObject(payload, 'Quote extraction response was missing data.');
   },
   async getV1Rooms(projectId: string): Promise<RoomRecord[]> {
     const res = await apiFetch(`${API_BASE}/v1/rooms?projectId=${encodeURIComponent(projectId)}`);
@@ -366,6 +459,11 @@ export const api = {
     const res = await apiFetch(`${API_BASE}/v1/settings`);
     const payload = await handleResponse<{ data: SettingsRecord }>(res);
     return readDataObject<SettingsRecord>(payload, 'Settings response was missing data.');
+  },
+  async getV1TaxJurisdictions(): Promise<Array<Record<string, unknown>>> {
+    const res = await apiFetch(`${API_BASE}/v1/settings/tax-jurisdictions`);
+    const payload = await handleResponse<{ data: Array<Record<string, unknown>> }>(res);
+    return readDataArray(payload);
   },
   async updateV1Settings(input: Partial<SettingsRecord>): Promise<SettingsRecord> {
     const res = await apiFetch(`${API_BASE}/v1/settings`, {

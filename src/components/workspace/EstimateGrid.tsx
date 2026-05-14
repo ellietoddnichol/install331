@@ -695,7 +695,7 @@ export function EstimateGrid({
    * Workstation aesthetic — drive the 3px left accent bar off the scope category
    * (partitions = green, screens/mirrors = blue, accessories = amber, exceptions
    * = red, unclassified = slate) instead of off the `sourceType`. This matches the
-   * rest of the app (ScopeReviewPage, proposal) and gives the estimator an
+    * rest of the app (workspace and proposal tabs) and gives the estimator an
    * at-a-glance color legend down the grid.
    */
   const rowAccentClass = (line: TakeoffLineRecord) => {
@@ -1122,7 +1122,7 @@ export function EstimateGrid({
                 const selected = selectedLineId === row.lineId;
                 const stripe = index % 2 === 0;
                 const effectiveLaborCost = Number((row.laborCost * laborMultiplier).toFixed(2));
-                const rowNumber = String(index + 1).padStart(3, '0');
+                const rowNumber = String(index + 1);
                 const previousBundleId = index > 0 ? displayRows[index - 1].bundleId : null;
                 const isBundleStart = organizeBy === 'room' && !!row.bundleId && (index === 0 || previousBundleId !== row.bundleId);
                 const isBundleCollapsed = organizeBy === 'room' && !!row.bundleId && !!collapsedBundles[row.bundleId];
@@ -1232,7 +1232,7 @@ export function EstimateGrid({
                           ) : null}
                           <td className="ui-table-cell min-w-0 pr-4">
                             <div className="mb-0.5 flex items-center gap-1.5">
-                              <span className="font-mono text-[10px] font-semibold tabular-nums tracking-[0.1em] text-slate-400">{rowNumber}</span>
+                              <span className="font-mono text-[10px] tabular-nums text-slate-400">#{rowNumber}</span>
                               {row.sku ? (
                                 <span className="font-mono text-[10px] font-medium uppercase tracking-[0.1em] text-slate-400">
                                   · IDREF <span className="text-slate-600">{row.sku}</span>
@@ -1256,6 +1256,18 @@ export function EstimateGrid({
                             </div>
                             {disp.subtitle ? <div className="ui-table-meta line-clamp-2">{disp.subtitle}</div> : null}
                             {row.category ? <div className="ui-table-meta">{row.category}</div> : null}
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-600">
+                                {row.sourceType === 'vendor_quote'
+                                  ? 'From quote'
+                                  : row.sourceType === 'catalog'
+                                    ? 'From catalog'
+                                    : 'Manual'}
+                              </span>
+                              {row.sourceRef ? (
+                                <span className="text-[10px] font-medium text-slate-500">Ref {row.sourceRef.slice(0, 8)}</span>
+                              ) : null}
+                            </div>
                             {(organizeBy === 'item' && (row.roomHint || row.roomLabel)) || (organizeBy === 'room' && takeoffShowRoom && row.roomLabel) ? (
                               <div className="mt-0.5 text-xs font-medium leading-snug text-slate-600">{row.roomHint || row.roomLabel}</div>
                             ) : null}

@@ -73,6 +73,7 @@ export function initEstimatorSchema(db: Database) {
       base_type TEXT,
       qty REAL NOT NULL,
       unit TEXT NOT NULL,
+      taxable INTEGER NOT NULL DEFAULT 1,
       material_cost REAL NOT NULL DEFAULT 0,
       base_material_cost REAL NOT NULL DEFAULT 0,
       labor_minutes REAL NOT NULL DEFAULT 0,
@@ -218,6 +219,45 @@ export function initEstimatorSchema(db: Database) {
       FOREIGN KEY(project_id) REFERENCES projects_v1(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS source_quotes_v1 (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      vendor_name TEXT NOT NULL,
+      quote_number TEXT,
+      quote_date TEXT,
+      delivery_date TEXT,
+      ship_to TEXT,
+      source_file_id TEXT,
+      notes TEXT,
+      import_status TEXT NOT NULL DEFAULT 'manual_review',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(project_id) REFERENCES projects_v1(id) ON DELETE CASCADE,
+      FOREIGN KEY(source_file_id) REFERENCES project_files_v1(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS source_quote_lines_v1 (
+      id TEXT PRIMARY KEY,
+      source_quote_id TEXT NOT NULL,
+      line_number TEXT,
+      raw_description TEXT NOT NULL,
+      normalized_description TEXT,
+      manufacturer TEXT,
+      sku_model TEXT,
+      qty REAL NOT NULL DEFAULT 1,
+      unit TEXT NOT NULL DEFAULT 'EA',
+      unit_cost REAL,
+      total_cost REAL,
+      material_cost REAL NOT NULL DEFAULT 0,
+      row_type TEXT NOT NULL DEFAULT 'material',
+      notes TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      import_selected INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(source_quote_id) REFERENCES source_quotes_v1(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS db_persistence_status_v1 (
       id TEXT PRIMARY KEY,
       db_path TEXT NOT NULL,
@@ -239,6 +279,8 @@ export function initEstimatorSchema(db: Database) {
     CREATE INDEX IF NOT EXISTS idx_bundle_items_v1_bundle ON bundle_items_v1(bundle_id);
     CREATE INDEX IF NOT EXISTS idx_line_modifiers_v1_line ON line_modifiers_v1(line_id);
     CREATE INDEX IF NOT EXISTS idx_project_files_v1_project ON project_files_v1(project_id);
+    CREATE INDEX IF NOT EXISTS idx_source_quotes_v1_project ON source_quotes_v1(project_id);
+    CREATE INDEX IF NOT EXISTS idx_source_quote_lines_v1_quote ON source_quote_lines_v1(source_quote_id);
 
     CREATE TABLE IF NOT EXISTS intake_catalog_memory_v1 (
       memory_key TEXT PRIMARY KEY,
@@ -498,6 +540,28 @@ export function initEstimatorSchema(db: Database) {
     db.exec('ALTER TABLE project_files_v1 ADD COLUMN storage_object_key TEXT');
   }
 
+  const sourceQuoteColumns = db.prepare('PRAGMA table_info(source_quotes_v1)').all() as Array<{ name: string }>;
+  if (sourceQuoteColumns.length > 0 && !sourceQuoteColumns.some((c) => c.name === 'delivery_date')) {
+    db.exec('ALTER TABLE source_quotes_v1 ADD COLUMN delivery_date TEXT');
+  }
+  if (sourceQuoteColumns.length > 0 && !sourceQuoteColumns.some((c) => c.name === 'ship_to')) {
+    db.exec('ALTER TABLE source_quotes_v1 ADD COLUMN ship_to TEXT');
+  }
+
+  const sourceQuoteLineColumns = db.prepare('PRAGMA table_info(source_quote_lines_v1)').all() as Array<{ name: string }>;
+  if (sourceQuoteLineColumns.length > 0 && !sourceQuoteLineColumns.some((c) => c.name === 'line_number')) {
+    db.exec('ALTER TABLE source_quote_lines_v1 ADD COLUMN line_number TEXT');
+  }
+  if (sourceQuoteLineColumns.length > 0 && !sourceQuoteLineColumns.some((c) => c.name === 'unit_cost')) {
+    db.exec('ALTER TABLE source_quote_lines_v1 ADD COLUMN unit_cost REAL');
+  }
+  if (sourceQuoteLineColumns.length > 0 && !sourceQuoteLineColumns.some((c) => c.name === 'total_cost')) {
+    db.exec('ALTER TABLE source_quote_lines_v1 ADD COLUMN total_cost REAL');
+  }
+  if (sourceQuoteLineColumns.length > 0 && !sourceQuoteLineColumns.some((c) => c.name === 'row_type')) {
+    db.exec("ALTER TABLE source_quote_lines_v1 ADD COLUMN row_type TEXT NOT NULL DEFAULT 'material'");
+  }
+
   const settingsExists = db.prepare('SELECT 1 FROM settings_v1 WHERE id = ?').get('global');
 
   const settingsColumns = db.prepare("PRAGMA table_info(settings_v1)").all() as Array<{ name: string }>;
@@ -751,6 +815,7 @@ export function initEstimatorSchema(db: Database) {
   ensureTakeoffColumn('generated_labor_minutes', 'generated_labor_minutes REAL');
   ensureTakeoffColumn('labor_origin', 'labor_origin TEXT');
   ensureTakeoffColumn('install_labor_family', 'install_labor_family TEXT');
+  ensureTakeoffColumn('taxable', 'taxable INTEGER NOT NULL DEFAULT 1');
   ensureTakeoffColumn('catalog_attribute_snapshot_json', 'catalog_attribute_snapshot_json TEXT');
   ensureTakeoffColumn('base_material_cost_snapshot', 'base_material_cost_snapshot REAL');
   ensureTakeoffColumn('base_labor_minutes_snapshot', 'base_labor_minutes_snapshot REAL');

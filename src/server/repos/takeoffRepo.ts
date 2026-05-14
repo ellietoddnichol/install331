@@ -150,6 +150,7 @@ function mapTakeoffRow(row: any): TakeoffLineRecord {
     baseType: row.base_type,
     qty: row.qty,
     unit: row.unit,
+    taxable: row.taxable === null || row.taxable === undefined ? true : Number(row.taxable) > 0,
     materialCost: row.material_cost,
     baseMaterialCost: row.base_material_cost,
     laborMinutes: row.labor_minutes,
@@ -621,6 +622,7 @@ export async function createTakeoffLine(
     baseType: input.baseType ?? null,
     qty,
     unit: input.unit ?? 'EA',
+    taxable: input.taxable ?? true,
     materialCost,
     baseMaterialCost,
     laborMinutes,
@@ -670,6 +672,7 @@ export async function createTakeoffLine(
     line.baseType,
     line.qty,
     line.unit,
+    line.taxable ? 1 : 0,
     line.materialCost,
     line.baseMaterialCost,
     line.laborMinutes,
@@ -711,7 +714,7 @@ export async function createTakeoffLine(
       id, project_id, room_id, source_type, source_ref, description,
       proposal_visibility, proposal_description_override, parent_estimate_line_id, source_line_type,
       sku, category, subcategory, base_type,
-      qty, unit, material_cost, base_material_cost, labor_minutes, labor_cost, base_labor_cost, pricing_source, unit_sell, line_total, notes, bundle_id, catalog_item_id,
+      qty, unit, taxable, material_cost, base_material_cost, labor_minutes, labor_cost, base_labor_cost, pricing_source, unit_sell, line_total, notes, bundle_id, catalog_item_id,
       variant_id, intake_scope_bucket, intake_match_confidence,
       source_manufacturer, source_bid_bucket, source_section_header,
       is_installable_scope, install_scope_type, install_labor_family, source_material_cost, generated_labor_minutes, labor_origin,
@@ -719,7 +722,7 @@ export async function createTakeoffLine(
       base_material_cost_snapshot, base_labor_minutes_snapshot,
       attribute_delta_material_snapshot_json, attribute_delta_labor_snapshot_json,
       created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
       insertParams
     );
@@ -731,7 +734,7 @@ export async function createTakeoffLine(
       id, project_id, room_id, source_type, source_ref, description,
       proposal_visibility, proposal_description_override, parent_estimate_line_id, source_line_type,
       sku, category, subcategory, base_type,
-      qty, unit, material_cost, base_material_cost, labor_minutes, labor_cost, base_labor_cost, pricing_source, unit_sell, line_total, notes, bundle_id, catalog_item_id,
+      qty, unit, taxable, material_cost, base_material_cost, labor_minutes, labor_cost, base_labor_cost, pricing_source, unit_sell, line_total, notes, bundle_id, catalog_item_id,
       variant_id, intake_scope_bucket, intake_match_confidence,
       source_manufacturer, source_bid_bucket, source_section_header,
       is_installable_scope, install_scope_type, install_labor_family, source_material_cost, generated_labor_minutes, labor_origin,
@@ -739,7 +742,7 @@ export async function createTakeoffLine(
       base_material_cost_snapshot, base_labor_minutes_snapshot,
       attribute_delta_material_snapshot_json, attribute_delta_labor_snapshot_json,
       created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `
       )
       .run(...insertParams);
@@ -863,6 +866,7 @@ export async function updateTakeoffLine(lineId: string, input: Partial<TakeoffLi
     qty,
     laborMinutes,
     materialCost,
+    taxable: input.taxable ?? existing.taxable,
     baseMaterialCost,
     laborCost,
     baseLaborCost,
@@ -903,6 +907,7 @@ export async function updateTakeoffLine(lineId: string, input: Partial<TakeoffLi
     next.baseType,
     next.qty,
     next.unit,
+    next.taxable ? 1 : 0,
     next.materialCost,
     next.baseMaterialCost,
     next.laborMinutes,
@@ -941,7 +946,7 @@ export async function updateTakeoffLine(lineId: string, input: Partial<TakeoffLi
       room_id = ?, source_type = ?, source_ref = ?, description = ?,
       proposal_visibility = ?, proposal_description_override = ?, parent_estimate_line_id = ?, source_line_type = ?,
       sku = ?, category = ?, subcategory = ?, base_type = ?,
-      qty = ?, unit = ?, material_cost = ?, base_material_cost = ?, labor_minutes = ?, labor_cost = ?, base_labor_cost = ?, pricing_source = ?, unit_sell = ?, line_total = ?, notes = ?,
+      qty = ?, unit = ?, taxable = ?, material_cost = ?, base_material_cost = ?, labor_minutes = ?, labor_cost = ?, base_labor_cost = ?, pricing_source = ?, unit_sell = ?, line_total = ?, notes = ?,
       bundle_id = ?, catalog_item_id = ?, variant_id = ?, intake_scope_bucket = ?, intake_match_confidence = ?,
       source_manufacturer = ?, source_bid_bucket = ?, source_section_header = ?,
       is_installable_scope = ?, install_scope_type = ?, install_labor_family = ?, source_material_cost = ?, generated_labor_minutes = ?, labor_origin = ?,
@@ -961,7 +966,7 @@ export async function updateTakeoffLine(lineId: string, input: Partial<TakeoffLi
       room_id = ?, source_type = ?, source_ref = ?, description = ?,
       proposal_visibility = ?, proposal_description_override = ?, parent_estimate_line_id = ?, source_line_type = ?,
       sku = ?, category = ?, subcategory = ?, base_type = ?,
-      qty = ?, unit = ?, material_cost = ?, base_material_cost = ?, labor_minutes = ?, labor_cost = ?, base_labor_cost = ?, pricing_source = ?, unit_sell = ?, line_total = ?, notes = ?,
+      qty = ?, unit = ?, taxable = ?, material_cost = ?, base_material_cost = ?, labor_minutes = ?, labor_cost = ?, base_labor_cost = ?, pricing_source = ?, unit_sell = ?, line_total = ?, notes = ?,
       bundle_id = ?, catalog_item_id = ?, variant_id = ?, intake_scope_bucket = ?, intake_match_confidence = ?,
       source_manufacturer = ?, source_bid_bucket = ?, source_section_header = ?,
       is_installable_scope = ?, install_scope_type = ?, install_labor_family = ?, source_material_cost = ?, generated_labor_minutes = ?, labor_origin = ?,

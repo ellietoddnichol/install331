@@ -4,7 +4,7 @@ import { projectWorkspacePath } from '../../shared/utils/projectWorkspaceRoutes.
 import { tabFromSearchParam } from '../../shared/utils/projectWorkspaceSession.ts';
 
 /**
- * `/project/:id` → `/project/:id/estimate` (legacy default).
+ * `/project/:id` → `/project/:id/overview` (simplified default).
  * `/project/:id?tab=…` → `/project/:id/<tab>` preserving other query keys (`view`, `scopeChecked`, …).
  */
 export function ProjectWorkspaceIndexRedirect() {

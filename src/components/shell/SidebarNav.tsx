@@ -2,10 +2,8 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   BookOpen,
-  Brain,
   ChevronLeft,
   ChevronRight,
-  CircleHelp,
   FolderOpen,
   LayoutDashboard,
   LogOut,
@@ -19,13 +17,8 @@ const NAV_ITEMS = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/projects', label: 'Projects', icon: FolderOpen },
   { path: '/catalog', label: 'Catalog', icon: BookOpen },
-  { path: '/help', label: 'Help', icon: CircleHelp },
   { path: '/settings', label: 'Settings', icon: Settings },
 ];
-
-/** Visible by default; set VITE_SHOW_DIV10_ADMIN=0 to hide the Div 10 Brain entry. */
-const div10AdminEnv = String(import.meta.env.VITE_SHOW_DIV10_ADMIN ?? '').trim().toLowerCase();
-const showDiv10AdminLink = div10AdminEnv !== '0' && div10AdminEnv !== 'false' && div10AdminEnv !== 'no' && div10AdminEnv !== 'off';
 
 function isActivePath(pathname: string, target: string): boolean {
   if (target === '/') return pathname === '/';
@@ -87,19 +80,6 @@ export function SidebarNav() {
               </Link>
             );
           })}
-          {showDiv10AdminLink ? (
-            <Link
-              to="/admin/div10-brain"
-              title="Div 10 Brain admin"
-              aria-label="Div 10 Brain admin"
-              className="group relative flex h-9 w-9 items-center justify-center rounded-md border border-transparent text-slate-400 outline-none transition-colors hover:bg-[#17263f] hover:text-white focus-visible:ring-2 focus-visible:ring-blue-400/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#101a2b]"
-            >
-              <Brain className="h-4 w-4" />
-              <span className="pointer-events-none absolute left-full top-1/2 z-20 ml-2 -translate-y-1/2 whitespace-nowrap rounded-md border border-[#23334b] bg-[#0e1727] px-2 py-1 text-[11px] font-medium text-slate-100 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-                Div 10 Brain
-              </span>
-            </Link>
-          ) : null}
         </nav>
         <div className="mt-auto flex flex-col items-center gap-1 border-t border-[#23334b] bg-[#0e1727] px-2 py-2">
           <span
@@ -167,19 +147,6 @@ export function SidebarNav() {
             </Link>
           );
         })}
-        {showDiv10AdminLink ? (
-          <Link
-            to="/admin/div10-brain"
-            className={`h-9 px-2.5 rounded-md flex items-center gap-2.5 text-sm transition-all outline-none focus-visible:ring-2 focus-visible:ring-blue-400/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#101a2b] ${
-              isActivePath(location.pathname, '/admin/div10-brain')
-                ? 'bg-[#1f3558] text-white border border-[#3f69ab]'
-                : 'text-slate-300 border border-transparent hover:bg-[#17263f] hover:text-white'
-            }`}
-          >
-            <Brain className={`w-4 h-4 ${isActivePath(location.pathname, '/admin/div10-brain') ? 'text-[#dce8ff]' : 'text-slate-400'}`} />
-            <span className="font-medium">Div 10 Brain</span>
-          </Link>
-        ) : null}
       </nav>
 
       <div className="mt-auto border-t border-[#23334b] p-3.5 bg-[#0e1727]">

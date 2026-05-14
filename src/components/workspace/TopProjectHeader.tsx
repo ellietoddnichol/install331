@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileDown, Save, Send, Trash2 } from 'lucide-react';
+import { ChevronLeft, FileDown, Save, Send, Trash2 } from 'lucide-react';
 import { ProjectRecord } from '../../shared/types/estimator';
 import { formatCurrencySafe, formatNumberSafe } from '../../utils/numberFormat';
 
@@ -78,12 +78,20 @@ export function TopProjectHeader({
     <header
       className="workspace-top-header sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 px-4 py-3 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-white/90 print:hidden md:px-6 md:py-4"
     >
-      {/* Row 1 — LIVE breadcrumb */}
-      <div className="flex items-center gap-2.5 text-[10px]">
-        <span className="ui-status-live">LIVE</span>
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-          Brighten Builders <span className="mx-1 text-slate-300">/</span> Estimator Station
-        </span>
+      <div className="flex items-center justify-between gap-2.5 text-[10px]">
+        <div className="flex items-center gap-2.5">
+          <span className="ui-status-live">Live</span>
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+            Project workspace <span className="mx-1 text-slate-300">/</span> {sectionLabel}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={onBackToProjects}
+          className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-600 hover:bg-slate-50"
+        >
+          <ChevronLeft className="h-3 w-3" /> All projects
+        </button>
       </div>
 
       {/* Row 2 — title + controls */}
@@ -120,14 +128,6 @@ export function TopProjectHeader({
             >
               <Save className="h-3.5 w-3.5" /> Save
             </button>
-            <button
-              type="button"
-              onClick={() => onDeleteProject()}
-              className="inline-flex h-8 items-center gap-1 rounded-[5px] px-2.5 text-[11px] font-medium text-rose-600 transition-colors hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/50"
-              title="Delete project"
-            >
-              <Trash2 className="h-3.5 w-3.5" /> Delete
-            </button>
           </div>
           <button
             type="button"
@@ -145,6 +145,14 @@ export function TopProjectHeader({
             style={{ fontFamily: 'var(--font-mono)' }}
           >
             <Send className="mr-1.5 h-3.5 w-3.5" /> {statusActionLabel}
+          </button>
+          <button
+            type="button"
+            onClick={() => onDeleteProject()}
+            className="ui-btn-secondary inline-flex h-10 items-center gap-1 px-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-rose-700"
+            title="Delete project"
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Delete
           </button>
         </div>
       </div>

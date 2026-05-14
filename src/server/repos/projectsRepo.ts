@@ -20,6 +20,7 @@ import {
   normalizeStructuredAssumptionsInput,
   parseStructuredAssumptionsJson,
 } from './projectsRowMapping.ts';
+import { createRoom } from './roomsRepo.ts';
 import { useNativeSupabaseWorkspace } from '../db/nativeWorkspace.ts';
 import * as nativeProjects from './native/nativeProjectsRepo.ts';
 import { NATIVE_PROJECT_ROW_SELECT } from './native/nativeProjectSql.ts';
@@ -304,6 +305,13 @@ export async function createProject(input: Partial<ProjectRecord>): Promise<Proj
       )
       .run(...insertParams);
   }
+
+  await createRoom({
+    projectId: project.id,
+    roomName: 'General',
+    sortOrder: 0,
+    notes: 'Default estimate bucket for quote-driven and manual entry workflows.',
+  });
 
   return project;
 }

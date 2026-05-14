@@ -64,6 +64,14 @@ export interface ProjectJobConditions {
   travelDistanceMiles: number | null;
   installerCount: number;
   locationTaxPercent: number | null;
+  /** When true, tax applies to material only; when false, tax applies to material + labor subtotal. */
+  materialOnlyTax: boolean;
+  /** Default proposal visibility for newly imported quote lines. */
+  defaultProposalVisibility: ProposalVisibility;
+  /** When true, service/installation quote rows keep vendor labor and suppress extra internal labor generation. */
+  suppressAutoLaborForInstallServiceRows: boolean;
+  /** Default behavior for quote file re-parse when lines already exist. */
+  sourceQuoteExtractMode: 'replace_existing' | 'append';
   unionWage: boolean;
   unionWageMultiplier: number;
   prevailingWage: boolean;
@@ -228,6 +236,8 @@ export interface TakeoffLineRecord {
   baseType: string | null;
   qty: number;
   unit: string;
+  /** Row-level taxability override used by estimate tax calculations. Defaults to true. */
+  taxable?: boolean;
   materialCost: number;
   baseMaterialCost: number;
   laborMinutes: number;
@@ -571,5 +581,65 @@ export interface ProjectFileRecord {
   fileName: string;
   mimeType: string;
   sizeBytes: number;
+  createdAt: string;
+}
+
+export type SourceQuoteImportStatus = 'manual_review' | 'ready_to_import' | 'partially_imported' | 'imported';
+
+export interface SourceQuoteRecord {
+  id: string;
+  projectId: string;
+  vendorName: string;
+  quoteNumber: string | null;
+  quoteDate: string | null;
+  deliveryDate: string | null;
+  shipTo: string | null;
+  sourceFileId: string | null;
+  notes: string | null;
+  importStatus: SourceQuoteImportStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type SourceQuoteRowType = 'material' | 'accessory' | 'freight' | 'installation' | 'service' | 'note' | 'ignore';
+
+export interface SourceQuoteLineRecord {
+  id: string;
+  sourceQuoteId: string;
+  lineNumber: string | null;
+  rawDescription: string;
+  normalizedDescription: string | null;
+  manufacturer: string | null;
+  skuModel: string | null;
+  qty: number;
+  unit: string;
+  unitCost: number | null;
+  totalCost: number | null;
+  materialCost: number;
+  rowType: SourceQuoteRowType;
+  notes: string | null;
+  sortOrder: number;
+  importSelected: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CatalogCandidatePromotionResult {
+  promotedCount: number;
+  skippedCount: number;
+}
+
+export interface CatalogVendorPriceHistoryRow {
+  vendorPriceId: string;
+  catalogItemId: string;
+  vendor: string;
+  vendorSku: string;
+  sourceQuoteId: string;
+  sourceQuoteLineId: string;
+  quoteDate: string;
+  unitCost: number;
+  leadTime: string;
+  preferredVendor: boolean;
+  notes: string;
   createdAt: string;
 }

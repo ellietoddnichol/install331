@@ -25,6 +25,15 @@ export async function calculateEstimateSummary(
 
   const materialForBid = pricingMode === 'labor_only' ? 0 : materialWithAllowances;
   const laborForBidRaw = isMaterialOnlyMainBid(pricingMode) ? 0 : laborCompanionRaw;
+  const taxableMaterialForBid = pricingMode === 'labor_only'
+    ? 0
+    : Number(lines.reduce((sum, line) => sum + ((line.taxable ?? true) ? line.materialCost * line.qty : 0), 0).toFixed(2));
+  const taxableLineSubtotal = Number(lines.reduce((sum, line) => {
+    if (line.taxable === false) return sum;
+    const material = pricingMode === 'labor_only' ? 0 : Number(line.materialCost || 0) * Number(line.qty || 0);
+    const labor = isMaterialOnlyMainBid(pricingMode) ? 0 : extendedLaborDollarsForLine(line, laborRatePerHour);
+    return sum + material + labor;
+  }, 0).toFixed(2));
 
   const effects = computeProjectConditionEffects(
     project,
@@ -52,8 +61,9 @@ export async function calculateEstimateSummary(
   const subLaborManagementFeeAmount = Number((beforeSubFee * (feePct / 100)).toFixed(2));
   const laborLoadedSubtotal = Number((beforeSubFee + subLaborManagementFeeAmount).toFixed(2));
 
+  const taxBase = jobConditions.materialOnlyTax ? taxableMaterialForBid : Math.max(0, taxableLineSubtotal);
   const taxAmount =
-    materialForBid <= 0 ? 0 : Number((materialForBid * (effects.taxPercentApplied / 100)).toFixed(2));
+    taxBase <= 0 ? 0 : Number((taxBase * (effects.taxPercentApplied / 100)).toFixed(2));
   const materialAfterTax = materialForBid + taxAmount;
   const overheadAmount = Number((materialAfterTax * (project.overheadPercent / 100)).toFixed(2));
   const afterMaterialOH = materialAfterTax + overheadAmount;

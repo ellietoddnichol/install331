@@ -35,15 +35,17 @@ export function writeWorkspaceUi(projectId: string, snapshot: WorkspaceUiSnapsho
   }
 }
 
-const KNOWN_TABS = new Set<string>(['overview', 'setup', 'scope-review', 'matching', 'estimate', 'proposal']);
+const KNOWN_TABS = new Set<string>(['overview', 'setup', 'quotes', 'estimate', 'proposal']);
 
 export function tabFromSearchParam(value: string | null): WorkspaceTab {
-  if (!value) return 'estimate';
-  if (value === 'files') return 'overview';
+  if (!value) return 'overview';
+  if (value === 'files') return 'setup';
+  if (value === 'intake') return 'quotes';
   if (value === 'takeoff' || value === 'rooms') return 'estimate';
   if (value === 'handoff') return 'proposal';
+  if (value === 'scope-review' || value === 'matching') return 'estimate';
   if (KNOWN_TABS.has(value)) return value as WorkspaceTab;
-  return 'estimate';
+  return 'overview';
 }
 
 export function estimateViewFromSearchParams(searchParams: URLSearchParams): EstimateWorkspaceView {

@@ -66,3 +66,21 @@ test('projectsRepo project autofill: raw title inference, jobConditions merge, p
   });
   assert.match(String(created4.projectNumber || ''), /^BP-/);
 });
+
+test('projectsRepo project autofill: new projects get a default General room', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'install331-default-room-'));
+  const dbPath = path.join(tmpDir, 'estimator.default-room.test.db');
+  process.env.DATABASE_PATH = dbPath;
+
+  const { createProject } = await import('./projectsRepo.ts');
+  const { listRooms } = await import('./roomsRepo.ts');
+
+  const created = await createProject({
+    projectName: 'Default Room Project',
+    clientName: 'Acme',
+  });
+
+  const rooms = await listRooms(created.id);
+  assert.equal(rooms.length, 1);
+  assert.equal(rooms[0]?.roomName, 'General');
+});

@@ -4,8 +4,7 @@ import type { WorkspaceTab } from '../types/projectWorkflow';
 export const WORKSPACE_STEP_PATHS: WorkspaceTab[] = [
   'overview',
   'setup',
-  'scope-review',
-  'matching',
+  'quotes',
   'estimate',
   'proposal',
 ];

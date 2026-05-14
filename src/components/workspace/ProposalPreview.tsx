@@ -135,7 +135,7 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
     <article
       data-proposal-document="true"
       data-proposal-format={fmt}
-      className={`print-proposal proposal-document mx-auto min-h-[11in] w-full max-w-[8.25in] bg-white text-slate-900 shadow-[0_22px_56px_rgba(15,23,42,0.06)] ${
+      className={`print-proposal proposal-document mx-auto min-h-[11in] w-full max-w-[8.4in] rounded-[10px] border border-slate-200/80 bg-white text-slate-900 shadow-[0_22px_56px_rgba(15,23,42,0.06)] ${
         isCondensed ? 'px-8 py-6 text-[12px]' : 'px-[0.55in] py-[0.55in]'
       }`}
     >

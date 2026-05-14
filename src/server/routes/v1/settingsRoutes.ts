@@ -22,6 +22,8 @@ import { getIntegrationHealthSnapshot } from '../../services/integrationHealth.t
 import { isCatalogSheetsWorkbookPushEnabled } from '../../services/catalogSheetsSyncPolicy.ts';
 import { buildCatalogReviewCsv } from '../../services/catalogSyncReviewCsv.ts';
 import { isCatalogReviewQueueKey } from '../../../shared/catalogReviewQueues.ts';
+import { isSheetsDataBackend } from '../../repos/dataBackend.ts';
+import { getSettingsFromSheets, listTaxJurisdictionsFromSheets, updateSettingsInSheets } from '../../repos/sheetsSettingsRepo.ts';
 
 export const settingsRouter = Router();
 
@@ -30,16 +32,29 @@ settingsRouter.get('/integration-health', (_req, res) => {
 });
 
 settingsRouter.get('/', async (_req, res) => {
+  if (isSheetsDataBackend()) {
+    return res.json({ data: await getSettingsFromSheets() });
+  }
   return res.json({ data: await getSettings() });
 });
 
 settingsRouter.put('/', async (req, res) => {
+  if (isSheetsDataBackend()) {
+    return res.json({ data: await updateSettingsInSheets(req.body ?? {}) });
+  }
   const current = await getSettings();
   const next = await updateSettings(req.body ?? {});
   if (current.defaultLaborRatePerHour !== next.defaultLaborRatePerHour) {
     await recalculateAllLinePricing();
   }
   return res.json({ data: next });
+});
+
+settingsRouter.get('/tax-jurisdictions', async (_req, res) => {
+  if (!isSheetsDataBackend()) {
+    return res.json({ data: [] });
+  }
+  return res.json({ data: await listTaxJurisdictionsFromSheets() });
 });
 
 /** Remember estimator catalog choice for future intake matching (company-wide). */

@@ -1,6 +1,15 @@
 import { Router } from 'express';
 import { archiveProject, createProject, deleteProject, getProject, listProjects, suggestPeerIntakeDefaults, updateProject } from '../../repos/projectsRepo.ts';
 import { createProjectFile, deleteProjectFile, getProjectFile, listProjectFiles } from '../../repos/projectFilesRepo.ts';
+import {
+  archiveProjectInSheets,
+  createProjectInSheets,
+  deleteProjectInSheets,
+  getProjectFromSheets,
+  listProjectsFromSheets,
+  updateProjectInSheets,
+} from '../../repos/sheetsProjectsRepo.ts';
+import { isSheetsDataBackend } from '../../repos/dataBackend.ts';
 import { suggestAddresses } from '../../services/addressSuggestService.ts';
 import { calculateDistanceMiles } from '../../services/distanceService.ts';
 
@@ -30,10 +39,16 @@ projectsRouter.get('/distance', async (req, res) => {
 });
 
 projectsRouter.get('/', async (_req, res) => {
-  res.json({ data: await listProjects() });
+  if (isSheetsDataBackend()) {
+    return res.json({ data: await listProjectsFromSheets() });
+  }
+  return res.json({ data: await listProjects() });
 });
 
 projectsRouter.get('/peer-intake-defaults', async (req, res) => {
+  if (isSheetsDataBackend()) {
+    return res.json({ data: { sourceProjectId: null, matchedBy: null, jobConditions: null, selectedScopeCategories: null, pricingMode: null, taxPercent: null } });
+  }
   const clientName = String(req.query.clientName || '').trim() || null;
   const generalContractor = String(req.query.generalContractor || '').trim() || null;
   const excludeProjectId = String(req.query.excludeProjectId || '').trim() || null;
@@ -42,7 +57,9 @@ projectsRouter.get('/peer-intake-defaults', async (req, res) => {
 });
 
 projectsRouter.get('/:projectId', async (req, res) => {
-  const project = await getProject(req.params.projectId);
+  const project = isSheetsDataBackend()
+    ? await getProjectFromSheets(req.params.projectId)
+    : await getProject(req.params.projectId);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
   }
@@ -51,12 +68,16 @@ projectsRouter.get('/:projectId', async (req, res) => {
 });
 
 projectsRouter.post('/', async (req, res) => {
-  const project = await createProject(req.body ?? {});
+  const project = isSheetsDataBackend()
+    ? await createProjectInSheets(req.body ?? {})
+    : await createProject(req.body ?? {});
   return res.status(201).json({ data: project });
 });
 
 projectsRouter.put('/:projectId', async (req, res) => {
-  const project = await updateProject(req.params.projectId, req.body ?? {});
+  const project = isSheetsDataBackend()
+    ? await updateProjectInSheets(req.params.projectId, req.body ?? {})
+    : await updateProject(req.params.projectId, req.body ?? {});
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
   }
@@ -66,7 +87,9 @@ projectsRouter.put('/:projectId', async (req, res) => {
 
 projectsRouter.delete('/:projectId', async (req, res) => {
   if (String(req.query.permanent || '') === 'true') {
-    const deleted = await deleteProject(req.params.projectId);
+    const deleted = isSheetsDataBackend()
+      ? await deleteProjectInSheets(req.params.projectId)
+      : await deleteProject(req.params.projectId);
     if (!deleted) {
       return res.status(404).json({ error: 'Project not found' });
     }
@@ -74,7 +97,9 @@ projectsRouter.delete('/:projectId', async (req, res) => {
     return res.json({ data: { deleted: true } });
   }
 
-  const archived = await archiveProject(req.params.projectId);
+  const archived = isSheetsDataBackend()
+    ? await archiveProjectInSheets(req.params.projectId)
+    : await archiveProject(req.params.projectId);
   if (!archived) {
     return res.status(404).json({ error: 'Project not found' });
   }
@@ -83,7 +108,9 @@ projectsRouter.delete('/:projectId', async (req, res) => {
 });
 
 projectsRouter.get('/:projectId/files', async (req, res) => {
-  const project = await getProject(req.params.projectId);
+  const project = isSheetsDataBackend()
+    ? await getProjectFromSheets(req.params.projectId)
+    : await getProject(req.params.projectId);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
   }
@@ -92,7 +119,9 @@ projectsRouter.get('/:projectId/files', async (req, res) => {
 });
 
 projectsRouter.post('/:projectId/files', async (req, res) => {
-  const project = await getProject(req.params.projectId);
+  const project = isSheetsDataBackend()
+    ? await getProjectFromSheets(req.params.projectId)
+    : await getProject(req.params.projectId);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
   }

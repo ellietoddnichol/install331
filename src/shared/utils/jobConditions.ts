@@ -30,6 +30,10 @@ const DEFAULT_JOB_CONDITIONS: ProjectJobConditions = {
   travelDistanceMiles: null,
   installerCount: 1,
   locationTaxPercent: null,
+  materialOnlyTax: true,
+  defaultProposalVisibility: 'customer_visible',
+  suppressAutoLaborForInstallServiceRows: true,
+  sourceQuoteExtractMode: 'replace_existing',
   unionWage: false,
   unionWageMultiplier: 0,
   prevailingWage: false,
@@ -166,6 +170,20 @@ export function normalizeProjectJobConditions(input?: Partial<ProjectJobConditio
     locationTaxPercent: locationTaxPercent !== null && Number.isFinite(locationTaxPercent)
       ? locationTaxPercent
       : null,
+    materialOnlyTax: Boolean((merged as Partial<ProjectJobConditions>).materialOnlyTax ?? true),
+    defaultProposalVisibility:
+      (merged as Partial<ProjectJobConditions>).defaultProposalVisibility === 'internal_only'
+        ? 'internal_only'
+        : (merged as Partial<ProjectJobConditions>).defaultProposalVisibility === 'optional_or_alt'
+          ? 'optional_or_alt'
+          : 'customer_visible',
+    suppressAutoLaborForInstallServiceRows: Boolean(
+      (merged as Partial<ProjectJobConditions>).suppressAutoLaborForInstallServiceRows ?? true
+    ),
+    sourceQuoteExtractMode:
+      (merged as Partial<ProjectJobConditions>).sourceQuoteExtractMode === 'append'
+        ? 'append'
+        : 'replace_existing',
     unionWageMultiplier: 0,
     prevailingWageMultiplier: numeric(merged.prevailingWageMultiplier, DEFAULT_JOB_CONDITIONS.prevailingWageMultiplier),
     floorMultiplierPerFloor: numeric(merged.floorMultiplierPerFloor, DEFAULT_JOB_CONDITIONS.floorMultiplierPerFloor),

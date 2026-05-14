@@ -35,17 +35,20 @@ export function ProjectStepNav({ projectId, items, trailing }: ProjectStepNavPro
   const uuidShort = projectId.length > 10 ? `${projectId.slice(0, 8).toUpperCase()}` : projectId.toUpperCase();
 
   return (
-    <div className="sticky top-[calc(var(--workspace-header-h,88px)-1px)] z-20 -mx-4 mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-slate-200/80 bg-white/95 px-4 pb-1 pt-2 backdrop-blur-md supports-[backdrop-filter]:bg-white/85 md:-mx-6 md:px-6">
-      <nav className="flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-1 overflow-x-auto">
-        {ordered.map((item, idx) => (
+    <div className="sticky top-[calc(var(--workspace-header-h,88px)-1px)] z-20 -mx-4 mb-3 flex flex-wrap items-center gap-2 border-b border-slate-200/80 bg-white/95 px-4 py-2 backdrop-blur-md supports-[backdrop-filter]:bg-white/85 md:-mx-6 md:px-6">
+      <nav className="flex min-w-0 flex-1 flex-wrap items-center gap-2 overflow-x-auto">
+        {ordered.map((item) => (
           <NavLink
             key={item.id}
             to={projectWorkspacePath(projectId, item.id)}
             className={({ isActive }) =>
-              `ui-tab-numbered ${isActive ? 'ui-tab-numbered-active' : ''}`
+              `rounded-full border px-3 py-1.5 text-xs font-semibold tracking-wide transition ${
+                isActive
+                  ? 'border-blue-300 bg-blue-50 text-blue-950'
+                  : 'border-slate-200 bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`
             }
           >
-            <span className="ui-tab-numbered-num">{String(idx + 1).padStart(2, '0')}</span>
             <span>{item.label}</span>
             {item.badge != null && item.badge > 0 ? (
               <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-amber-100 px-1 text-[9px] font-bold tabular-nums text-amber-900">
@@ -56,8 +59,8 @@ export function ProjectStepNav({ projectId, items, trailing }: ProjectStepNavPro
         ))}
       </nav>
       <div className="flex shrink-0 items-center gap-2">
-        <span className="ui-mono-id whitespace-nowrap text-slate-500">
-          SESSION UUID: {uuidShort}
+        <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">
+          {uuidShort}
         </span>
         {trailing ? <div className="flex items-center">{trailing}</div> : null}
       </div>

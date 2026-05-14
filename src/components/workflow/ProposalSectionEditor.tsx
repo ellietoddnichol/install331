@@ -9,13 +9,19 @@ interface ProposalSectionEditorProps {
 }
 
 export function ProposalSectionEditor({ settings, setSettings, onResetSection, onResetAll }: ProposalSectionEditorProps) {
+  const introLen = (settings.proposalIntro || '').trim().length;
+  const termsLen = (settings.proposalTerms || '').trim().length;
+  const exclusionsLen = (settings.proposalExclusions || '').trim().length;
+  const clarificationsLen = (settings.proposalClarifications || '').trim().length;
+
   return (
     <div className="space-y-3">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="ui-label">Proposal wording</p>
           <h4 className="mt-1 text-base font-semibold tracking-tight text-slate-900">Company defaults (Settings)</h4>
-          <p className="mt-1 text-xs text-slate-500">Edits save to company profile via Save edits — same behavior as before this workflow refresh.</p>
+          <p className="mt-1 text-xs text-slate-500">Edits save to company profile via Save edits. Proposal preview updates as you type.</p>
+          <p className="mt-1 text-xs text-slate-500">Recommended sequence: intro, scope clarifications, exclusions, then terms.</p>
         </div>
         <button type="button" onClick={onResetAll} className="text-[11px] font-medium text-slate-600 underline decoration-slate-300 underline-offset-2 hover:text-slate-900">
           Reset all to company defaults
@@ -35,6 +41,7 @@ export function ProposalSectionEditor({ settings, setSettings, onResetSection, o
           value={settings.proposalIntro || ''}
           onChange={(e) => setSettings({ ...settings, proposalIntro: e.target.value })}
         />
+        <span className="mt-1 block text-right text-[11px] text-slate-500">{introLen} chars</span>
       </label>
 
       <label className="block rounded-[22px] border border-slate-200/80 bg-slate-50/65 p-3 text-xs text-slate-600">
@@ -50,6 +57,7 @@ export function ProposalSectionEditor({ settings, setSettings, onResetSection, o
           value={settings.proposalTerms || ''}
           onChange={(e) => setSettings({ ...settings, proposalTerms: e.target.value })}
         />
+        <span className="mt-1 block text-right text-[11px] text-slate-500">{termsLen} chars</span>
       </label>
 
       <label className="block rounded-[22px] border border-slate-200/80 bg-slate-50/65 p-3 text-xs text-slate-600">
@@ -65,6 +73,7 @@ export function ProposalSectionEditor({ settings, setSettings, onResetSection, o
           value={settings.proposalExclusions || ''}
           onChange={(e) => setSettings({ ...settings, proposalExclusions: e.target.value })}
         />
+        <span className="mt-1 block text-right text-[11px] text-slate-500">{exclusionsLen} chars</span>
       </label>
 
       <label className="block rounded-[22px] border border-slate-200/80 bg-slate-50/65 p-3 text-xs text-slate-600">
@@ -80,6 +89,7 @@ export function ProposalSectionEditor({ settings, setSettings, onResetSection, o
           value={settings.proposalClarifications || ''}
           onChange={(e) => setSettings({ ...settings, proposalClarifications: e.target.value })}
         />
+        <span className="mt-1 block text-right text-[11px] text-slate-500">{clarificationsLen} chars</span>
       </label>
 
       <label className="block rounded-[22px] border border-slate-200/80 bg-slate-50/65 p-3 text-xs text-slate-600">

@@ -20,6 +20,8 @@ import {
   ProjectFileRecord,
   ProjectJobConditions,
   ProjectRecord,
+  SourceQuoteLineRecord,
+  SourceQuoteRecord,
   RoomRecord,
   SettingsRecord,
   TakeoffLineRecord,
@@ -52,7 +54,6 @@ import {
   workspaceTabFromPathSegment,
 } from '../shared/utils/projectWorkspaceRoutes.ts';
 import { getErrorMessage } from '../shared/utils/errorMessage';
-import { scopeExceptionCount } from '../shared/utils/scopeReviewExceptions';
 import { computeFieldScheduleHint } from '../shared/utils/fieldScheduleHint';
 import type { PartitionLayoutGeneratedLine } from '../shared/utils/partitionLayoutBuilder';
 import { toggleBulkSelectionForVisibleConcrete } from '../shared/utils/estimateBulkSelection';
@@ -76,10 +77,9 @@ import { ItemPicker } from '../components/workspace/ItemPicker';
 import { ModifierPanel } from '../components/workspace/ModifierPanel';
 import { BundlePickerModal } from '../components/workspace/BundlePickerModal';
 import { PartitionLayoutBuilderModal } from '../components/workspace/PartitionLayoutBuilderModal';
-import { OverviewPage } from './project/OverviewPage';
-import { SetupPage } from './project/SetupPage';
-import { ScopeReviewPage } from './project/ScopeReviewPage';
-import { MatchingPage } from './project/MatchingPage';
+import { ProjectOverviewMvpPage } from './project/ProjectOverviewMvpPage';
+import { ProjectSetupPage } from './project/ProjectSetupPage';
+import { QuotesPage } from './project/QuotesPage';
 import { HandoffSummary } from '../components/workflow/HandoffSummary';
 import { ActionFeedbackBanner } from '../components/feedback/ActionFeedbackBanner';
 import { formatCurrencySafe, formatLaborDurationMinutes, formatNumberSafe } from '../utils/numberFormat';
@@ -117,7 +117,7 @@ export function ProjectWorkspace() {
 
   const activeTab: WorkspaceTab = useMemo(() => {
     const fromPath = workspaceTabFromPathSegment(workspaceStep);
-    return fromPath ?? 'estimate';
+    return fromPath ?? 'overview';
   }, [workspaceStep]);
 
   const goToTab = useCallback(
@@ -145,6 +145,9 @@ export function ProjectWorkspace() {
   const [modifiers, setModifiers] = useState<ModifierRecord[]>([]);
   const [bundles, setBundles] = useState<BundleRecord[]>([]);
   const [projectFiles, setProjectFiles] = useState<ProjectFileRecord[]>([]);
+  const [sourceQuotes, setSourceQuotes] = useState<SourceQuoteRecord[]>([]);
+  const [activeQuoteId, setActiveQuoteId] = useState('');
+  const [sourceQuoteLines, setSourceQuoteLines] = useState<SourceQuoteLineRecord[]>([]);
   const [fileUploading, setFileUploading] = useState(false);
   const [lineModifiers, setLineModifiers] = useState<Array<{
     id: string;
@@ -190,6 +193,7 @@ export function ProjectWorkspace() {
   const [takeoffMatchStatus, setTakeoffMatchStatus] = useState<'all' | 'matched' | 'unmatched'>('all');
   const [takeoffUnresolvedOnly, setTakeoffUnresolvedOnly] = useState(false);
   const [estimateSearch, setEstimateSearch] = useState('');
+  const [estimateSourceFilter, setEstimateSourceFilter] = useState<'all' | 'manual' | 'catalog' | 'vendor_quote'>('all');
 
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [bundleModalOpen, setBundleModalOpen] = useState(false);
@@ -236,18 +240,15 @@ export function ProjectWorkspace() {
     return 'Mark Submitted';
   }, [project]);
 
-  const exceptionCount = useMemo(() => scopeExceptionCount(lines), [lines]);
-
   const stepNavItems = useMemo(
     () => [
-      { id: 'overview' as const, label: 'Overview', tier: 'secondary' as const },
-      { id: 'setup' as const, label: 'Setup', tier: 'secondary' as const },
-      { id: 'scope-review' as const, label: 'Scope review', badge: exceptionCount, tier: 'primary' as const },
-      { id: 'matching' as const, label: 'Matching', tier: 'primary' as const },
+      { id: 'overview' as const, label: 'Overview', tier: 'primary' as const },
+      { id: 'setup' as const, label: 'Setup', tier: 'primary' as const },
+      { id: 'quotes' as const, label: 'Quotes', tier: 'primary' as const },
       { id: 'estimate' as const, label: 'Estimate', tier: 'primary' as const },
       { id: 'proposal' as const, label: 'Proposal', tier: 'primary' as const },
     ],
-    [exceptionCount]
+    []
   );
 
   useEffect(() => {
@@ -298,7 +299,7 @@ export function ProjectWorkspace() {
   useEffect(() => {
     if (!id || !workspaceStep) return;
     if (!isValidWorkspaceStep(workspaceStep)) {
-      navigate(projectWorkspacePath(id, 'estimate'), { replace: true });
+      navigate(projectWorkspacePath(id, 'overview'), { replace: true });
     }
   }, [id, workspaceStep, navigate]);
 
@@ -389,20 +390,6 @@ export function ProjectWorkspace() {
     pricingCategoryFilter,
     proposalNativeEstimateId,
   ]);
-
-  /** Empty scope review is a dead-end — send estimators straight to the estimate with a clear status flag. */
-  useEffect(() => {
-    if (loading) return;
-    if (activeTab !== 'scope-review') return;
-    if (exceptionCount > 0) return;
-    if (!id) return;
-    const next = new URLSearchParams(searchParams);
-    next.delete('tab');
-    next.delete('view');
-    next.set('scopeChecked', '1');
-    const qs = next.toString();
-    navigate(`${projectWorkspacePath(id, 'estimate')}${qs ? `?${qs}` : ''}`, { replace: true });
-  }, [loading, exceptionCount, activeTab, id, navigate, searchParams]);
 
   /** Keep `?view=quantities` in sync for the Estimate step only; path carries the workspace tab. */
   useEffect(() => {
@@ -506,7 +493,7 @@ export function ProjectWorkspace() {
       } catch (repriceErr) {
         console.warn('Takeoff reprice skipped (workspace still loads)', repriceErr);
       }
-      const [projectData, roomData, lineData, catalogCategories, summaryData, settingsData, modifiersData, bundlesData, filesData] = await Promise.all([
+      const [projectData, roomData, lineData, catalogCategories, summaryData, settingsData, modifiersData, bundlesData, filesData, quoteData] = await Promise.all([
         api.getV1Project(projectId),
         api.getV1Rooms(projectId),
         api.getV1TakeoffLines(projectId),
@@ -516,6 +503,7 @@ export function ProjectWorkspace() {
         api.getV1Modifiers(),
         api.getV1Bundles(),
         api.getV1ProjectFiles(projectId),
+        api.getV1SourceQuotes(projectId),
       ]);
 
       const normalizedProject = {
@@ -540,6 +528,7 @@ export function ProjectWorkspace() {
       setModifiers(modifiersData);
       setBundles(bundlesData);
       setProjectFiles(filesData);
+      setSourceQuotes(quoteData);
 
       const ui = readWorkspaceUi(projectId);
       setProposalNativeEstimateId(typeof ui.proposalNativeEstimateId === 'string' ? ui.proposalNativeEstimateId : '');
@@ -575,6 +564,11 @@ export function ProjectWorkspace() {
         nextPricingCat = PRICING_ALL_CATEGORIES;
       }
       setPricingCategoryFilter(nextPricingCat);
+
+      const nextQuoteId = quoteData.some((quote) => quote.id === activeQuoteId)
+        ? activeQuoteId
+        : quoteData[0]?.id || '';
+      setActiveQuoteId(nextQuoteId);
     } catch (error: unknown) {
       console.error('Failed to load project workspace', error);
       const message = error instanceof Error ? error.message : 'Failed to load project.';
@@ -589,6 +583,25 @@ export function ProjectWorkspace() {
     }
   }
 
+  useEffect(() => {
+    if (!activeQuoteId) {
+      setSourceQuoteLines([]);
+      return;
+    }
+    let cancelled = false;
+    void api.getV1SourceQuoteLines(activeQuoteId)
+      .then((rows) => {
+        if (!cancelled) setSourceQuoteLines(rows);
+      })
+      .catch((error) => {
+        console.warn('Failed to load quote lines', error);
+        if (!cancelled) setSourceQuoteLines([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeQuoteId]);
+
   async function refreshTakeoff(projectId: string) {
     const [lineData, summaryData] = await Promise.all([
       api.getV1TakeoffLines(projectId),
@@ -597,6 +610,16 @@ export function ProjectWorkspace() {
     setLines(lineData);
     setTakeoffLinesLoadedAt(new Date().toISOString());
     setSummary(summaryData);
+  }
+
+  async function refreshSourceQuotes(projectId: string, preferredQuoteId?: string | null) {
+    const quotes = await api.getV1SourceQuotes(projectId);
+    setSourceQuotes(quotes);
+    const nextQuoteId = preferredQuoteId && quotes.some((quote) => quote.id === preferredQuoteId)
+      ? preferredQuoteId
+      : quotes[0]?.id || '';
+    setActiveQuoteId(nextQuoteId);
+    if (!nextQuoteId) setSourceQuoteLines([]);
   }
 
   const refreshProposalTabFresh = useCallback(
@@ -702,19 +725,21 @@ export function ProjectWorkspace() {
 
   const estimateFilteredLines = useMemo(() => {
     return scopedWorkspaceLines.filter((line) => {
+      const matchesSource = estimateSourceFilter === 'all' ? true : line.sourceType === estimateSourceFilter;
       const query = estimateSearch.trim().toLowerCase();
-      if (!query) return true;
+      if (!query) return matchesSource;
 
       const roomLabel = rooms.find((room) => room.id === line.roomId)?.roomName || '';
 
-      return [
+      const matchesSearch = [
         line.description,
         line.sku || '',
         line.category || '',
         roomLabel,
       ].some((value) => value.toLowerCase().includes(query));
+      return matchesSource && matchesSearch;
     });
-  }, [estimateSearch, rooms, scopedWorkspaceLines]);
+  }, [estimateSearch, estimateSourceFilter, rooms, scopedWorkspaceLines]);
 
   const takeoffSubtotal = useMemo(
     () => takeoffFilteredLines.reduce((sum, line) => sum + line.lineTotal, 0),
@@ -2081,19 +2106,27 @@ export function ProjectWorkspace() {
     });
   }
 
+  async function uploadProjectFileRecord(file: File): Promise<ProjectFileRecord> {
+    if (!project) {
+      throw new Error('Project is required before uploading files.');
+    }
+    const dataBase64 = await toBase64Payload(file);
+    const created = await api.uploadV1ProjectFile({
+      projectId: project.id,
+      fileName: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      sizeBytes: file.size,
+      dataBase64,
+    });
+    setProjectFiles((prev) => [created, ...prev]);
+    return created;
+  }
+
   async function uploadProjectFile(file: File | undefined) {
     if (!project || !file) return;
     setFileUploading(true);
     try {
-      const dataBase64 = await toBase64Payload(file);
-      await api.uploadV1ProjectFile({
-        projectId: project.id,
-        fileName: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        sizeBytes: file.size,
-        dataBase64,
-      });
-      setProjectFiles(await api.getV1ProjectFiles(project.id));
+      await uploadProjectFileRecord(file);
     } catch (error: unknown) {
       window.alert(getErrorMessage(error, 'File upload failed.'));
     } finally {
@@ -2116,6 +2149,234 @@ export function ProjectWorkspace() {
       setProject(saved);
     } catch (error: unknown) {
       window.alert(getErrorMessage(error, 'Could not update assumptions.'));
+    }
+  }
+
+  async function createSourceQuote(input: {
+    vendorName: string;
+    quoteNumber: string;
+    quoteDate: string;
+    notes: string;
+    file: File | null;
+  }) {
+    if (!project) return;
+    setFileUploading(Boolean(input.file));
+    try {
+      let sourceFileId: string | null = null;
+      if (input.file) {
+        const fileRecord = await uploadProjectFileRecord(input.file);
+        sourceFileId = fileRecord.id;
+      }
+      const created = await api.createV1SourceQuote({
+        projectId: project.id,
+        vendorName: input.vendorName,
+        quoteNumber: input.quoteNumber || null,
+        quoteDate: input.quoteDate || null,
+        deliveryDate: null,
+        shipTo: null,
+        notes: input.notes || null,
+        sourceFileId,
+      });
+      await refreshSourceQuotes(project.id, created.id);
+      if (sourceFileId) {
+        const extracted = await api.extractV1SourceQuoteFromFile(created.id, { replaceExisting: true });
+        await refreshSourceQuotes(project.id, created.id);
+        setActionFeedback({
+          tone: 'success',
+          message: extracted.rowsCreated > 0
+            ? `Quote created and parsed ${extracted.rowsCreated} staged row${extracted.rowsCreated === 1 ? '' : 's'}.`
+            : 'Quote created. No priced table rows were detected; add lines manually.',
+        });
+        return;
+      }
+      setActionFeedback({ tone: 'success', message: 'Quote record created.' });
+    } catch (error) {
+      window.alert(getErrorMessage(error, 'Could not create quote.'));
+    } finally {
+      setFileUploading(false);
+    }
+  }
+
+  async function updateSourceQuote(quoteId: string, updates: Partial<SourceQuoteRecord>) {
+    if (!project) return;
+    try {
+      const updated = await api.updateV1SourceQuote(quoteId, updates);
+      setSourceQuotes((prev) => prev.map((quote) => (quote.id === quoteId ? updated : quote)));
+    } catch (error) {
+      window.alert(getErrorMessage(error, 'Could not update quote.'));
+    }
+  }
+
+  async function deleteSourceQuote(quoteId: string) {
+    if (!project) return;
+    if (!window.confirm('Delete this quote and all staged quote lines?')) return;
+    try {
+      await api.deleteV1SourceQuote(quoteId);
+      const remainingQuotes = sourceQuotes.filter((quote) => quote.id !== quoteId);
+      setSourceQuotes(remainingQuotes);
+      const nextQuoteId = remainingQuotes[0]?.id || '';
+      setActiveQuoteId(nextQuoteId);
+      if (!nextQuoteId) setSourceQuoteLines([]);
+      setActionFeedback({ tone: 'info', message: 'Quote removed.' });
+    } catch (error) {
+      window.alert(getErrorMessage(error, 'Could not delete quote.'));
+    }
+  }
+
+  async function addSourceQuoteLine(quoteId: string, draft: {
+    rawDescription: string;
+    manufacturer: string;
+    skuModel: string;
+    qty: number;
+    unit: string;
+    unitCost?: number | null;
+    totalCost?: number | null;
+    materialCost: number;
+    notes: string;
+    rowType?: SourceQuoteLineRecord['rowType'];
+  }) {
+    try {
+      const created = await api.createV1SourceQuoteLine(quoteId, {
+        rawDescription: draft.rawDescription,
+        normalizedDescription: draft.rawDescription,
+        manufacturer: draft.manufacturer || null,
+        skuModel: draft.skuModel || null,
+        qty: draft.qty,
+        unit: draft.unit,
+        unitCost: draft.unitCost ?? null,
+        totalCost: draft.totalCost ?? null,
+        materialCost: draft.materialCost,
+        rowType: draft.rowType || 'material',
+        notes: draft.notes || null,
+        importSelected: true,
+      });
+      setSourceQuoteLines((prev) => [...prev, created]);
+      await refreshSourceQuotes(project!.id, quoteId);
+    } catch (error) {
+      window.alert(getErrorMessage(error, 'Could not add quote line.'));
+    }
+  }
+
+  async function addSourceQuoteLinesBulk(quoteId: string, drafts: Array<{
+    rawDescription: string;
+    manufacturer: string;
+    skuModel: string;
+    qty: number;
+    unit: string;
+    unitCost?: number | null;
+    totalCost?: number | null;
+    materialCost: number;
+    notes: string;
+    rowType?: SourceQuoteLineRecord['rowType'];
+  }>) {
+    if (!project || drafts.length === 0) return;
+    try {
+      const created = await api.createV1SourceQuoteLinesBulk(
+        quoteId,
+        drafts.map((draft) => ({
+          rawDescription: draft.rawDescription,
+          normalizedDescription: draft.rawDescription,
+          manufacturer: draft.manufacturer || null,
+          skuModel: draft.skuModel || null,
+          qty: draft.qty,
+          unit: draft.unit,
+          unitCost: draft.unitCost ?? null,
+          totalCost: draft.totalCost ?? null,
+          materialCost: draft.materialCost,
+          rowType: draft.rowType || 'material',
+          notes: draft.notes || null,
+          importSelected: true,
+        }))
+      );
+      if (created.length > 0) {
+        setSourceQuoteLines((prev) => [...prev, ...created]);
+      }
+      await refreshSourceQuotes(project.id, quoteId);
+      if (created.length > 0) {
+        setActionFeedback({ tone: 'success', message: `Added ${created.length} quote line${created.length === 1 ? '' : 's'}.` });
+      }
+    } catch (error) {
+      window.alert(getErrorMessage(error, 'Could not add quote lines in bulk.'));
+    }
+  }
+
+  async function updateSourceQuoteLine(quoteId: string, lineId: string, updates: Partial<SourceQuoteLineRecord>) {
+    try {
+      const updated = await api.updateV1SourceQuoteLine(quoteId, lineId, updates);
+      setSourceQuoteLines((prev) => prev.map((line) => (line.id === lineId ? updated : line)));
+      if (project) await refreshSourceQuotes(project.id, quoteId);
+    } catch (error) {
+      window.alert(getErrorMessage(error, 'Could not update quote line.'));
+    }
+  }
+
+  async function deleteSourceQuoteLine(quoteId: string, lineId: string) {
+    if (!project) return;
+    try {
+      await api.deleteV1SourceQuoteLine(quoteId, lineId);
+      setSourceQuoteLines((prev) => prev.filter((line) => line.id !== lineId));
+      await refreshSourceQuotes(project.id, quoteId);
+    } catch (error) {
+      window.alert(getErrorMessage(error, 'Could not delete quote line.'));
+    }
+  }
+
+  async function importSelectedQuoteLines(quoteId: string) {
+    if (!project) return;
+    try {
+      const created = await api.importV1SelectedQuoteLines(quoteId);
+      if (created.length === 0) {
+        setActionFeedback({ tone: 'warning', message: 'No selected quote lines were imported.' });
+        return;
+      }
+      await Promise.all([
+        refreshTakeoff(project.id),
+        refreshSourceQuotes(project.id, quoteId),
+      ]);
+      setActionFeedback({ tone: 'success', message: `Imported ${created.length} quote line${created.length === 1 ? '' : 's'} into the estimate.` });
+      goToTab('estimate');
+    } catch (error) {
+      window.alert(getErrorMessage(error, 'Could not import selected quote lines.'));
+    }
+  }
+
+  async function extractSourceQuoteFromFile(quoteId: string, replaceExisting = true) {
+    if (!project) return;
+    try {
+      const extracted = await api.extractV1SourceQuoteFromFile(quoteId, { replaceExisting });
+      await refreshSourceQuotes(project.id, quoteId);
+      if (extracted.rowsCreated > 0) {
+        setActionFeedback({ tone: 'success', message: `Parsed ${extracted.rowsCreated} staged row${extracted.rowsCreated === 1 ? '' : 's'} from the source file.` });
+      } else {
+        setActionFeedback({ tone: 'warning', message: 'No usable priced rows were detected. You can still stage rows manually.' });
+      }
+    } catch (error) {
+      window.alert(getErrorMessage(error, 'Could not parse attached quote file.'));
+    }
+  }
+
+  async function promoteQuoteLinesToCatalogCandidates(
+    quoteId: string,
+    selectedLineIds: string[],
+    includeNonCatalogTypes = false
+  ): Promise<{ promotedCount: number; skippedCount: number }> {
+    if (!project) return { promotedCount: 0, skippedCount: 0 };
+    try {
+      const result = await api.promoteV1QuoteLinesToCatalogCandidates(quoteId, {
+        selectedLineIds,
+        includeNonCatalogTypes,
+      });
+      await refreshSourceQuotes(project.id, quoteId);
+      setActionFeedback({
+        tone: result.promotedCount > 0 ? 'success' : 'warning',
+        message: result.promotedCount > 0
+          ? `Promoted ${result.promotedCount} line${result.promotedCount === 1 ? '' : 's'} to catalog review.${result.skippedCount > 0 ? ` Skipped ${result.skippedCount} non-catalog row${result.skippedCount === 1 ? '' : 's'}.` : ''}`
+          : 'No lines were promoted to catalog review.',
+      });
+      return result;
+    } catch (error) {
+      window.alert(getErrorMessage(error, 'Could not promote lines to catalog review.'));
+      return { promotedCount: 0, skippedCount: 0 };
     }
   }
 
@@ -2215,6 +2476,16 @@ export function ProjectWorkspace() {
     return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspace…</div>;
   }
 
+  const nextAction = activeTab === 'overview'
+    ? { label: 'Configure setup', tab: 'setup' as const }
+    : activeTab === 'setup'
+      ? { label: 'Add quote', tab: 'quotes' as const }
+      : activeTab === 'quotes'
+        ? { label: 'Open estimate', tab: 'estimate' as const }
+        : activeTab === 'estimate'
+          ? { label: 'Preview proposal', tab: 'proposal' as const }
+          : { label: 'Back to estimate', tab: 'estimate' as const };
+
   return (
     <div className="min-h-full">
       <ProjectHeader
@@ -2259,75 +2530,74 @@ export function ProjectWorkspace() {
             ) : null
           }
         />
+        <section className="ui-surface mb-3 flex flex-wrap items-center gap-2 px-3 py-2.5">
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-600">
+            {sourceQuotes.length} quote{sourceQuotes.length === 1 ? '' : 's'}
+          </span>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-600">
+            {lines.length} estimate line{lines.length === 1 ? '' : 's'}
+          </span>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-600">
+            Total {formatCurrencySafe(summary?.baseBidTotal || 0)}
+          </span>
+          <span className="ml-auto text-xs text-slate-500">Next step</span>
+          <button
+            type="button"
+            onClick={() => goToTab(nextAction.tab)}
+            className="ui-btn-secondary h-8 px-3 text-[11px] font-semibold uppercase tracking-[0.06em]"
+          >
+            {nextAction.label}
+          </button>
+        </section>
         <div className="flex flex-col gap-3">
           <div className="min-w-0 flex-1 space-y-3">
         {activeTab === 'overview' && (
-          <OverviewPage
+          <ProjectOverviewMvpPage
             project={project}
-            rooms={rooms}
             summary={summary}
-            pricingMode={pricingMode}
-            scopeCategoryOptions={scopeCategoryOptions}
-            selectedScopeCategories={selectedScopeCategories}
-            jobConditions={jobConditions}
-            setActiveTab={goToTab}
-            projectFiles={projectFiles}
-            fileUploading={fileUploading}
-            onUploadFile={(f) => void uploadProjectFile(f)}
-            onRemoveFile={(id) => void removeProjectFile(id)}
-            onRemoveStructuredAssumption={(id) => void removeStructuredAssumption(id)}
+            quotes={sourceQuotes}
+            settings={settings}
+            setProject={setProject}
+            patchJobConditions={patchJobConditions}
+            onGoToTab={goToTab}
           />
         )}
 
         {activeTab === 'setup' && (
-          <SetupPage
+          <ProjectSetupPage
             project={project}
-            setProject={setProject}
-            jobConditions={jobConditions}
-            patchJobConditions={patchJobConditions}
-            showMaterial={showMaterial}
-            scopeCategoryOptions={scopeCategoryOptions}
-            selectedScopeCategories={selectedScopeCategories}
-            toggleScopeCategory={toggleScopeCategory}
-            rooms={rooms}
-            setActiveTab={goToTab}
-            onOpenEstimateQuantities={() => {
-              setEstimateView('quantities');
-              if (id) navigate(`${projectWorkspacePath(id, 'estimate')}?view=quantities`);
-            }}
-            summary={summary}
             settings={settings}
-            distanceError={distanceError}
-            distanceCalculating={distanceCalculating}
+            setProject={setProject}
+            patchJobConditions={patchJobConditions}
           />
         )}
 
-        {activeTab === 'scope-review' && (
-          <ScopeReviewPage
-            lines={lines}
-            rooms={rooms}
-            categories={categories}
-            roomNamesById={roomNamesById}
-            catalog={referencedCatalogItems}
-            pricingMode={pricingMode}
-            laborMultiplier={summary?.conditionLaborMultiplier || 1}
-            selectedLineId={selectedLineId}
-            onSelectLine={openLineEditor}
-            onPersistLine={(lineId, updates) => void persistLine(lineId, updates)}
-            onDeleteLine={(lineId) => void deleteLine(lineId)}
-            setActiveTab={goToTab}
-            onOpenLineInEstimate={(lineId) => {
-              const line = lines.find((l) => l.id === lineId);
-              if (line?.roomId) selectWorkspaceRoom(line.roomId);
-              setSelectedLineId(lineId);
-              setEstimateView('quantities');
-              if (id) navigate(`${projectWorkspacePath(id, 'estimate')}?view=quantities`);
-              setModifiersModalOpen(true);
+        {activeTab === 'quotes' && (
+          <QuotesPage
+            quotes={sourceQuotes}
+            activeQuoteId={activeQuoteId}
+            setActiveQuoteId={setActiveQuoteId}
+            quoteLines={sourceQuoteLines}
+            projectFiles={projectFiles}
+            fileUploading={fileUploading}
+            onCreateQuote={(draft) => createSourceQuote(draft)}
+            onUpdateQuote={(quoteId, updates) => updateSourceQuote(quoteId, updates)}
+            onDeleteQuote={(quoteId) => deleteSourceQuote(quoteId)}
+            onAddQuoteLine={(quoteId, draft) => addSourceQuoteLine(quoteId, draft)}
+            onAddQuoteLinesBulk={(quoteId, drafts) => addSourceQuoteLinesBulk(quoteId, drafts)}
+            onUpdateQuoteLine={(quoteId, lineId, updates) => updateSourceQuoteLine(quoteId, lineId, updates)}
+            onDeleteQuoteLine={(quoteId, lineId) => deleteSourceQuoteLine(quoteId, lineId)}
+            onImportSelected={(quoteId) => importSelectedQuoteLines(quoteId)}
+            onExtractSourceFile={(quoteId, replaceExisting) => {
+              const fromSetup = project.jobConditions.sourceQuoteExtractMode === 'replace_existing';
+              const effectiveReplace = fromSetup ? (sourceQuoteLines.length > 0 || replaceExisting) : false;
+              return extractSourceQuoteFromFile(quoteId, effectiveReplace);
             }}
+            onPromoteToCatalogCandidates={(quoteId, selectedLineIds, includeNonCatalogTypes) =>
+              promoteQuoteLinesToCatalogCandidates(quoteId, selectedLineIds, includeNonCatalogTypes)
+            }
           />
         )}
-
-        {activeTab === 'matching' && id ? <MatchingPage projectId={id} /> : null}
 
         {activeTab === 'estimate' && (() => {
           /**
@@ -2665,6 +2935,19 @@ export function ProjectWorkspace() {
                             })}
                           </>
                         )}
+                        <label className="space-y-1 text-[11px] font-semibold uppercase tracking-wide text-app-muted">
+                          <span>Source</span>
+                          <select
+                            className="ui-input h-9 min-w-[10rem] text-sm"
+                            value={estimateSourceFilter}
+                            onChange={(event) => setEstimateSourceFilter(event.target.value as 'all' | 'manual' | 'catalog' | 'vendor_quote')}
+                          >
+                            <option value="all">All sources</option>
+                            <option value="manual">Manual</option>
+                            <option value="catalog">Catalog</option>
+                            <option value="vendor_quote">Vendor quote</option>
+                          </select>
+                        </label>
                   </div>
                 </div>
 

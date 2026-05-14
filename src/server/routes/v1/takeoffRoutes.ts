@@ -9,6 +9,14 @@ import {
 } from '../../repos/takeoffRepo.ts';
 import { recalculateProjectLinePricing } from '../../repos/modifiersRepo.ts';
 import { getProject } from '../../repos/projectsRepo.ts';
+import { getProjectFromSheets } from '../../repos/sheetsProjectsRepo.ts';
+import {
+  createEstimateLineInSheets,
+  deleteEstimateLineInSheets,
+  listEstimateLinesFromSheets,
+  updateEstimateLineInSheets,
+} from '../../repos/sheetsEstimateRepo.ts';
+import { isSheetsDataBackend } from '../../repos/dataBackend.ts';
 import { calculateEstimateSummary } from '../../services/estimateEngineV1.ts';
 import { generateInstallReviewEmailDraft } from '../../services/installReviewEmailService.ts';
 
@@ -20,8 +28,10 @@ takeoffRouter.get('/lines', async (req, res) => {
   if (!projectId) {
     return res.status(400).json({ error: 'projectId is required' });
   }
-
-  return res.json({ data: await listTakeoffLines(projectId, roomId) });
+  const data = isSheetsDataBackend()
+    ? await listEstimateLinesFromSheets(projectId, roomId)
+    : await listTakeoffLines(projectId, roomId);
+  return res.json({ data });
 });
 
 takeoffRouter.post('/lines', async (req, res) => {
@@ -33,11 +43,16 @@ takeoffRouter.post('/lines', async (req, res) => {
     return res.status(400).json({ error: 'projectId, roomId and description are required' });
   }
 
-  const line = await createTakeoffLine(req.body);
+  const line = isSheetsDataBackend()
+    ? await createEstimateLineInSheets(req.body)
+    : await createTakeoffLine(req.body);
   return res.status(201).json({ data: line });
 });
 
 takeoffRouter.post('/lines/bulk-move', async (req, res) => {
+  if (isSheetsDataBackend()) {
+    return res.status(503).json({ error: 'Bulk move is not yet supported in sheets mode.' });
+  }
   const roomId = String(req.body?.roomId ?? '').trim();
   const rawIds = req.body?.lineIds;
   const lineIds = Array.isArray(rawIds) ? rawIds.map((id: unknown) => String(id ?? '').trim()).filter(Boolean) : [];
@@ -55,7 +70,9 @@ takeoffRouter.post('/lines/bulk-move', async (req, res) => {
 });
 
 takeoffRouter.put('/lines/:lineId', async (req, res) => {
-  const line = await updateTakeoffLine(req.params.lineId, req.body ?? {});
+  const line = isSheetsDataBackend()
+    ? await updateEstimateLineInSheets(req.params.lineId, req.body ?? {})
+    : await updateTakeoffLine(req.params.lineId, req.body ?? {});
   if (!line) {
     return res.status(404).json({ error: 'Takeoff line not found' });
   }
@@ -64,7 +81,9 @@ takeoffRouter.put('/lines/:lineId', async (req, res) => {
 });
 
 takeoffRouter.delete('/lines/:lineId', async (req, res) => {
-  const deleted = await deleteTakeoffLine(req.params.lineId);
+  const deleted = isSheetsDataBackend()
+    ? await deleteEstimateLineInSheets(req.params.lineId)
+    : await deleteTakeoffLine(req.params.lineId);
   if (!deleted) {
     return res.status(404).json({ error: 'Takeoff line not found' });
   }
@@ -73,6 +92,9 @@ takeoffRouter.delete('/lines/:lineId', async (req, res) => {
 });
 
 takeoffRouter.post('/lines/:lineId/duplicate', async (req, res) => {
+  if (isSheetsDataBackend()) {
+    return res.status(503).json({ error: 'Duplicate line is not yet supported in sheets mode.' });
+  }
   const roomId = String(req.body?.roomId ?? '').trim();
   if (!roomId) {
     return res.status(400).json({ error: 'roomId is required' });
@@ -87,6 +109,9 @@ takeoffRouter.post('/lines/:lineId/duplicate', async (req, res) => {
 });
 
 takeoffRouter.post('/finalize-parser-lines', async (req, res) => {
+  if (isSheetsDataBackend()) {
+    return res.status(503).json({ error: 'Finalize parser lines is not yet supported in sheets mode.' });
+  }
   const payload = req.body ?? {};
   const lines = Array.isArray(payload.lines) ? payload.lines : [];
 
@@ -99,6 +124,9 @@ takeoffRouter.post('/finalize-parser-lines', async (req, res) => {
 });
 
 takeoffRouter.post('/reprice/:projectId', async (req, res) => {
+  if (isSheetsDataBackend()) {
+    return res.status(503).json({ error: 'Reprice is not yet supported in sheets mode.' });
+  }
   const project = await getProject(req.params.projectId);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
@@ -109,22 +137,30 @@ takeoffRouter.post('/reprice/:projectId', async (req, res) => {
 });
 
 takeoffRouter.get('/summary/:projectId', async (req, res) => {
-  const project = await getProject(req.params.projectId);
+  const project = isSheetsDataBackend()
+    ? await getProjectFromSheets(req.params.projectId)
+    : await getProject(req.params.projectId);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
   }
 
-  const lines = await listTakeoffLines(project.id);
+  const lines = isSheetsDataBackend()
+    ? await listEstimateLinesFromSheets(project.id)
+    : await listTakeoffLines(project.id);
   return res.json({ data: await calculateEstimateSummary(project, lines) });
 });
 
 takeoffRouter.post('/install-review-email/:projectId', async (req, res) => {
-  const project = await getProject(req.params.projectId);
+  const project = isSheetsDataBackend()
+    ? await getProjectFromSheets(req.params.projectId)
+    : await getProject(req.params.projectId);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
   }
 
-  const lines = await listTakeoffLines(project.id);
+  const lines = isSheetsDataBackend()
+    ? await listEstimateLinesFromSheets(project.id)
+    : await listTakeoffLines(project.id);
   const summary = await calculateEstimateSummary(project, lines);
   const draft = await generateInstallReviewEmailDraft({ project, lines, summary });
   return res.json({ data: draft });
