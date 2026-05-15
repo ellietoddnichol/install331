@@ -8,6 +8,7 @@ import { api } from '../services/api';
 import { useProjectsQuery } from '../hooks/api/useProjectsQuery.ts';
 import { queryKeys } from '../lib/queryKeys.ts';
 import { getCanonicalProjectDateTimestamp } from '../shared/utils/projectDates';
+import { getDashboardDisplayStatus } from '../shared/utils/dashboardProjectDisplay';
 
 type SortValue = 'newest' | 'oldest' | 'name';
 type ProjectFilterValue =
@@ -92,7 +93,7 @@ export function Projects() {
 
     const byStatus = bySearch.filter((project) => {
       if (status === 'all') return true;
-      if (status === 'active') return project.status !== 'Archived';
+      if (status === 'active') return project.status !== 'Archived' && project.status !== 'Lost';
       if (status === 'due-soon') {
         const due = getCanonicalProjectDateTimestamp(project);
         if (due === null) return false;
@@ -101,10 +102,11 @@ export function Projects() {
         return due >= now && due <= inSevenDays;
       }
       if (status === 'draft-proposals') return project.status === 'Draft';
+      if (status === 'Draft') return getDashboardDisplayStatus(project) === 'draft';
       if (status === 'estimate') {
-        const s = String(project.status || '');
-        return s !== 'Draft' && s !== 'Submitted' && s !== 'Archived' && s !== 'Awarded' && s !== 'Lost';
+        return getDashboardDisplayStatus(project) === 'estimate';
       }
+      if (status === 'Archived') return project.status === 'Archived' || project.status === 'Lost';
       return project.status === status;
     });
 
