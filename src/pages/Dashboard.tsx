@@ -62,9 +62,21 @@ export function Dashboard() {
     }).length;
   }, [projects]);
 
+  const draftCount = projects.filter((p) => p.status === 'Draft').length;
+  const submittedCount = projects.filter((p) => p.status === 'Submitted').length;
+  const dueSoonCount = useMemo(() => {
+    const now = Date.now();
+    const inSevenDays = now + 7 * 24 * 60 * 60 * 1000;
+    return projects.filter((project) => {
+      const due = getCanonicalProjectDateTimestamp(project);
+      if (due === null || project.status === 'Archived') return false;
+      return due >= now && due <= inSevenDays;
+    }).length;
+  }, [projects]);
+
   const stats: Array<{
     label: string;
-    value: number;
+    value: number | string;
     filter: DashboardDrilldown;
     helper: string;
   }> = [
@@ -72,25 +84,31 @@ export function Dashboard() {
       label: 'Active Projects',
       value: projects.filter((project) => project.status !== 'Archived').length,
       filter: 'active',
-      helper: 'Open active project list',
+      helper: 'Projects in progress',
     },
     {
-      label: 'Bids Due Soon',
-      value: dueSoon.length,
-      filter: 'due-soon',
-      helper: 'Open projects due in the next 7 days',
-    },
-    {
-      label: 'Draft Proposals',
-      value: draftProposals.length,
+      label: 'Quotes Needing Review',
+      value: draftCount,
       filter: 'draft-proposals',
-      helper: 'Open draft proposal projects',
+      helper: 'Draft projects — add or review quotes',
     },
     {
-      label: 'Submitted',
-      value: projects.filter((project) => project.status === 'Submitted').length,
+      label: 'Estimates In Progress',
+      value: Math.max(0, projects.filter((p) => p.status !== 'Archived' && p.status !== 'Submitted').length - draftCount),
+      filter: 'active',
+      helper: 'Open estimating work',
+    },
+    {
+      label: 'Proposals Ready',
+      value: submittedCount,
       filter: 'submitted',
-      helper: 'Open submitted projects',
+      helper: 'Ready to preview or send',
+    },
+    {
+      label: 'Bids Due This Week',
+      value: dueSoonCount,
+      filter: 'due-soon',
+      helper: 'Due in the next 7 days',
     },
   ];
 
@@ -180,14 +198,10 @@ export function Dashboard() {
         <div>
           <div className="flex items-center gap-2.5">
             <span className="ui-status-live">Live</span>
-            <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-              Brighten Builders <span className="mx-1 text-slate-300">/</span> Operations Snapshot
-            </span>
+            <span className="text-xs font-medium text-slate-500">Brighten Builders · Install App</span>
           </div>
           <h1 className="mt-1.5 text-[24px] font-semibold leading-tight tracking-tight text-slate-950 md:text-[28px]">Dashboard</h1>
-          <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.06em] text-slate-500">
-            Active Work · Bid Due Dates · Proposal Progress
-          </p>
+          <p className="mt-1 text-sm text-slate-600">Your projects, quotes, estimates, and proposals at a glance.</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => navigate('/project/new')} className="ui-btn-cta">
@@ -239,7 +253,7 @@ export function Dashboard() {
         </div>
       </section>
 
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         {stats.map((stat) => (
           <button
             key={stat.label}
@@ -251,7 +265,9 @@ export function Dashboard() {
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="ui-stat-tile-kicker">{stat.label}</p>
-                <p className="mt-2 font-mono text-[28px] font-semibold leading-none tabular-nums text-white">{String(stat.value).padStart(2, '0')}</p>
+                <p className="mt-2 text-[28px] font-semibold leading-none tabular-nums text-white">
+                  {typeof stat.value === 'number' ? String(stat.value).padStart(2, '0') : stat.value}
+                </p>
                 <p className="mt-1.5 font-mono text-[9.5px] uppercase tracking-[0.06em] text-slate-400">{stat.helper}</p>
               </div>
               <span className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-white/5 text-slate-300 transition-colors group-hover:bg-white/10 group-hover:text-white">
@@ -296,9 +312,9 @@ export function Dashboard() {
             dateField="updatedAt"
           />
           <SmallList
-            title="Projects Needing Attention"
+            title="Attention Queue"
             items={needingAttention}
-            emptyText="No projects need immediate attention."
+            emptyText="Nothing needs attention right now."
             dateField="updatedAt"
             getNavigateTo={projectControlCenterPath}
           />

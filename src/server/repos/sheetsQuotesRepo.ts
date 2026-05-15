@@ -4,12 +4,21 @@ import {
   SHEETS_TABS,
   bulkUpsertRows,
   isGoogleSheetsConfigured,
-  readRows,
+  readRowsWithLegacyTab,
   updateRowById,
   upsertRowById,
   type SheetsRow,
 } from '../integrations/googleSheets.ts';
-import { assertSheetsWorkbookId, getCatalogSpreadsheetId, getProjectsSpreadsheetId } from './dataBackend.ts';
+import { vendorIntakeTabSourceQuotes, vendorIntakeTabStagedQuoteRows } from '../config/div10SheetsWorkbooks.ts';
+import { assertSheetsWorkbookId, getCatalogSpreadsheetId, getVendorIntakeSpreadsheetIdForWorkspace } from './dataBackend.ts';
+
+function sourceQuotesTab(): string {
+  return vendorIntakeTabSourceQuotes();
+}
+
+function stagedQuoteRowsTab(): string {
+  return vendorIntakeTabStagedQuoteRows();
+}
 import { listEstimateLinesFromSheets, upsertEstimateLinesToSheets } from './sheetsEstimateRepo.ts';
 import { listCatalogItemsFromSheets } from './sheetsCatalogRepo.ts';
 import { getProjectFromSheets } from './sheetsProjectsRepo.ts';
@@ -37,12 +46,12 @@ function toNumber(value: string | undefined, defaultValue = 0): number {
   return Number.isFinite(n) ? n : defaultValue;
 }
 
-function projectsWorkbookId(): string {
-  return assertSheetsWorkbookId(getProjectsSpreadsheetId(), 'GOOGLE_PROJECTS_SPREADSHEET_ID');
+function vendorIntakeWorkbookId(): string {
+  return assertSheetsWorkbookId(getVendorIntakeSpreadsheetIdForWorkspace(), 'VENDOR_INTAKE_BACKEND_SPREADSHEET_ID');
 }
 
 function catalogWorkbookId(): string {
-  return assertSheetsWorkbookId(getCatalogSpreadsheetId(), 'GOOGLE_CATALOG_SPREADSHEET_ID');
+  return assertSheetsWorkbookId(getCatalogSpreadsheetId(), 'CATALOG_LABOR_BACKEND_SPREADSHEET_ID');
 }
 
 function mapSourceQuoteRowFromSheet(row: Record<string, string>): SourceQuoteRecord {
@@ -174,7 +183,7 @@ function parseBooleanCell(value: string | undefined): boolean {
 
 export async function syncSourceQuoteToSheets(quote: SourceQuoteRecord): Promise<void> {
   if (!isGoogleSheetsConfigured()) return;
-  await upsertRowById(SHEETS_TABS.SOURCE_QUOTES, 'SourceQuoteID', mapSourceQuoteToSheetRow(quote), projectsWorkbookId());
+  await upsertRowById(sourceQuotesTab(), 'SourceQuoteID', mapSourceQuoteToSheetRow(quote), vendorIntakeWorkbookId());
 }
 
 export async function syncSourceQuoteLinesToSheets(input: {
@@ -189,7 +198,11 @@ export async function syncSourceQuoteLinesToSheets(input: {
       .map((line) => String(line.sourceRef))
   );
 
-  const existingRows = await readRows(SHEETS_TABS.SOURCE_QUOTE_LINES, projectsWorkbookId());
+  const existingRows = await readRowsWithLegacyTab(
+    stagedQuoteRowsTab(),
+    SHEETS_TABS.SOURCE_QUOTE_LINES,
+    vendorIntakeWorkbookId()
+  );
   const candidateByLineId = new Map<string, boolean>();
   existingRows.forEach((row) => {
     const lineId = String(row.SourceQuoteLineID || '').trim();
@@ -206,11 +219,11 @@ export async function syncSourceQuoteLinesToSheets(input: {
     })
   );
 
-  await bulkUpsertRows(SHEETS_TABS.SOURCE_QUOTE_LINES, 'SourceQuoteLineID', rows, projectsWorkbookId());
+  await bulkUpsertRows(stagedQuoteRowsTab(), 'SourceQuoteLineID', rows, vendorIntakeWorkbookId());
 }
 
 export async function listSourceQuotesFromSheets(projectId: string): Promise<SourceQuoteRecord[]> {
-  const rows = await readRows(SHEETS_TABS.SOURCE_QUOTES, projectsWorkbookId());
+  const rows = await readRowsWithLegacyTab(sourceQuotesTab(), SHEETS_TABS.SOURCE_QUOTES, vendorIntakeWorkbookId());
   return rows
     .map(mapSourceQuoteRowFromSheet)
     .filter((row) => row.projectId === projectId)
@@ -218,7 +231,7 @@ export async function listSourceQuotesFromSheets(projectId: string): Promise<Sou
 }
 
 export async function getSourceQuoteFromSheets(quoteId: string): Promise<SourceQuoteRecord | null> {
-  const rows = await readRows(SHEETS_TABS.SOURCE_QUOTES, projectsWorkbookId());
+  const rows = await readRowsWithLegacyTab(sourceQuotesTab(), SHEETS_TABS.SOURCE_QUOTES, vendorIntakeWorkbookId());
   const found = rows.map(mapSourceQuoteRowFromSheet).find((row) => row.id === quoteId);
   return found || null;
 }
@@ -241,7 +254,7 @@ export async function createSourceQuoteInSheets(
     createdAt: now,
     updatedAt: now,
   };
-  await upsertRowById(SHEETS_TABS.SOURCE_QUOTES, 'SourceQuoteID', mapSourceQuoteToSheetRow(quote), projectsWorkbookId());
+  await upsertRowById(sourceQuotesTab(), 'SourceQuoteID', mapSourceQuoteToSheetRow(quote), vendorIntakeWorkbookId());
   return quote;
 }
 
@@ -257,7 +270,7 @@ export async function updateSourceQuoteInSheets(
     id: quoteId,
     updatedAt: new Date().toISOString(),
   };
-  await upsertRowById(SHEETS_TABS.SOURCE_QUOTES, 'SourceQuoteID', mapSourceQuoteToSheetRow(next), projectsWorkbookId());
+  await upsertRowById(sourceQuotesTab(), 'SourceQuoteID', mapSourceQuoteToSheetRow(next), vendorIntakeWorkbookId());
   return next;
 }
 
@@ -265,17 +278,21 @@ export async function deleteSourceQuoteInSheets(quoteId: string): Promise<boolea
   const existing = await getSourceQuoteFromSheets(quoteId);
   if (!existing) return false;
   await updateRowById(
-    SHEETS_TABS.SOURCE_QUOTES,
+    sourceQuotesTab(),
     'SourceQuoteID',
     quoteId,
     { ImportStatus: 'deleted', UpdatedAt: new Date().toISOString() },
-    projectsWorkbookId()
+    vendorIntakeWorkbookId()
   );
   return true;
 }
 
 export async function listSourceQuoteLinesFromSheets(sourceQuoteId: string): Promise<SourceQuoteLineRecord[]> {
-  const rows = await readRows(SHEETS_TABS.SOURCE_QUOTE_LINES, projectsWorkbookId());
+  const rows = await readRowsWithLegacyTab(
+    stagedQuoteRowsTab(),
+    SHEETS_TABS.SOURCE_QUOTE_LINES,
+    vendorIntakeWorkbookId()
+  );
   return rows
     .map(mapSourceQuoteLineFromSheet)
     .filter((row) => row.sourceQuoteId === sourceQuoteId)
@@ -314,7 +331,7 @@ export async function createSourceQuoteLineInSheets(
   }
 
   await upsertRowById(
-    SHEETS_TABS.SOURCE_QUOTE_LINES,
+    stagedQuoteRowsTab(),
     'SourceQuoteLineID',
     mapSourceQuoteLineToSheetRow({
       quote,
@@ -322,7 +339,7 @@ export async function createSourceQuoteLineInSheets(
       importedToEstimate: false,
       candidateForCatalog: false,
     }),
-    projectsWorkbookId()
+    vendorIntakeWorkbookId()
   );
   return line;
 }
@@ -342,7 +359,11 @@ export async function updateSourceQuoteLineInSheets(
   lineId: string,
   input: Partial<SourceQuoteLineRecord>
 ): Promise<SourceQuoteLineRecord | null> {
-  const rows = await readRows(SHEETS_TABS.SOURCE_QUOTE_LINES, projectsWorkbookId());
+  const rows = await readRowsWithLegacyTab(
+    stagedQuoteRowsTab(),
+    SHEETS_TABS.SOURCE_QUOTE_LINES,
+    vendorIntakeWorkbookId()
+  );
   const row = rows.find((r) => String(r.SourceQuoteLineID || '').trim() === lineId);
   if (!row) return null;
 
@@ -357,7 +378,7 @@ export async function updateSourceQuoteLineInSheets(
   };
 
   await upsertRowById(
-    SHEETS_TABS.SOURCE_QUOTE_LINES,
+    stagedQuoteRowsTab(),
     'SourceQuoteLineID',
     mapSourceQuoteLineToSheetRow({
       quote,
@@ -365,18 +386,18 @@ export async function updateSourceQuoteLineInSheets(
       importedToEstimate: toBool(row.ImportedToEstimate),
       candidateForCatalog: toBool(row.CandidateForCatalog),
     }),
-    projectsWorkbookId()
+    vendorIntakeWorkbookId()
   );
   return next;
 }
 
 export async function deleteSourceQuoteLineInSheets(lineId: string): Promise<boolean> {
   return updateRowById(
-    SHEETS_TABS.SOURCE_QUOTE_LINES,
+    stagedQuoteRowsTab(),
     'SourceQuoteLineID',
     lineId,
     { ImportSelected: 'FALSE', RowType: 'ignore', Notes: 'Deleted in app' },
-    projectsWorkbookId()
+    vendorIntakeWorkbookId()
   );
 }
 
@@ -388,7 +409,11 @@ export async function importSelectedQuoteLinesToEstimateInSheets(sourceQuoteId: 
   const settings = await getSettingsFromSheets();
   const jobConditions = normalizeProjectJobConditions(project.jobConditions);
 
-  const quoteRowsRaw = await readRows(SHEETS_TABS.SOURCE_QUOTE_LINES, projectsWorkbookId());
+  const quoteRowsRaw = await readRowsWithLegacyTab(
+    stagedQuoteRowsTab(),
+    SHEETS_TABS.SOURCE_QUOTE_LINES,
+    vendorIntakeWorkbookId()
+  );
   const quoteRows = quoteRowsRaw
     .filter((row) => String(row.SourceQuoteID || '').trim() === sourceQuoteId)
     .filter((row) => toBool(row.ImportSelected))
@@ -498,11 +523,11 @@ export async function importSelectedQuoteLinesToEstimateInSheets(sourceQuoteId: 
   await Promise.all(
     quoteRows.map((row) =>
       updateRowById(
-        SHEETS_TABS.SOURCE_QUOTE_LINES,
+        stagedQuoteRowsTab(),
         'SourceQuoteLineID',
         String(row.SourceQuoteLineID || '').trim(),
         { ImportedToEstimate: 'TRUE' },
-        projectsWorkbookId()
+        vendorIntakeWorkbookId()
       )
     )
   );
@@ -551,7 +576,11 @@ export async function promoteSourceQuoteLinesToCatalogCandidates(input: {
 
   await bulkUpsertRows(SHEETS_TABS.CATALOG_CANDIDATES, 'CandidateID', rowsToUpsert, catalogWorkbookId());
 
-  const existingSourceRows = await readRows(SHEETS_TABS.SOURCE_QUOTE_LINES, projectsWorkbookId());
+  const existingSourceRows = await readRowsWithLegacyTab(
+    stagedQuoteRowsTab(),
+    SHEETS_TABS.SOURCE_QUOTE_LINES,
+    vendorIntakeWorkbookId()
+  );
   const importedByLineId = new Map<string, boolean>();
   existingSourceRows.forEach((row) => {
     const lineId = String(row.SourceQuoteLineID || '').trim();
@@ -562,7 +591,7 @@ export async function promoteSourceQuoteLinesToCatalogCandidates(input: {
   await Promise.all(
     filtered.map((line) =>
       upsertRowById(
-        SHEETS_TABS.SOURCE_QUOTE_LINES,
+        stagedQuoteRowsTab(),
         'SourceQuoteLineID',
         mapSourceQuoteLineToSheetRow({
           quote: input.quote,
@@ -570,7 +599,7 @@ export async function promoteSourceQuoteLinesToCatalogCandidates(input: {
           importedToEstimate: importedByLineId.get(line.id) === true,
           candidateForCatalog: true,
         }),
-        projectsWorkbookId()
+        vendorIntakeWorkbookId()
       )
     )
   );

@@ -25,7 +25,9 @@
     "catalog:audit:supabase": "tsx scripts/auditCatalogSupabase.ts",
     "catalog:audit:supabase-phase": "tsx scripts/supabase-catalog-phase-audit.ts",
     "catalog:audit:identity-mfr-sku": "tsx scripts/identity-risk-mfr-sku-audit.ts",
-    "catalog:publish:blockers": "tsx scripts/publish-blockers-report.ts"
+    "catalog:publish:blockers": "tsx scripts/publish-blockers-report.ts",
+    "seed:div10-sheets:dry": "node scripts/seed-div10-sheets-workbooks.mjs --dry-run",
+    "seed:div10-sheets": "node scripts/seed-div10-sheets-workbooks.mjs"
   },
   "dependencies": {
     "@google-cloud/documentai": "^9.6.0",

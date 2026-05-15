@@ -25,7 +25,10 @@ function loadServiceAccountCredentials(): { client_email: string; private_key: s
       }
     }
     const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL;
-    const privateKey = (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+    const privateKey = (process.env.GOOGLE_PRIVATE_KEY || process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '').replace(
+      /\\n/g,
+      '\n'
+    );
     if (clientEmail && privateKey) {
       return { client_email: clientEmail, private_key: privateKey };
     }
@@ -42,7 +45,7 @@ function getStorage(): Storage {
   const creds = loadServiceAccountCredentials();
   if (!creds) {
     throw new Error(
-      'Google credentials are missing. Set GOOGLE_SERVICE_ACCOUNT_FILE, GOOGLE_SERVICE_ACCOUNT JSON, or GOOGLE_SERVICE_ACCOUNT_EMAIL with GOOGLE_PRIVATE_KEY.'
+      'Google credentials are missing. Set GOOGLE_SERVICE_ACCOUNT_FILE, GOOGLE_SERVICE_ACCOUNT JSON, or GOOGLE_SERVICE_ACCOUNT_EMAIL with GOOGLE_PRIVATE_KEY (or GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY).'
     );
   }
   storageClient = new Storage({

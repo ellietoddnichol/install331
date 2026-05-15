@@ -550,6 +550,7 @@ export const api = {
     catalogBundleItemsReadTable: string;
     catalogItemsReadTable: string;
     catalogModifiersReadTable: string;
+    catalogDataSource: 'sheets' | 'postgres' | 'sqlite';
   }> {
     const res = await apiFetch(`${API_BASE}/v1/settings/integration-health`);
     const payload = await handleResponse<{ data: {
@@ -572,8 +573,30 @@ export const api = {
       catalogBundleItemsReadTable: string;
       catalogItemsReadTable: string;
       catalogModifiersReadTable: string;
+      catalogDataSource: 'sheets' | 'postgres' | 'sqlite';
     } }>(res);
     return payload.data;
+  },
+  async getAdminDiv10SheetsHealth(): Promise<{
+    dataBackend: string;
+    sheetsBackendActive: boolean;
+    ok: boolean;
+    message?: string;
+    googleAuthConfigured: boolean;
+    googleAuthError?: string;
+    missingEnvVars: string[];
+    errors: string[];
+    workbooks: Array<{
+      key: string;
+      spreadsheetIdMasked: string;
+      ok: boolean;
+      missingTabs: string[];
+      tabs: Array<{ tabName: string; ok: boolean; missingHeaders: string[] }>;
+      error?: string;
+    }>;
+  }> {
+    const res = await apiFetch(`${API_BASE}/admin/div10-sheets/health`);
+    return handleResponse(res);
   },
   async backupV1PersistenceNow(): Promise<{ ok: boolean; message: string; status: DbPersistenceStatusRecord & { gcsObjectMeta?: any; remoteDurableKind?: 'supabase' | 'gcs' | null } }> {
     const res = await apiFetch(`${API_BASE}/v1/settings/persistence-backup-now`, {

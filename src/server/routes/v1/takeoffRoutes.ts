@@ -17,6 +17,8 @@ import {
   updateEstimateLineInSheets,
 } from '../../repos/sheetsEstimateRepo.ts';
 import { isSheetsDataBackend } from '../../repos/dataBackend.ts';
+import { tryRespondSheetsNotFound, tryRespondSheetsPermissionDenied } from '../../http/jsonErrors.ts';
+import { isGoogleSheetsTabMissingError } from '../../integrations/googleSheets.ts';
 import { calculateEstimateSummary } from '../../services/estimateEngineV1.ts';
 import { generateInstallReviewEmailDraft } from '../../services/installReviewEmailService.ts';
 
@@ -28,10 +30,22 @@ takeoffRouter.get('/lines', async (req, res) => {
   if (!projectId) {
     return res.status(400).json({ error: 'projectId is required' });
   }
-  const data = isSheetsDataBackend()
-    ? await listEstimateLinesFromSheets(projectId, roomId)
-    : await listTakeoffLines(projectId, roomId);
-  return res.json({ data });
+  try {
+    const data = isSheetsDataBackend()
+      ? await listEstimateLinesFromSheets(projectId, roomId)
+      : await listTakeoffLines(projectId, roomId);
+    return res.json({ data });
+  } catch (err) {
+    if (tryRespondSheetsPermissionDenied(res, err, '[takeoff]')) return;
+    if (tryRespondSheetsNotFound(res, err, '[takeoff]')) return;
+    if (isGoogleSheetsTabMissingError(err)) {
+      return res.status(503).json({
+        error: 'Estimate lines tab not found in the project workbook.',
+        hint: 'Div 10 default tab name is EstimateLines (not ESTIMATE_LINES). Set GOOGLE_SHEETS_TAB_ESTIMATE_LINES=EstimateLines on PROJECT_SETUP_ESTIMATE_PROPOSAL_SPREADSHEET_ID.',
+      });
+    }
+    throw err;
+  }
 });
 
 takeoffRouter.post('/lines', async (req, res) => {

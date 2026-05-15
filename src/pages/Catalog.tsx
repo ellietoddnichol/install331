@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowUpDown, Clipboard, Database, ExternalLink, Package, Plus, RefreshCw, Search, ShieldCheck, Trash2 } from 'lucide-react';
+import { Clipboard, ExternalLink, Package, Plus, RefreshCw, Search } from 'lucide-react';
 import { api } from '../services/api';
 import { useCatalogItemsPageQuery, useCatalogMetaQuery } from '../hooks/api/useCatalogWorkspaceQuery.ts';
 import { queryKeys } from '../lib/queryKeys.ts';
@@ -56,10 +56,111 @@ function CatalogItemThumb({ url }: { url: string | undefined }) {
 }
 
 type SortKey = 'sku-asc' | 'sku-desc' | 'name-asc' | 'name-desc' | 'category-asc' | 'material-desc' | 'labor-desc';
-type CatalogTab = 'items' | 'modifiers' | 'bundles';
+type CatalogTab = 'items' | 'labor-rules' | 'add-ins' | 'modifiers';
+
+function CatalogLaborRulesTab() {
+  const cols = ['Category', 'Keyword pattern', 'Unit', 'Labor minutes', 'Confidence', 'Notes'];
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-sm font-semibold text-slate-900">Labor Rules</h2>
+        <p className="mt-1 max-w-2xl text-sm text-slate-600">
+          Fallback labor rules are used when a quote row does not match a catalog item.
+        </p>
+      </div>
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="max-h-[60vh] overflow-auto">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50">
+              <tr>
+                {cols.map((c) => (
+                  <th key={c} className="ui-table-th px-3 py-2 text-left font-semibold text-slate-700">
+                    {c}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="px-3 py-10 text-center text-slate-500" colSpan={cols.length}>
+                  Rules are maintained in your catalog workbook for now. In-app editing is planned.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <Link to="/admin/health" className="text-sm font-medium text-blue-700 hover:text-blue-800">
+        View workbook health
+      </Link>
+    </div>
+  );
+}
+
+function CatalogAddInsTab() {
+  const cols = ['Name', 'Category', 'Unit', 'Material cost', 'Labor minutes', 'Default qty', 'Active'];
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-sm font-semibold text-slate-900">Add-Ins</h2>
+        <p className="mt-1 max-w-2xl text-sm text-slate-600">
+          Reusable estimate add-ins like freight, mobilization, layout, backing review, equipment, or miscellaneous labor.
+        </p>
+      </div>
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="max-h-[60vh] overflow-auto">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50">
+              <tr>
+                {cols.map((c) => (
+                  <th key={c} className="ui-table-th px-3 py-2 text-left font-semibold text-slate-700">
+                    {c}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="px-3 py-10 text-center text-slate-500" colSpan={cols.length}>
+                  Add-ins will appear here when this screen is connected to your catalog data. Until then, use your estimate workbook or line-level add-ins on projects.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <Link to="/admin/health" className="text-sm font-medium text-blue-700 hover:text-blue-800">
+        View workbook health
+      </Link>
+    </div>
+  );
+}
+
+function modifierEffectTypeLabel(m: ModifierRecord): string {
+  const parts: string[] = [];
+  if (Number(m.addLaborMinutes) !== 0) parts.push('Labor minutes');
+  if (Number(m.addMaterialCost) !== 0) parts.push('Material');
+  if (Number(m.percentLabor) !== 0) parts.push('% Labor');
+  if (Number(m.percentMaterial) !== 0) parts.push('% Material');
+  return parts.length ? parts.join(' · ') : '—';
+}
+
+function modifierEffectValueSummary(m: ModifierRecord): string {
+  const bits: string[] = [];
+  if (Number(m.addLaborMinutes) !== 0) bits.push(`${formatNumberSafe(m.addLaborMinutes, 1)} min`);
+  if (Number(m.addMaterialCost) !== 0) bits.push(formatCurrencySafe(m.addMaterialCost));
+  if (Number(m.percentLabor) !== 0) bits.push(formatPercentSafe(m.percentLabor));
+  if (Number(m.percentMaterial) !== 0) bits.push(`mat ${formatPercentSafe(m.percentMaterial)}`);
+  return bits.length ? bits.join(' · ') : '—';
+}
 
 function parseCatalogTabParam(raw: string | null): CatalogTab {
-  return raw === 'modifiers' || raw === 'bundles' ? raw : 'items';
+  if (raw === 'labor-rules' || raw === 'labor') return 'labor-rules';
+  if (raw === 'add-ins' || raw === 'addins') return 'add-ins';
+  if (raw === 'modifiers') return 'modifiers';
+  if (raw === 'bundles') return 'modifiers';
+  if (raw === 'aliases' || raw === 'attributes' || raw === 'sync' || raw === 'admin' || raw === 'workbook') return 'items';
+  return 'items';
 }
 
 function parseActiveFilterParam(raw: string | null): 'all' | 'active' | 'inactive' {
@@ -133,12 +234,6 @@ async function copyTextToClipboard(text: string): Promise<void> {
   }
 }
 
-function catalogRowTypeLabel(item: CatalogItem): string {
-  const t = String(item.itemType || '').trim();
-  if (t) return t;
-  return String(item.family || item.subcategory || 'Standard').trim() || 'Standard';
-}
-
 function catalogItemSourceTab(item: CatalogItem): string | null {
   const tab = String(item.catalogSourceTab || '').trim();
   if (tab) return tab;
@@ -146,8 +241,8 @@ function catalogItemSourceTab(item: CatalogItem): string | null {
   return src || null;
 }
 
-/** Labels + values already on `CatalogItem` that we surface read-only in the editor (no API change). */
-function catalogItemReadOnlyRows(item: CatalogItem): Array<{ label: string; value: string }> {
+/** Workbook/import provenance only — not shown in the main edit form. */
+function catalogItemProvenanceRows(item: CatalogItem): Array<{ label: string; value: string }> {
   const rows: Array<{ label: string; value: string }> = [];
   const add = (label: string, raw: unknown) => {
     if (raw === null || raw === undefined) return;
@@ -155,24 +250,15 @@ function catalogItemReadOnlyRows(item: CatalogItem): Array<{ label: string; valu
       rows.push({ label, value: raw ? 'Yes' : 'No' });
       return;
     }
-    if (Array.isArray(raw)) {
-      const joined = raw.map((x) => String(x).trim()).filter(Boolean).join(', ');
-      if (!joined) return;
-      rows.push({ label, value: joined });
-      return;
-    }
     const s = String(raw).trim();
     if (!s) return;
     rows.push({ label, value: s });
   };
 
-  add('catalogSource', item.catalogSource);
-  add('catalogSourceTab', item.catalogSourceTab);
-  if (item.catalogSourceRow != null) add('catalogSourceRow', String(item.catalogSourceRow));
-  add('catalogSyncBatchId', item.catalogSyncBatchId);
-  add('notes', item.notes);
-  add('estimatorNotes', item.estimatorNotes);
-  add('tags', item.tags);
+  add('Data source', item.catalogSource);
+  add('Worksheet tab', item.catalogSourceTab);
+  if (item.catalogSourceRow != null) add('Source row', String(item.catalogSourceRow));
+  add('Import batch id', item.catalogSyncBatchId);
 
   return rows;
 }
@@ -611,7 +697,6 @@ export function Catalog() {
 
   const metaQuery = useCatalogMetaQuery();
   const modifiers = metaQuery.data?.modifiers ?? [];
-  const bundles = metaQuery.data?.bundles ?? [];
   const syncStatus = metaQuery.data?.syncStatus ?? null;
   const inventory = metaQuery.data?.inventory ?? null;
   const facets = metaQuery.data?.facets;
@@ -884,6 +969,20 @@ export function Catalog() {
       ? '0'
       : `${itemsPage * pageSize + 1}–${itemsPage * pageSize + items.length}`;
 
+  const showNoActiveItemsHint =
+    activeTab === 'items' &&
+    activeFilter === 'active' &&
+    totalItemRows === 0 &&
+    itemsPageQuery.isFetched &&
+    !search.trim() &&
+    categoryFilter === 'all' &&
+    typeFilter === 'all' &&
+    !imageSprintOnly &&
+    sourceTabFilter === 'all' &&
+    inventory &&
+    inventory.total > 0 &&
+    inventory.active === 0;
+
   const curatorEditorContextBadges = useMemo(() => {
     const tags: string[] = [];
     if (imageSprintOnly) tags.push('Image sprint');
@@ -914,26 +1013,6 @@ export function Catalog() {
       })
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [modifiers, search, activeFilter]);
-
-  const filteredBundles = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return bundles
-      .filter((bundle) => {
-        const textMatch =
-          !query ||
-          bundle.bundleName.toLowerCase().includes(query) ||
-          bundle.id.toLowerCase().includes(query) ||
-          (bundle.category || '').toLowerCase().includes(query);
-
-        const activeMatch =
-          activeFilter === 'all' ||
-          (activeFilter === 'active' && bundle.active) ||
-          (activeFilter === 'inactive' && !bundle.active);
-
-        return textMatch && activeMatch;
-      })
-      .sort((a, b) => a.bundleName.localeCompare(b.bundleName));
-  }, [bundles, search, activeFilter]);
 
   const handleCreateItem = () => {
     suppressCatalogItemUrlOpenRef.current = false;
@@ -1075,6 +1154,22 @@ export function Catalog() {
     }
   }
 
+  async function handleToggleItemActive(item: CatalogItem, e?: React.MouseEvent) {
+    e?.stopPropagation();
+    if (item.active) {
+      await handleDeleteItem(item.id);
+      return;
+    }
+    if (!window.confirm('Activate this catalog item?')) return;
+    try {
+      await api.updateCatalogItem({ ...item, active: true });
+      await invalidateWorkspace();
+    } catch (err) {
+      console.error('Failed to activate item', err);
+      window.alert(err instanceof Error ? err.message : 'Could not activate item.');
+    }
+  }
+
   async function handleDeleteItem(id: string) {
     if (!confirm('Are you sure you want to deactivate this item?')) return;
     try {
@@ -1165,10 +1260,23 @@ export function Catalog() {
 
   /** Optional Google Sheets → DB import (`CATALOG_SHEETS_SYNC_ENABLED`); orthogonal to where live reads come from. */
   const sheetImportEnabled = integrationHealth?.catalogSheetsSyncEnabled === true;
+  const catalogSheetsSource = integrationHealth?.catalogDataSource === 'sheets';
   const dbDriver = (integrationHealth?.dbDriver ?? '').toLowerCase();
-  const catalogDbIsPostgres = dbDriver === 'pg';
-  const catalogDbIsSqlite = dbDriver === 'sqlite';
-  const catalogPersistenceLabel = catalogDbIsPostgres ? 'Supabase Postgres' : catalogDbIsSqlite ? 'local SQLite' : 'database';
+  const catalogDbIsPostgres = !catalogSheetsSource && dbDriver === 'pg';
+  const catalogDbIsSqlite = !catalogSheetsSource && dbDriver === 'sqlite';
+  const catalogPersistenceLabel = catalogSheetsSource
+    ? 'Google Sheets (CatalogItems)'
+    : catalogDbIsPostgres
+      ? 'Supabase Postgres'
+      : catalogDbIsSqlite
+        ? 'local SQLite'
+        : 'database';
+  const catalogDataPillLabel = catalogSheetsSource
+    ? 'Live data: Google Sheets'
+    : catalogDbIsSqlite
+      ? 'Catalog database'
+      : 'Catalog workbook connected';
+
   const lastSynced = syncStatus?.lastSuccessAt || syncStatus?.lastAttemptAt;
   const displayedSyncFailure =
     syncActionError ||
@@ -1183,429 +1291,163 @@ export function Catalog() {
         : 'Last catalog run';
 
   return (
-    <div className="ui-page space-y-5">
-      <header className="ui-panel px-4 py-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div className="ui-page space-y-5 bg-slate-50/80">
+      <header className="rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <span className="ui-status-live">Live</span>
-              <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-                Brighten Builders <span className="mx-1 text-slate-300">/</span> Catalog Station
-              </span>
-            </div>
-            <h1 className="mt-2 text-[24px] font-semibold leading-tight tracking-tight text-slate-950 md:text-[28px]">Catalog</h1>
-            {integrationHealthError ? (
-              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-950">
-                <span className="font-semibold">Integration diagnostics unavailable.</span> {integrationHealthError}
-              </div>
-            ) : null}
-            <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.06em] text-slate-500">
-              {!integrationHealth
-                ? 'Items, modifiers, and bundles from the catalog database.'
-                : catalogDbIsPostgres
-                  ? `Items, modifiers, and bundles from Supabase Postgres.${sheetImportEnabled ? ' Optional workbook import can upsert rows into Postgres.' : ''}`
-                  : catalogDbIsSqlite
-                    ? `Items, modifiers, and bundles from local SQLite.${sheetImportEnabled ? ' Optional workbook import can refresh catalog rows.' : ''}`
-                    : `Items, modifiers, and bundles from ${catalogPersistenceLabel}.`}
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-950 md:text-[28px]">Catalog</h1>
+            <p className="mt-1 max-w-2xl text-sm text-slate-600">
+              Manage Div 10 items, labor rules, add-ins, and modifiers used in estimates.
             </p>
-            {integrationHealth &&
-            catalogDbIsPostgres &&
-            (integrationHealth.workspaceTakeoffLinesTable ||
-              integrationHealth.catalogItemsReadTable ||
-              integrationHealth.catalogModifiersReadTable) ? (
-              <p className="mt-2 max-w-[52rem] text-[10px] leading-snug text-slate-500">
-                {integrationHealth.workspaceTakeoffLinesTable ? (
-                  <>
-                    Workspace mapping: takeoff lines in{' '}
-                    <span className="font-mono text-slate-700">{integrationHealth.workspaceTakeoffLinesTable}</span>
-                  </>
-                ) : (
-                  <>Catalog mapping</>
-                )}
-                {integrationHealth.catalogAliasesReadTable ? (
-                  <>
-                    {' '}
-                    · catalog synonyms read from <span className="font-mono text-slate-700">{integrationHealth.catalogAliasesReadTable}</span> (
-                    {integrationHealth.catalogAliasesLayout === 'brain' ? (
-                      <span>
-                        <span className="font-mono">alias_text</span> / Div 10 Brain
-                      </span>
-                    ) : (
-                      <span>
-                        <span className="font-mono">alias_value</span> / sheet-style
-                      </span>
-                    )}
-                    ){integrationHealth.catalogAliasesWriteTable ? (
-                      <>
-                        {' '}
-                        · writes to <span className="font-mono text-slate-700">{integrationHealth.catalogAliasesWriteTable}</span>
-                      </>
-                    ) : null}
-                  </>
-                ) : null}
-                {integrationHealth.catalogItemsReadTable ? (
-                  <>
-                    {' '}
-                    · catalog items read from <span className="font-mono text-slate-700">{integrationHealth.catalogItemsReadTable}</span>
-                  </>
-                ) : null}
-                {integrationHealth.catalogModifiersReadTable ? (
-                  <>
-                    {' '}
-                    · modifiers read from <span className="font-mono text-slate-700">{integrationHealth.catalogModifiersReadTable}</span>
-                  </>
-                ) : null}
-                .
-              </p>
-            ) : null}
-            <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-              <span className="ui-chip-soft inline-flex items-center gap-1.5 px-2.5 py-1 font-medium text-slate-700">
-                <Package className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-                {inventory?.total ?? '—'} items
+            <div className="mt-3">
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] font-medium text-slate-700">
+                {catalogDataPillLabel}
               </span>
-              <span className="ui-chip-soft px-2.5 py-1 font-medium text-slate-700">{modifiers.length} modifiers</span>
-              <span className="ui-chip-soft px-2.5 py-1 font-medium text-slate-700">{bundles.length} bundles</span>
-              {inventory ? (
-                <span className="ui-chip-soft px-2.5 py-1 text-slate-600" title="Database activation flags">
-                  {inventory.active} active · {inventory.inactive} inactive in DB
-                </span>
-              ) : null}
-              {lastSynced ? (
-                <span className="rounded-md border border-app-line bg-app-surface-soft px-2.5 py-1 text-app-muted">
-                  {sheetImportEnabled ? 'Last workbook import ' : 'Last catalog run '}
-                  {new Date(lastSynced).toLocaleString()}
-                </span>
-              ) : (
-                <span className="rounded-md border border-dashed border-app-line px-2.5 py-1 text-app-muted">
-                  {sheetImportEnabled
-                    ? 'No workbook import yet — run sync below if you use Sheets'
-                    : catalogDbIsPostgres
-                      ? 'No workbook import history (live catalog is in Postgres)'
-                      : 'No workbook import history'}
-                </span>
-              )}
             </div>
           </div>
+          <button
+            type="button"
+            onClick={handleCreateItem}
+            className="ui-btn-primary inline-flex h-10 shrink-0 items-center gap-2 px-4 text-sm font-semibold"
+          >
+            <Plus className="h-4 w-4" aria-hidden />
+            Add Item
+          </button>
         </div>
       </header>
 
-      <section className="ui-surface p-4 space-y-4" aria-labelledby="catalog-sync-heading">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h2 id="catalog-sync-heading" className="text-sm font-semibold text-slate-900">
-              Catalog source
-            </h2>
-            <p className="ui-mono-kicker mt-1">Module 01 / {catalogPersistenceLabel}</p>
-            <p className="mt-1 max-w-[52rem] text-xs leading-snug text-slate-500">
-              {catalogDbIsPostgres
-                ? sheetImportEnabled
-                  ? 'Live catalog is Postgres (Supabase). Optional workbook import is on — rows missing from the workbook can be deactivated after import; use Activate all if counts look wrong.'
-                  : 'Live catalog is Postgres (Supabase). Edit in the Table Editor or SQL. Optional workbook import is off on this server — nothing is “syncing” from a spreadsheet unless you enable it in server env.'
-                : catalogDbIsSqlite
-                  ? sheetImportEnabled
-                    ? 'Local SQLite catalog. Workbook import can upsert rows; rows missing from the workbook may be deactivated after import.'
-                    : 'Local SQLite catalog on this machine. Edit here or via scripts; use DB_DRIVER=pg + DATABASE_URL for Supabase-hosted catalog.'
-                  : 'Catalog persistence follows DB_DRIVER on the server.'}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="ui-chip-soft inline-flex items-center gap-1">
-              <Database className="w-3.5 h-3.5" aria-hidden />
-              Live data: {catalogPersistenceLabel}
-              {sheetImportEnabled ? <span className="text-app-muted"> · Sheets import on</span> : null}
-            </span>
-            <span className={`rounded px-2 py-1 text-xs font-medium ${statusClass(syncStatus?.status || 'never')}`}>
-              {catalogSyncStatusShortLabel(syncStatus?.status, sheetImportEnabled)}
-            </span>
-            {sheetImportEnabled ? (
-              <button
-                type="button"
-                onClick={() => void handleSyncCatalog()}
-                disabled={syncing}
-                className="ui-btn-primary h-8 px-3 text-xs inline-flex items-center gap-1.5 disabled:opacity-60"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} aria-hidden />
-                {syncing ? 'Syncing…' : 'Import from Sheets'}
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2 text-xs">
-          <div
-            className="ui-surface-soft px-2 py-1.5 text-slate-700"
-            title={sheetImportEnabled ? 'Resolved from server env (GOOGLE_SHEETS_TAB_*)' : undefined}
-          >
-            {sheetImportEnabled ? (
-              syncStatus?.workbook ? (
-                <>
-                  Sheet tabs: {syncStatus.workbook.tabs.itemsFetch}, {syncStatus.workbook.tabs.modifiersFetch},{' '}
-                  {syncStatus.workbook.tabs.bundles}, {syncStatus.workbook.tabs.aliases},{' '}
-                  {syncStatus.workbook.tabs.attributes}
-                </>
-              ) : (
-                <>Default tabs: CLEAN_ITEMS, CLEAN_MODIFIERS, BUNDLES, ALIASES, ATTRIBUTES</>
-              )
-            ) : (
-              <>Postgres catalog only — optional workbook import is off</>
-            )}
-          </div>
-          <div className="ui-surface-soft px-2 py-1.5 text-slate-700">
-            {sheetImportEnabled ? 'Last import: ' : 'Last recorded import: '}
-            {lastSynced ? new Date(lastSynced).toLocaleString() : 'Never'}
-          </div>
-          <div className="ui-surface-soft px-2 py-1.5 text-slate-700">
-            DB rows: {inventory ? `${inventory.total} total · ${inventory.active} active · ${inventory.inactive} inactive` : '—'}
-          </div>
-          <div className="ui-surface-soft px-2 py-1.5 text-slate-700" title={itemsSyncedLabelHint}>
-            {itemsSyncedLabelHint}: {syncStatus?.itemsSynced ?? '—'} items
-          </div>
-          <div className="ui-surface-soft px-2 py-1.5 text-slate-700">
-            Modifiers: {syncStatus?.modifiersSynced || modifiers.length} | Bundles: {syncStatus?.bundlesSynced || bundles.length} | Aliases: {syncStatus?.aliasesSynced || 0} | Attributes: {syncStatus?.attributesSynced || 0}
-          </div>
-        </div>
-
-        {displayedSyncFailure ? (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900 whitespace-pre-wrap">
-            <span className="font-semibold">{sheetImportEnabled ? 'Import error: ' : 'Catalog run error: '}</span>
-            {displayedSyncFailure}
-          </div>
-        ) : null}
-
-        {integrationHealth &&
-        catalogDbIsPostgres &&
-        metaQuery.isSuccess &&
-        (inventory?.total ?? 0) === 0 ? (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-xs leading-snug text-amber-950">
-            <p className="font-semibold text-amber-950">This server reads the catalog directly from Postgres</p>
-            <p className="mt-1 text-amber-900/90">
-              Rows are not pulled from Google Sheets unless workbook import is enabled. Add data in Supabase (or run Import from Sheets when that mode is on) before items appear here.
-            </p>
-            <ol className="mt-2 list-decimal space-y-1.5 pl-4 text-amber-900/90">
-              <li>
-                <span className="font-medium text-amber-950">Keep data in Supabase:</span> insert or edit rows in{' '}
-                <code className="rounded bg-white/70 px-1 py-0.5 font-mono text-[10px]">
-                  {integrationHealth.catalogItemsReadTable || 'catalog_items'}
-                </code>{' '}
-                (Table Editor or SQL). Item editors in this app write to the physical items table configured on the server.
-              </li>
-              <li>
-                <span className="font-medium text-amber-950">Use Sheets as the feed:</span> set{' '}
-                <code className="rounded bg-white/70 px-1 py-0.5 font-mono text-[10px]">CATALOG_SHEETS_SYNC_ENABLED=1</code>, add the service account + spreadsheet env vars from{' '}
-                <code className="rounded bg-white/70 px-1 py-0.5 font-mono text-[10px]">.env.example</code>, restart the server, then use <strong>Import from Sheets</strong> above.
-                {integrationHealth.googleSheets && !sheetImportEnabled ? (
-                  <span className="mt-1 block font-medium text-amber-950">
-                    Google credentials look configured on this server — only the sync flag is off.
-                  </span>
-                ) : null}
-              </li>
-            </ol>
-          </div>
-        ) : null}
-
-        {inventory && inventory.inactive > 0 ? (
-          <div className="ui-callout-warn flex flex-wrap items-center justify-between gap-2 text-xs">
-            <p>
-              <span className="font-semibold">{inventory.inactive} catalog row(s) are inactive</span> — hidden from estimates and intake unless you filter “Inactive” here.
-              {sheetImportEnabled
-                ? 'Often caused by importing from a workbook that listed fewer rows than this database.'
-                : 'Often caused by deactivating rows in the database or legacy imports.'}
-            </p>
-            <button
-              type="button"
-              onClick={() => void handleActivateAllCatalogItems()}
-              disabled={activatingAll}
-              className="ui-btn-secondary h-auto shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
-            >
-              {activatingAll ? 'Updating…' : 'Activate all catalog items'}
-            </button>
-          </div>
-        ) : null}
-
-        {syncStatus?.warnings?.length ? (
-          <div className="ui-callout-warn text-xs">
-            {syncStatus.warnings.slice(0, 3).map((warning, index) => (
-              <p key={`${warning}-${index}`}>- {warning}</p>
-            ))}
-          </div>
-        ) : null}
-        {syncStatus ? <CatalogSyncReviewPanel syncStatus={syncStatus} workbookImportEnabled={sheetImportEnabled} /> : null}
-      </section>
-
-      <nav className="ui-surface p-3" aria-label="Catalog data tabs">
+      <nav className="rounded-xl border border-slate-200 bg-white p-2 shadow-sm" aria-label="Catalog data tabs">
         <div className="flex flex-wrap items-center gap-1">
           <button
             type="button"
             onClick={() => setActiveTab('items')}
             className={`ui-wtab ${activeTab === 'items' ? 'ui-wtab-blue' : 'ui-wtab-idle'}`}
           >
-            Items ({inventory?.total ?? '—'})
+            Items
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('labor-rules')}
+            className={`ui-wtab ${activeTab === 'labor-rules' ? 'ui-wtab-blue' : 'ui-wtab-idle'}`}
+          >
+            Labor Rules
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('add-ins')}
+            className={`ui-wtab ${activeTab === 'add-ins' ? 'ui-wtab-blue' : 'ui-wtab-idle'}`}
+          >
+            Add-Ins
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('modifiers')}
             className={`ui-wtab ${activeTab === 'modifiers' ? 'ui-wtab-blue' : 'ui-wtab-idle'}`}
           >
-            Modifiers ({modifiers.length})
+            Modifiers
           </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('bundles')}
-            className={`ui-wtab ${activeTab === 'bundles' ? 'ui-wtab-blue' : 'ui-wtab-idle'}`}
-          >
-            Bundles ({bundles.length})
-          </button>
-          <div className="ml-auto flex items-center gap-2">
-            {activeTab === 'items' ? (
-              <button
-                type="button"
-                onClick={handleCreateItem}
-                className="ui-btn-primary h-8 px-3 text-xs inline-flex items-center gap-1.5"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Add Item
-              </button>
-            ) : null}
-          </div>
         </div>
       </nav>
 
-      <section className="ui-surface p-4 space-y-3">
-        <div>
-          <p className="ui-mono-kicker">Browse & filter</p>
-          <p className="mt-1 text-xs text-slate-500">
-            {activeTab === 'items'
-              ? 'Filter items by category, type, and activation; click a row to edit.'
-              : activeTab === 'modifiers'
-                ? 'Modifiers extend labor and material from the catalog workbook.'
-                : 'Bundles group catalog SKUs for packaged estimating.'}
-          </p>
-        </div>
-        <div className="grid grid-cols-1 gap-2 lg:grid-cols-12 lg:items-center">
-          <div className={`relative ${activeTab === 'items' ? 'lg:col-span-4' : 'lg:col-span-10'}`}>
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" aria-hidden />
-            <input
-              ref={catalogSearchInputRef}
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={
-                activeTab === 'items'
-                  ? 'Search SKU, description, manufacturer, model, sheet tab… (/ focuses)'
-                  : activeTab === 'modifiers'
-                    ? 'Search modifier key, name, categories'
-                    : 'Search bundle id, name, category'
-              }
-              className="ui-input ui-input--leading-icon-sm h-8 text-xs"
-              aria-label="Search catalog"
-              title="Press / to focus this field when not typing in another control"
-            />
-          </div>
-
+      {activeTab === 'items' || activeTab === 'modifiers' ? (
+        <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
           {activeTab === 'items' ? (
             <>
-              <select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                className="ui-input h-8 px-2 text-xs lg:col-span-2"
-                aria-label="Filter by category"
-              >
-                {categories.map((category) => (
-                  <option key={category} value={category}>
-                    {category === 'all' ? 'All categories' : category}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-                className="ui-input h-8 px-2 text-xs lg:col-span-2"
-                aria-label="Filter by item type"
-              >
-                {itemTypes.map((itemType) => (
-                  <option key={itemType} value={itemType}>
-                    {itemType === 'all' ? 'All types' : itemType}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={activeFilter}
-                onChange={(e) => setActiveFilter(e.target.value as 'all' | 'active' | 'inactive')}
-                className="ui-input h-8 px-2 text-xs lg:col-span-2"
-                aria-label="Filter by activation"
-              >
-                <option value="all">All activation</option>
-                <option value="active">Active only</option>
-                <option value="inactive">Inactive only</option>
-              </select>
-              <div className="relative lg:col-span-2">
-                <ArrowUpDown className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" aria-hidden />
+              <div className="grid grid-cols-1 gap-2 lg:grid-cols-12 lg:items-center">
+                <div className="relative lg:col-span-5">
+                  <Search
+                    className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"
+                    aria-hidden
+                  />
+                  <input
+                    ref={catalogSearchInputRef}
+                    type="search"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search SKU, manufacturer, or description… (/ focuses)"
+                    className="ui-input ui-input--leading-icon-sm h-9 w-full text-sm"
+                    aria-label="Search catalog items"
+                    title="Press / to focus when not typing elsewhere"
+                  />
+                </div>
                 <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as SortKey)}
-                  className="ui-input ui-input--leading-icon-sm h-8 w-full pr-2 text-xs"
-                  aria-label="Sort items"
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="ui-input h-9 px-2 text-sm lg:col-span-3"
+                  aria-label="Filter by category"
                 >
-                  <option value="sku-asc">Sort: SKU (A–Z)</option>
-                  <option value="sku-desc">Sort: SKU (Z–A)</option>
-                  <option value="name-asc">Sort: Name (A–Z)</option>
-                  <option value="name-desc">Sort: Name (Z–A)</option>
-                  <option value="category-asc">Sort: Category</option>
-                  <option value="material-desc">Sort: Material high → low</option>
-                  <option value="labor-desc">Sort: Labor high → low</option>
+                  {categories.map((category) => (
+                    <option key={category} value={category}>
+                      {category === 'all' ? 'All categories' : category}
+                    </option>
+                  ))}
                 </select>
+                <select
+                  value={activeFilter}
+                  onChange={(e) => setActiveFilter(e.target.value as 'all' | 'active' | 'inactive')}
+                  className="ui-input h-9 px-2 text-sm lg:col-span-2"
+                  aria-label="Active or inactive items"
+                >
+                  <option value="all">All</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+                <div className="lg:col-span-2">
+                  <button
+                    type="button"
+                    onClick={handleCreateItem}
+                    className="ui-btn-primary inline-flex h-9 w-full items-center justify-center gap-2 px-3 text-sm font-semibold"
+                  >
+                    <Plus className="h-4 w-4" aria-hidden />
+                    Add Item
+                  </button>
+                </div>
               </div>
             </>
           ) : (
             <>
-              <select
-                value={activeFilter}
-                onChange={(e) => setActiveFilter(e.target.value as 'all' | 'active' | 'inactive')}
-                className="ui-input h-8 px-2 text-xs lg:col-span-2"
-                aria-label="Filter by activation"
-              >
-                <option value="all">All activation</option>
-                <option value="active">Active only</option>
-                <option value="inactive">Inactive only</option>
-              </select>
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">Modifiers</h2>
+                <p className="mt-1 max-w-2xl text-sm text-slate-600">
+                  Labor or pricing adjustments such as stairs, masonry drilling, occupied space, night work, or backing review.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-2 lg:grid-cols-12 lg:items-center">
+                <div className="relative lg:col-span-8">
+                  <Search
+                    className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"
+                    aria-hidden
+                  />
+                  <input
+                    ref={catalogSearchInputRef}
+                    type="search"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search name, key, or category…"
+                    className="ui-input ui-input--leading-icon-sm h-9 w-full text-sm"
+                    aria-label="Search modifiers"
+                  />
+                </div>
+                <select
+                  value={activeFilter}
+                  onChange={(e) => setActiveFilter(e.target.value as 'all' | 'active' | 'inactive')}
+                  className="ui-input h-9 px-2 text-sm lg:col-span-2"
+                  aria-label="Filter modifiers by activation"
+                >
+                  <option value="all">All</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+              <p className="text-xs text-slate-500">
+                Showing {filteredModifiers.length} of {modifiers.length}
+              </p>
             </>
           )}
-        </div>
+        </section>
+      ) : null}
 
-        {activeTab === 'items' ? (
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-            <label className="inline-flex items-center gap-2 text-app-muted">
-              <span className="shrink-0">Sheet tab</span>
-              <select
-                value={sourceTabFilter}
-                onChange={(e) => setSourceTabFilter(e.target.value)}
-                className="ui-input h-7 max-w-[14rem] px-2 text-[11px]"
-                aria-label="Filter by workbook sheet tab"
-              >
-                {sheetSourceTabOptions.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt === 'all' ? 'All sheet tabs' : opt === '__none__' ? 'No tab / unknown' : opt}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="inline-flex items-center gap-2 rounded-md border border-app-line bg-app-surface px-2 py-1 text-[11px] text-app">
-              <input type="checkbox" checked={imageSprintOnly} onChange={(e) => setImageSprintOnly(e.target.checked)} />
-              Missing photos only (active rows, manufacturer + model)
-            </label>
-          </div>
-        ) : null}
-
-        <div className="mt-2 text-[11px] text-slate-500">
-          {activeTab === 'items'
-            ? `Rows ${pageRangeLabel} of ${totalItemRows} (page ${Math.min(itemsPage + 1, totalPages)} / ${totalPages})`
-            : activeTab === 'modifiers'
-              ? `Showing ${filteredModifiers.length} of ${modifiers.length} modifier records`
-              : `Showing ${filteredBundles.length} of ${bundles.length} bundle records`}
-        </div>
-      </section>
-
-      <section className="ui-surface overflow-hidden" aria-label="Catalog browse results">
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-label="Catalog browse results">
         <div className="max-h-[68vh] overflow-auto">
           {isError ? (
             <div className="flex min-h-[30vh] flex-col items-center justify-center gap-2 p-8 text-center text-sm text-red-700">
@@ -1617,235 +1459,156 @@ export function Catalog() {
             </div>
           ) : isLoading ? (
             <div className="flex min-h-[30vh] items-center justify-center p-8 text-sm text-slate-500">Loading catalog…</div>
+          ) : activeTab === 'labor-rules' ? (
+            <div className="p-4">
+              <CatalogLaborRulesTab />
+            </div>
+          ) : activeTab === 'add-ins' ? (
+            <div className="p-4">
+              <CatalogAddInsTab />
+            </div>
           ) : activeTab === 'items' ? (
             totalItemRows === 0 ? (
               <div className="flex min-h-[28vh] flex-col items-center justify-center gap-3 p-10 text-center">
                 <Package className="mx-auto h-8 w-8 text-slate-300" aria-hidden />
-                {(inventory?.total ?? 0) === 0 ? (
-                  <>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">No catalog items in the database yet</p>
-                      {itemsPageMeta?.emptyHint ? (
-                        <p className="mt-3 max-w-lg rounded-md border border-amber-200/90 bg-amber-50/90 px-3 py-2 text-left text-xs leading-relaxed text-amber-950">
-                          {itemsPageMeta.emptyHint}
-                        </p>
-                      ) : null}
-                      <p className="mt-2 max-w-md text-xs leading-relaxed text-slate-600">
-                        {catalogDbIsPostgres ? (
-                          <>
-                            Add rows in <strong>Supabase</strong> (e.g.{' '}
-                            <code className="rounded bg-slate-100 px-1">catalog_items</code>) or create them here.
-                            {sheetImportEnabled ? (
-                              <>
-                                {' '}
-                                Or run <strong>Import from Sheets</strong> above if you load catalog from a workbook.
-                              </>
-                            ) : null}
-                          </>
-                        ) : sheetImportEnabled ? (
-                          <>
-                            Run <strong>Import from Sheets</strong> above (configure workbook tabs first). Until rows import, Items stays empty — modifiers and bundles follow the same run.
-                          </>
-                        ) : (
-                          <>
-                            Seed or add rows in your local catalog database, or create items here once the table is ready.
-                          </>
-                        )}
-                      </p>
-                    </div>
-                  </>
+                {showNoActiveItemsHint ? (
+                  <div className="max-w-md">
+                    <p className="text-sm font-semibold text-slate-800">No active catalog items yet</p>
+                    <p className="mt-2 text-sm text-slate-600">
+                      Add an item or switch the filter to <strong>Inactive</strong> to review archived rows.
+                    </p>
+                  </div>
+                ) : (inventory?.total ?? 0) === 0 ? (
+                  <div className="max-w-md">
+                    <p className="text-sm font-semibold text-slate-800">No catalog items yet</p>
+                    <p className="mt-2 text-sm text-slate-600">
+                      Start with <strong>Add Item</strong>. If you use a shared workbook, your admin can confirm the connection on the{' '}
+                      <Link to="/admin/health" className="font-medium text-blue-700 hover:text-blue-800">
+                        Health
+                      </Link>{' '}
+                      page.
+                    </p>
+                    {itemsPageMeta?.emptyHint ? (
+                      <p className="mt-3 text-left text-xs text-slate-500">{itemsPageMeta.emptyHint}</p>
+                    ) : null}
+                  </div>
                 ) : (
-                  <>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">No rows match these filters</p>
-                      <p className="mt-2 max-w-md text-xs leading-relaxed text-slate-600">
-                        Clear search or widen category / type / activation filters. Choose &quot;Inactive only&quot; to see deactivated rows.
-                      </p>
-                    </div>
-                  </>
+                  <div className="max-w-md">
+                    <p className="text-sm font-semibold text-slate-800">No rows match these filters</p>
+                    <p className="mt-2 text-sm text-slate-600">
+                      Clear the search box or try another category. Choose <strong>Inactive</strong> to list deactivated SKUs.
+                    </p>
+                  </div>
                 )}
               </div>
             ) : (
               <>
-              <table className="w-full text-xs">
-                <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 backdrop-blur-sm">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50">
                   <tr>
-                    <th className="ui-table-th w-[3.25rem] text-center">Image</th>
-                    <th className="ui-table-th min-w-[7rem]">SKU</th>
-                    <th className="ui-table-th min-w-[12rem]">Description</th>
-                    <th className="ui-table-th">Category</th>
-                    <th className="ui-table-th">Type</th>
-                    <th className="ui-table-th min-w-[8rem]">Mfr / brand</th>
-                    <th className="ui-table-th">UoM</th>
-                    <th className="ui-table-th-end">Labor</th>
-                    <th className="ui-table-th-end">Material</th>
                     <th className="ui-table-th">Status</th>
-                    <th className="ui-table-th">Sheet source</th>
+                    <th className="ui-table-th">Category</th>
+                    <th className="ui-table-th min-w-[7rem]">Manufacturer</th>
+                    <th className="ui-table-th min-w-[6rem]">SKU</th>
+                    <th className="ui-table-th min-w-[11rem]">Description</th>
+                    <th className="ui-table-th">Unit</th>
+                    <th className="ui-table-th-end">Material cost</th>
+                    <th className="ui-table-th-end">Labor min</th>
+                    <th className="ui-table-th whitespace-nowrap">Updated</th>
                     <th className="ui-table-th-end">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {items.map((item) => {
-                    const cat = String(item.category || '').toLowerCase();
-                    const accent = cat.includes('partition')
-                      ? 'border-l-emerald-500'
-                      : cat.includes('screen') || cat.includes('mirror')
-                        ? 'border-l-blue-500'
-                        : cat.includes('accessor') || cat.includes('grab') || cat.includes('dispenser') || cat.includes('disposal')
-                          ? 'border-l-amber-500'
-                          : 'border-l-slate-300';
-                    const imageHref = catalogImageHref(item.imageUrl);
-                    const modelParts = [item.model, item.modelNumber, item.series].map((s) => String(s || '').trim()).filter(Boolean);
-                    const sheetSrc = catalogItemSourceTab(item);
+                    const mfr = item.manufacturer?.trim();
+                    const br = item.brand?.trim();
+                    const primary = mfr || br || '';
+                    const updatedRaw = (item as CatalogItem & { updatedAt?: string }).updatedAt;
+                    const updated =
+                      updatedRaw && !Number.isNaN(Date.parse(updatedRaw))
+                        ? new Date(updatedRaw).toLocaleString()
+                        : '—';
                     return (
-                    <tr
-                      key={item.id}
-                      role="button"
-                      tabIndex={0}
-                      title="Click row to edit"
-                      className={`cursor-pointer border-b border-slate-100 border-l-[3px] ${accent} outline-none hover:bg-slate-50/70 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400/50`}
-                      onClick={() => {
-                        suppressCatalogItemUrlOpenRef.current = false;
-                        setEditingItemIsNew(false);
-                        setEditingItem(item);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
+                      <tr
+                        key={item.id}
+                        role="button"
+                        tabIndex={0}
+                        title="Click row to edit"
+                        className="cursor-pointer border-b border-slate-100 outline-none hover:bg-slate-50/80 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400/40"
+                        onClick={() => {
                           suppressCatalogItemUrlOpenRef.current = false;
                           setEditingItemIsNew(false);
                           setEditingItem(item);
-                        }
-                      }}
-                    >
-                      <td className="py-2 px-2 align-middle text-center">
-                        <CatalogItemThumb url={item.imageUrl} />
-                      </td>
-                      <td className="py-2 px-3 align-top">
-                        <div className="font-semibold text-slate-900">{item.sku?.trim() || '—'}</div>
-                        <div className="font-mono text-[10px] text-slate-400" title={item.id}>
-                          {item.id.length > 14 ? `${item.id.slice(0, 14)}…` : item.id}
-                        </div>
-                        {modelParts.length ? (
-                          <div className="mt-1 text-[10px] leading-snug text-slate-500">
-                            {modelParts.slice(0, 3).join(' · ')}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td className="py-2 px-2 align-top">
-                        <p className="line-clamp-2 font-medium leading-snug text-slate-900" title={item.description}>
-                          {item.description?.trim() || '—'}
-                        </p>
-                        <div className="mt-1 inline-flex flex-wrap items-center gap-1 text-[10px] text-slate-500">
-                          {item.laborBasis?.trim() ? (
-                            <span className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[9px] text-slate-600" title="Labor basis">
-                              {item.laborBasis}
-                            </span>
-                          ) : null}
-                          {item.installLaborFamily?.trim() ? (
-                            <span className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[9px] text-slate-600" title="Install labor family">
-                              fam:{item.installLaborFamily}
-                            </span>
-                          ) : null}
-                          {item.adaFlag ? (
-                            <span className="inline-flex items-center gap-0.5 text-app-success" title="ADA flagged">
-                              <ShieldCheck className="h-3 w-3" aria-hidden />
-                              ADA
-                            </span>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="py-2 px-2 align-top text-slate-700">
-                        <span>{item.category?.trim() || '—'}</span>
-                        {item.categoryMain?.trim() ? (
-                          <div className="mt-1 font-mono text-[10px] text-slate-500" title="categoryMain">
-                            {item.categoryMain}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td className="py-2 px-2 align-top text-slate-700">
-                        <span className="font-medium">{catalogRowTypeLabel(item)}</span>
-                        {item.recordGranularity ? (
-                          <div className="mt-1 text-[10px] text-slate-500">Grain: {item.recordGranularity}</div>
-                        ) : null}
-                      </td>
-                      <td className="py-2 px-2 align-top text-slate-700">
-                        {(() => {
-                          const mfr = item.manufacturer?.trim();
-                          const br = item.brand?.trim();
-                          const primary = mfr || br || '';
-                          return (
-                            <>
-                              <div className="font-medium text-slate-800">{primary || '—'}</div>
-                              {mfr && br && br !== mfr ? (
-                                <div className="text-[10px] text-slate-500">Brand: {br}</div>
-                              ) : null}
-                            </>
-                          );
-                        })()}
-                      </td>
-                      <td className="py-2 px-2 text-slate-700">{item.defaultUnit?.trim() || item.uom}</td>
-                      <td className="py-2 px-2 text-right text-slate-700">{formatNumberSafe(item.baseLaborMinutes, 1)} min</td>
-                      <td className="py-2 px-2 text-right text-slate-700">{formatCurrencySafe(item.baseMaterialCost)}</td>
-                      <td className="py-2 px-2 align-top">
-                        <div className="flex flex-wrap gap-1">
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            suppressCatalogItemUrlOpenRef.current = false;
+                            setEditingItemIsNew(false);
+                            setEditingItem(item);
+                          }
+                        }}
+                      >
+                        <td className="py-2.5 px-3 align-top">
                           <span
-                            className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${item.active ? 'border border-blue-200 bg-blue-50 text-blue-900' : 'border border-slate-200 bg-slate-100 text-slate-600'}`}
+                            className={`inline-flex rounded px-2 py-0.5 text-xs font-medium ${
+                              item.active
+                                ? 'bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200/80'
+                                : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200/80'
+                            }`}
                           >
                             {item.active ? 'Active' : 'Inactive'}
                           </span>
-                          {item.taxable === false ? (
-                            <span className="rounded border border-slate-200 px-1 py-0.5 text-[10px] text-slate-600">Non-tax</span>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="py-2 px-2 align-top text-[10px] text-slate-600">
-                        {sheetSrc ? (
-                          <div className="min-w-0 max-w-[11rem]">
-                            <div className="truncate font-mono" title={sheetSrc}>
-                              {sheetSrc}
-                            </div>
-                            {item.catalogSourceRow != null ? (
-                              <div
-                                className="mt-0.5 font-semibold tabular-nums text-slate-800"
-                                title="Workbook row (1-based)"
-                              >
-                                Row {item.catalogSourceRow}
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </td>
-                      <td className="py-2 px-3" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-                        <div className="flex flex-wrap items-center justify-end gap-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void handleDeleteItem(item.id);
-                            }}
-                            className="inline-flex h-7 items-center gap-1 rounded border border-red-200 px-2 text-red-700 hover:bg-red-50 outline-none focus-visible:ring-2 focus-visible:ring-red-400/40"
-                          >
-                            <Trash2 className="h-3 w-3" aria-hidden />
-                            Deactivate
-                          </button>
-                          {imageHref ? (
-                            <a
-                              href={imageHref}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex h-7 items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 font-medium text-blue-800 hover:bg-blue-100"
-                              title={imageHref}
+                        </td>
+                        <td className="py-2.5 px-3 align-top text-slate-800">{item.category?.trim() || '—'}</td>
+                        <td className="py-2.5 px-3 align-top text-slate-800">
+                          <div className="font-medium">{primary || '—'}</div>
+                          {mfr && br && br !== mfr ? <div className="text-xs text-slate-500">{br}</div> : null}
+                        </td>
+                        <td className="py-2.5 px-3 align-top font-medium text-slate-900">{item.sku?.trim() || '—'}</td>
+                        <td className="py-2.5 px-3 align-top text-slate-700">
+                          <p className="line-clamp-2 text-sm" title={item.description}>
+                            {item.description?.trim() || '—'}
+                          </p>
+                        </td>
+                        <td className="py-2.5 px-3 align-top text-slate-700">{item.defaultUnit?.trim() || item.uom}</td>
+                        <td className="py-2.5 px-3 align-top text-right tabular-nums text-slate-800">
+                          {formatCurrencySafe(item.baseMaterialCost)}
+                        </td>
+                        <td className="py-2.5 px-3 align-top text-right tabular-nums text-slate-800">
+                          {formatNumberSafe(item.baseLaborMinutes, 1)}
+                        </td>
+                        <td className="py-2.5 px-3 align-top text-xs text-slate-500 whitespace-nowrap">{updated}</td>
+                        <td className="py-2.5 px-3 align-top text-right" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex flex-wrap items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                suppressCatalogItemUrlOpenRef.current = false;
+                                setEditingItemIsNew(false);
+                                setEditingItem(item);
+                              }}
+                              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
                             >
-                              <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
-                              Image
-                            </a>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                void handleToggleItemActive(item, e);
+                              }}
+                              className={`rounded-md px-2 py-1 text-xs font-medium ${
+                                item.active
+                                  ? 'border border-red-200 text-red-800 hover:bg-red-50'
+                                  : 'border border-emerald-200 text-emerald-900 hover:bg-emerald-50'
+                              }`}
+                            >
+                              {item.active ? 'Deactivate' : 'Activate'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
                     );
                   })}
                 </tbody>
@@ -1853,7 +1616,7 @@ export function Catalog() {
               {totalItemRows > 0 ? (
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50/80 px-3 py-2 text-[11px] text-slate-600">
                   <span className="tabular-nums">
-                    {totalItemRows} matching {totalItemRows === 1 ? 'row' : 'rows'}
+                    Rows {pageRangeLabel} of {totalItemRows} · Page {Math.min(itemsPage + 1, totalPages)} / {totalPages}
                   </span>
                   <div className="flex items-center gap-2">
                     <button
@@ -1883,168 +1646,299 @@ export function Catalog() {
                 <div className="text-sm font-semibold text-slate-800">
                   {modifiers.length === 0 ? 'No modifiers loaded yet' : 'No modifiers match these filters'}
                 </div>
-                <p className="max-w-md text-xs leading-relaxed text-slate-600">
-                  {modifiers.length === 0
-                    ? catalogDbIsPostgres
-                      ? `Add modifier rows in Supabase or use Add controls in this UI.${sheetImportEnabled ? ' You can also import from Sheets after the MODIFIERS tab is populated.' : ''}`
-                      : sheetImportEnabled
-                        ? 'Import from Sheets above after your workbook MODIFIERS tab is populated. Modifier rows drive labor/material deltas on estimates.'
-                        : 'Add modifier rows in the local database or use Add controls in this UI once tables are ready.'
-                    : 'Clear search or switch activation filter to “All activation”. Import warnings above sometimes list unknown modifier keys referenced by bundles.'}
+                <p className="max-w-md text-sm leading-relaxed text-slate-600">
+                  {modifiers.length === 0 ? (
+                    <>
+                      Modifiers will list here when available. Administrators can check workbook status on{' '}
+                      <Link to="/admin/health" className="font-medium text-blue-700 hover:text-blue-800">
+                        Health
+                      </Link>
+                      .
+                    </>
+                  ) : (
+                    'Clear the search box or set the filter to All.'
+                  )}
                 </p>
               </div>
             ) : (
-              <table className="w-full text-xs">
-                <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 backdrop-blur-sm">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50">
                   <tr>
-                    <th className="ui-table-th">Modifier</th>
-                    <th className="ui-table-th">Key</th>
-                    <th className="ui-table-th min-w-[200px]">Description</th>
-                    <th className="ui-table-th">Applies To</th>
-                    <th className="ui-table-th-end">+ Labor Min</th>
-                    <th className="ui-table-th-end">+ Material</th>
-                    <th className="ui-table-th-end">% Labor</th>
-                    <th className="ui-table-th-end">% Material</th>
-                    <th className="ui-table-th-end whitespace-nowrap">Updated</th>
-                    <th className="ui-table-th text-center">Active</th>
+                    <th className="ui-table-th">Name</th>
+                    <th className="ui-table-th">Type</th>
+                    <th className="ui-table-th min-w-[8rem]">Value</th>
+                    <th className="ui-table-th min-w-[8rem]">Applies to</th>
+                    <th className="ui-table-th">Category</th>
+                    <th className="ui-table-th">Active</th>
+                    <th className="ui-table-th min-w-[10rem]">Notes</th>
                     <th className="ui-table-th-end">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredModifiers.map((modifier) => (
-                    <tr
-                      key={modifier.id}
-                      role="button"
-                      tabIndex={0}
-                      title="Click row to edit"
-                      className="border-b border-slate-100 hover:bg-slate-50/70 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400/50"
-                      onClick={() => void handleEditModifier(modifier)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          void handleEditModifier(modifier);
-                        }
-                      }}
-                    >
-                      <td className="py-2 px-3 font-medium text-slate-900">{modifier.name}</td>
-                      <td className="py-2 px-2 text-slate-700">{modifier.modifierKey}</td>
-                      <td
-                        className="py-2 px-2 align-top text-slate-600 max-w-[min(28rem,40vw)]"
-                        title={modifier.description || undefined}
+                  {filteredModifiers.map((modifier) => {
+                    const cat0 = modifier.appliesToCategories[0]?.trim();
+                    return (
+                      <tr
+                        key={modifier.id}
+                        role="button"
+                        tabIndex={0}
+                        title="Click row to edit"
+                        className="cursor-pointer border-b border-slate-100 outline-none hover:bg-slate-50/80 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400/40"
+                        onClick={() => void handleEditModifier(modifier)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            void handleEditModifier(modifier);
+                          }
+                        }}
                       >
-                        <p className="line-clamp-2 text-[11px] leading-snug">{modifier.description?.trim() || '—'}</p>
-                      </td>
-                      <td className="py-2 px-2 text-slate-700">{modifier.appliesToCategories.join(', ') || '-'}</td>
-                      <td className="py-2 px-2 text-right text-slate-700">{formatNumberSafe(modifier.addLaborMinutes, 2)}</td>
-                      <td className="py-2 px-2 text-right text-slate-700">{formatCurrencySafe(modifier.addMaterialCost)}</td>
-                      <td className="py-2 px-2 text-right text-slate-700">{formatPercentSafe(modifier.percentLabor)}</td>
-                      <td className="py-2 px-2 text-right text-slate-700">{formatPercentSafe(modifier.percentMaterial)}</td>
-                      <td className="py-2 px-2 text-right whitespace-nowrap text-slate-600">
-                        {modifier.updatedAt ? new Date(modifier.updatedAt).toLocaleString() : '—'}
-                      </td>
-                      <td className="py-2 px-2 text-center">
-                        <span
-                          className={`rounded px-1.5 py-0.5 text-xs ${modifier.active ? 'ui-status-info border font-medium' : 'border border-slate-300 bg-slate-100 text-slate-600'}`}
-                        >
-                          {modifier.active ? 'Yes' : 'No'}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-1">
+                        <td className="py-2.5 px-3 font-medium text-slate-900">{modifier.name}</td>
+                        <td className="py-2.5 px-3 text-slate-700">{modifierEffectTypeLabel(modifier)}</td>
+                        <td className="py-2.5 px-3 text-slate-800">{modifierEffectValueSummary(modifier)}</td>
+                        <td className="py-2.5 px-3 text-slate-700">{modifier.appliesToCategories.join(', ') || '—'}</td>
+                        <td className="py-2.5 px-3 text-slate-600">{cat0 || '—'}</td>
+                        <td className="py-2.5 px-3">
+                          <span
+                            className={`inline-flex rounded px-2 py-0.5 text-xs font-medium ${
+                              modifier.active
+                                ? 'bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200/80'
+                                : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200/80'
+                            }`}
+                          >
+                            {modifier.active ? 'Yes' : 'No'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 align-top text-slate-600">
+                          <p className="line-clamp-2 text-xs" title={modifier.description}>
+                            {modifier.description?.trim() || '—'}
+                          </p>
+                        </td>
+                        <td className="py-2.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               void handleDeleteModifier(modifier.id);
                             }}
-                            className="h-7 px-2 rounded border border-red-200 text-red-700 hover:bg-red-50 inline-flex items-center gap-1 outline-none focus-visible:ring-2 focus-visible:ring-red-400/40"
+                            className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-50"
                           >
-                            <Trash2 className="w-3 h-3" />
                             Deactivate
                           </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )
-          ) : filteredBundles.length === 0 ? (
-            <div className="flex min-h-[28vh] flex-col items-center justify-center gap-3 p-10 text-center">
-              <div className="text-sm font-semibold text-slate-800">
-                {bundles.length === 0 ? 'No bundles loaded yet' : 'No bundles match these filters'}
-              </div>
-              <p className="max-w-md text-xs leading-relaxed text-slate-600">
-                {bundles.length === 0
-                  ? catalogDbIsPostgres
-                    ? `Create bundle rows in Supabase or with bundle tools in this UI.${sheetImportEnabled ? ' You can also import from Sheets once the BUNDLES tab has rows.' : ''}`
-                    : sheetImportEnabled
-                      ? 'Import from Sheets once your workbook BUNDLES tab has rows. Bundles reference catalog SKUs and modifiers — orphan hints appear under import warnings when something does not resolve.'
-                      : 'Create bundle rows in the local database or with bundle tools in this UI.'
-                  : 'Clear search or widen the activation filter. Use Manual review queues in the panel above to export orphan bundle SKU references.'}
-              </p>
-            </div>
-          ) : (
-            <table className="w-full text-xs">
-              <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 backdrop-blur-sm">
-                <tr>
-                  <th className="ui-table-th">Bundle ID</th>
-                  <th className="ui-table-th">Bundle Name</th>
-                  <th className="ui-table-th">Category</th>
-                  <th className="ui-table-th">Updated</th>
-                  <th className="ui-table-th text-center">Active</th>
-                  <th className="ui-table-th-end">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredBundles.map((bundle) => (
-                  <tr
-                    key={bundle.id}
-                    role="button"
-                    tabIndex={0}
-                    title="Click row to edit"
-                    className="border-b border-slate-100 hover:bg-slate-50/70 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400/50"
-                    onClick={() => void handleEditBundle(bundle)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        void handleEditBundle(bundle);
-                      }
-                    }}
-                  >
-                    <td className="py-2 px-3 text-slate-700">{bundle.id}</td>
-                    <td className="py-2 px-2 font-medium text-slate-900">{bundle.bundleName}</td>
-                    <td className="py-2 px-2 text-slate-700">{bundle.category || '-'}</td>
-                    <td className="py-2 px-2 text-slate-500">{bundle.updatedAt ? new Date(bundle.updatedAt).toLocaleString() : '-'}</td>
-                    <td className="py-2 px-2 text-center">
-                      <span
-                        className={`rounded px-1.5 py-0.5 text-xs ${bundle.active ? 'ui-status-info border font-medium' : 'border border-slate-300 bg-slate-100 text-slate-600'}`}
-                      >
-                        {bundle.active ? 'Yes' : 'No'}
-                      </span>
-                    </td>
-                    <td className="py-2 px-3" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void handleDeleteBundle(bundle.id);
-                          }}
-                          className="h-7 px-2 rounded border border-red-200 text-red-700 hover:bg-red-50 inline-flex items-center gap-1 outline-none focus-visible:ring-2 focus-visible:ring-red-400/40"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          Deactivate
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          ) : null}
         </div>
       </section>
+
+      <details className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
+        <summary className="cursor-pointer select-none font-medium text-slate-700">Advanced catalog diagnostics</summary>
+        <div className="mt-4 space-y-4 border-t border-slate-100 pt-4 text-xs text-slate-700">
+          <p className="text-slate-600">
+            For administrators: import status, workbook tabs, and extra item filters. Estimators can ignore this section.
+          </p>
+          <p>
+            <Link to="/admin/health" className="font-medium text-blue-700 hover:text-blue-800">
+              Open Admin → Health
+            </Link>{' '}
+            for workbook connection checks and detailed sync history.
+          </p>
+          {integrationHealthError ? (
+            <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700">
+              Could not load integration summary: {integrationHealthError}
+            </p>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`rounded px-2 py-1 font-medium ${statusClass(syncStatus?.status || 'never')}`}>
+              {catalogSyncStatusShortLabel(syncStatus?.status, sheetImportEnabled)}
+            </span>
+            {sheetImportEnabled ? (
+              <button
+                type="button"
+                onClick={() => void handleSyncCatalog()}
+                disabled={syncing}
+                className="ui-btn-secondary inline-flex h-8 items-center gap-1.5 px-3 text-xs disabled:opacity-60"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} aria-hidden />
+                {syncing ? 'Syncing…' : 'Import from Sheets'}
+              </button>
+            ) : null}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="rounded-lg bg-slate-50 px-3 py-2">
+              <p className="font-medium text-slate-800">Data source</p>
+              <p className="mt-1">{catalogPersistenceLabel}</p>
+            </div>
+            <div className="rounded-lg bg-slate-50 px-3 py-2">
+              <p className="font-medium text-slate-800">{sheetImportEnabled ? 'Last import' : 'Last recorded import'}</p>
+              <p className="mt-1">{lastSynced ? new Date(lastSynced).toLocaleString() : 'Never'}</p>
+            </div>
+            <div className="rounded-lg bg-slate-50 px-3 py-2">
+              <p className="font-medium text-slate-800">Row counts</p>
+              <p className="mt-1">
+                {inventory
+                  ? `${inventory.total} total · ${inventory.active} active · ${inventory.inactive} inactive`
+                  : '—'}
+              </p>
+            </div>
+            {sheetImportEnabled && syncStatus?.workbook ? (
+              <div className="rounded-lg bg-slate-50 px-3 py-2 sm:col-span-2">
+                <p className="font-medium text-slate-800">Import workbook tabs</p>
+                <p className="mt-1 font-mono text-[11px]">
+                  {syncStatus.workbook.tabs.itemsFetch}, {syncStatus.workbook.tabs.modifiersFetch},{' '}
+                  {syncStatus.workbook.tabs.bundles}, {syncStatus.workbook.tabs.aliases},{' '}
+                  {syncStatus.workbook.tabs.attributes}
+                </p>
+              </div>
+            ) : null}
+            <div className="rounded-lg bg-slate-50 px-3 py-2">
+              <p className="font-medium text-slate-800">Last run counts</p>
+              <p className="mt-1">
+                {itemsSyncedLabelHint}: {syncStatus?.itemsSynced ?? '—'} items · {syncStatus?.modifiersSynced ?? '—'} modifiers ·{' '}
+                {syncStatus?.bundlesSynced ?? '—'} bundles · {syncStatus?.aliasesSynced ?? '—'} aliases · {syncStatus?.attributesSynced ?? '—'}{' '}
+                attributes
+              </p>
+            </div>
+          </div>
+          {displayedSyncFailure ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-900 whitespace-pre-wrap">
+              <span className="font-semibold">{sheetImportEnabled ? 'Import error: ' : 'Catalog run error: '}</span>
+              {displayedSyncFailure}
+            </div>
+          ) : null}
+          {integrationHealth &&
+          !catalogSheetsSource &&
+          catalogDbIsPostgres &&
+          metaQuery.isSuccess &&
+          (inventory?.total ?? 0) === 0 ? (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800">
+              <p className="font-semibold">Postgres catalog is empty on this server</p>
+              <p className="mt-1 text-slate-600">
+                Add rows in{' '}
+                <span className="font-mono text-[11px]">{integrationHealth.catalogItemsReadTable || 'catalog_items'}</span> or
+                enable optional workbook import. See <Link to="/admin/health">Admin health</Link> for workbook checks.
+              </p>
+            </div>
+          ) : null}
+          {inventory && inventory.inactive > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <p>
+                <span className="font-semibold">{inventory.inactive} row(s) inactive</span> in the database (hidden from estimates when
+                filtered to Active).
+              </p>
+              <button
+                type="button"
+                onClick={() => void handleActivateAllCatalogItems()}
+                disabled={activatingAll}
+                className="ui-btn-secondary h-8 px-3 text-xs disabled:opacity-50"
+              >
+                {activatingAll ? 'Updating…' : 'Activate all catalog items'}
+              </button>
+            </div>
+          ) : null}
+          {syncStatus?.warnings?.length ? (
+            <div className="rounded-lg border border-amber-200/80 bg-amber-50/90 px-3 py-2 text-amber-950">
+              <p className="font-medium">Sync / preflight warnings</p>
+              <ul className="mt-1 list-inside list-disc">
+                {syncStatus.warnings.map((warning, index) => (
+                  <li key={`${warning}-${index}`}>{warning}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {syncStatus && sheetImportEnabled ? (
+            <CatalogSyncReviewPanel syncStatus={syncStatus} workbookImportEnabled={sheetImportEnabled} />
+          ) : null}
+          <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-3">
+            <p className="font-medium text-slate-900">Power filters (Items)</p>
+            <p className="mt-1 text-slate-600">These map to URL params and apply to the Items tab only.</p>
+            <div className="mt-3 flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1 text-[11px]">
+                <span className="text-slate-500">Sort (Items)</span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as SortKey)}
+                  className="ui-input h-8 min-w-[12rem] px-2 text-xs"
+                  aria-label="Sort items"
+                >
+                  <option value="sku-asc">SKU (A–Z)</option>
+                  <option value="sku-desc">SKU (Z–A)</option>
+                  <option value="name-asc">Name (A–Z)</option>
+                  <option value="name-desc">Name (Z–A)</option>
+                  <option value="category-asc">Category</option>
+                  <option value="material-desc">Material high → low</option>
+                  <option value="labor-desc">Labor high → low</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-[11px]">
+                <span className="text-slate-500">Item type</span>
+                <select
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                  className="ui-input h-8 px-2 text-xs"
+                  aria-label="Filter by item type"
+                >
+                  {itemTypes.map((itemType) => (
+                    <option key={itemType} value={itemType}>
+                      {itemType === 'all' ? 'All types' : itemType}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-[11px]">
+                <span className="text-slate-500">Sheet tab</span>
+                <select
+                  value={sourceTabFilter}
+                  onChange={(e) => setSourceTabFilter(e.target.value)}
+                  className="ui-input h-8 max-w-[14rem] px-2 text-xs"
+                  aria-label="Filter by workbook sheet tab"
+                >
+                  {sheetSourceTabOptions.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt === 'all' ? 'All sheet tabs' : opt === '__none__' ? 'No tab / unknown' : opt}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="inline-flex items-center gap-2 text-[11px] text-slate-700">
+                <input type="checkbox" checked={imageSprintOnly} onChange={(e) => setImageSprintOnly(e.target.checked)} />
+                Missing photos only
+              </label>
+            </div>
+          </div>
+          {integrationHealth &&
+          catalogDbIsPostgres &&
+          (integrationHealth.workspaceTakeoffLinesTable ||
+            integrationHealth.catalogItemsReadTable ||
+            integrationHealth.catalogModifiersReadTable) ? (
+            <p className="text-[11px] text-slate-500">
+              {integrationHealth.workspaceTakeoffLinesTable ? (
+                <>
+                  Takeoff table:{' '}
+                  <span className="font-mono text-slate-700">{integrationHealth.workspaceTakeoffLinesTable}</span>
+                </>
+              ) : null}
+              {integrationHealth.catalogItemsReadTable ? (
+                <>
+                  {' '}
+                  · Items: <span className="font-mono text-slate-700">{integrationHealth.catalogItemsReadTable}</span>
+                </>
+              ) : null}
+              {integrationHealth.catalogModifiersReadTable ? (
+                <>
+                  {' '}
+                  · Modifiers:{' '}
+                  <span className="font-mono text-slate-700">{integrationHealth.catalogModifiersReadTable}</span>
+                </>
+              ) : null}
+            </p>
+          ) : null}
+        </div>
+      </details>
 
       {editingItem ? (
         <div
@@ -2057,16 +1951,22 @@ export function Catalog() {
           <form onSubmit={handleSaveItem} className="ui-panel w-full max-w-2xl overflow-hidden p-0 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-app-line px-4 py-3.5">
               <div>
-                <p className="ui-mono-kicker">Module 01 / Catalog Record</p>
-                <h2 className="mt-1 text-base font-semibold text-slate-900">Edit Catalog Item</h2>
+                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Catalog item</p>
+                <h2 className="mt-1 text-base font-semibold text-slate-900">Edit item</h2>
                 {curatorEditorContextBadges.length ? (
-                  <div className="mt-2 flex max-w-xl flex-wrap gap-1.5" role="status" aria-label="Active catalog filters">
-                    {curatorEditorContextBadges.map((t) => (
-                      <span key={t} className="ui-mono-chip ui-mono-chip--warn text-[10px]">
-                        {t}
-                      </span>
-                    ))}
-                  </div>
+                  <details className="mt-2 max-w-xl rounded-md border border-app-line bg-slate-50/90 px-2 py-1">
+                    <summary className="cursor-pointer list-none text-[10px] font-medium text-slate-600 [&::-webkit-details-marker]:hidden">
+                      <span className="underline decoration-dotted underline-offset-2">List filter context</span>
+                      <span className="ml-1.5 font-normal text-app-muted">({curatorEditorContextBadges.length})</span>
+                    </summary>
+                    <div className="mt-2 flex flex-wrap gap-1.5 pb-0.5" role="status" aria-label="Active catalog filters">
+                      {curatorEditorContextBadges.map((t) => (
+                        <span key={t} className="ui-mono-chip ui-mono-chip--warn text-[10px]">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  </details>
                 ) : null}
               </div>
               <button
@@ -2127,70 +2027,13 @@ export function Catalog() {
                   <label className="block text-[11px] font-medium text-slate-600 mb-1">Brand</label>
                   <input
                     type="text"
-                    placeholder="Brand line from sheet"
+                    placeholder="Optional brand line"
                     className="ui-input"
                     value={editingItem.brand ?? ''}
                     onChange={(e) =>
                       setEditingItem({
                         ...editingItem,
                         brand: e.target.value.trim() ? e.target.value.trim() : undefined,
-                      })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Model</label>
-                  <input
-                    type="text"
-                    className="ui-input"
-                    value={editingItem.model ?? ''}
-                    onChange={(e) =>
-                      setEditingItem({
-                        ...editingItem,
-                        model: e.target.value.trim() ? e.target.value.trim() : undefined,
-                      })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Model number</label>
-                  <input
-                    type="text"
-                    className="ui-input"
-                    value={editingItem.modelNumber ?? ''}
-                    onChange={(e) =>
-                      setEditingItem({
-                        ...editingItem,
-                        modelNumber: e.target.value.trim() ? e.target.value.trim() : undefined,
-                      })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Series</label>
-                  <input
-                    type="text"
-                    className="ui-input"
-                    value={editingItem.series ?? ''}
-                    onChange={(e) =>
-                      setEditingItem({
-                        ...editingItem,
-                        series: e.target.value.trim() ? e.target.value.trim() : undefined,
-                      })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Item type (sheet)</label>
-                  <input
-                    type="text"
-                    placeholder="Normalized item type when present"
-                    className="ui-input"
-                    value={editingItem.itemType ?? ''}
-                    onChange={(e) =>
-                      setEditingItem({
-                        ...editingItem,
-                        itemType: e.target.value.trim() ? e.target.value.trim() : undefined,
                       })
                     }
                   />
@@ -2210,47 +2053,7 @@ export function Catalog() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Family</label>
-                  <input
-                    type="text"
-                    placeholder="Product line / collection"
-                    className="ui-input"
-                    value={editingItem.family ?? ''}
-                    onChange={(e) =>
-                      setEditingItem({
-                        ...editingItem,
-                        family: e.target.value.trim() ? e.target.value.trim() : undefined,
-                      })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Subcategory</label>
-                  <input
-                    type="text"
-                    placeholder="Sheet subcategory when distinct from family"
-                    className="ui-input"
-                    value={editingItem.subcategory ?? ''}
-                    onChange={(e) =>
-                      setEditingItem({
-                        ...editingItem,
-                        subcategory: e.target.value.trim() ? e.target.value.trim() : undefined,
-                      })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Finish / variant group</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. SS, matte black"
-                    className="ui-input"
-                    value={editingItem.finishGroup ?? ''}
-                    onChange={(e) => setEditingItem({ ...editingItem, finishGroup: e.target.value.trim() ? e.target.value.trim() : null })}
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Base Material Cost ($)</label>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Base material ($)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -2260,7 +2063,7 @@ export function Catalog() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Base Labor Minutes</label>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Base labor (minutes)</label>
                   <input
                     type="number"
                     className="ui-input"
@@ -2269,9 +2072,7 @@ export function Catalog() {
                   />
                 </div>
                 <div className="col-span-2">
-                  <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                    Install Labor Family <span className="text-slate-400 font-normal">(fallback when this item has no labor minutes on a line)</span>
-                  </label>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Install labor family</label>
                   <select
                     className="ui-input"
                     value={editingItem.installLaborFamily ?? ''}
@@ -2282,7 +2083,7 @@ export function Catalog() {
                       })
                     }
                   >
-                    <option value="">— None —</option>
+                    <option value="">None (use labor minutes or intake defaults)</option>
                     {INSTALL_LABOR_FAMILY_OPTIONS.map((opt) => (
                       <option key={opt.key} value={opt.key}>
                         {opt.label} · {opt.defaultMinutes} min {opt.unitBasis.replace('per_', '/ ')}
@@ -2290,7 +2091,7 @@ export function Catalog() {
                     ))}
                   </select>
                   <p className="mt-1 text-[10px] leading-snug text-slate-500">
-                    Drives install-family labor for intake lines that match this SKU but arrive with zero labor. Leave blank to rely on heuristic scope-type detection.
+                    Used when a line is installable but has no labor on the row. Leave blank unless you rely on family defaults.
                   </p>
                 </div>
                 <div className="col-span-2">
@@ -2316,7 +2117,54 @@ export function Catalog() {
                     </div>
                   </div>
                 </div>
-                <div className="col-span-2 flex items-center gap-4 text-xs text-slate-700">
+                <div className="col-span-2">
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Notes</label>
+                  <textarea
+                    className="ui-textarea min-h-[4rem] text-sm"
+                    placeholder="Visible notes for this item"
+                    value={editingItem.notes ?? ''}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        notes: e.target.value.trim() ? e.target.value : undefined,
+                      })
+                    }
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Estimator notes</label>
+                  <textarea
+                    className="ui-textarea min-h-[4rem] text-sm"
+                    placeholder="Internal estimating context"
+                    value={editingItem.estimatorNotes ?? ''}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        estimatorNotes: e.target.value.trim() ? e.target.value : null,
+                      })
+                    }
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Tags</label>
+                  <input
+                    type="text"
+                    className="ui-input"
+                    placeholder="Comma-separated tags"
+                    value={(editingItem.tags ?? []).join(', ')}
+                    onChange={(e) => {
+                      const tags = e.target.value
+                        .split(',')
+                        .map((t) => t.trim())
+                        .filter(Boolean);
+                      setEditingItem({
+                        ...editingItem,
+                        tags: tags.length ? tags : undefined,
+                      });
+                    }}
+                  />
+                </div>
+                <div className="col-span-2 flex flex-wrap items-center gap-4 text-xs text-slate-700">
                   <label className="inline-flex items-center gap-1.5">
                     <input
                       type="checkbox"
@@ -2331,7 +2179,7 @@ export function Catalog() {
                       checked={editingItem.adaFlag}
                       onChange={(e) => setEditingItem({ ...editingItem, adaFlag: e.target.checked })}
                     />
-                    ADA Flag
+                    ADA
                   </label>
                   <label className="inline-flex items-center gap-1.5">
                     <input
@@ -2341,76 +2189,156 @@ export function Catalog() {
                     />
                     Taxable
                   </label>
-                  <label className="inline-flex items-center gap-1.5">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(editingItem.deprecated)}
-                      onChange={(e) =>
-                        setEditingItem({
-                          ...editingItem,
-                          deprecated: e.target.checked,
-                          deprecatedReason: e.target.checked ? editingItem.deprecatedReason : null,
-                        })
-                      }
-                    />
-                    Deprecated
-                  </label>
                 </div>
-                {editingItem.deprecated ? (
-                  <div className="col-span-2">
-                    <label className="block text-[11px] font-medium text-slate-600 mb-1">Deprecated note (optional)</label>
-                    <input
-                      className="ui-input"
-                      placeholder="Why this row is retired"
-                      value={editingItem.deprecatedReason ?? ''}
-                      onChange={(e) =>
-                        setEditingItem({
-                          ...editingItem,
-                          deprecatedReason: e.target.value.trim() ? e.target.value.trim() : null,
-                        })
-                      }
-                    />
-                  </div>
-                ) : null}
+              </div>
 
-                <div className="col-span-2 ui-panel-muted p-3">
-                  <details className="group">
-                    <summary className="cursor-pointer text-[11px] font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
-                      <span className="underline decoration-dotted underline-offset-2 group-open:no-underline">
-                        Sheet provenance and extra API fields
-                      </span>
-                      <span className="ml-2 font-normal text-app-muted">(read-only)</span>
-                    </summary>
-                    {(() => {
-                      const ro = catalogItemReadOnlyRows(editingItem);
-                      return ro.length ? (
-                        <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 border-t border-app-line pt-2 text-[11px] sm:grid-cols-2">
-                          {ro.map((row) => (
-                            <div key={row.label} className="min-w-0">
-                              <dt className="text-app-muted">{row.label}</dt>
-                              <dd className="break-words font-mono text-slate-800">{row.value}</dd>
-                            </div>
-                          ))}
-                        </dl>
-                      ) : (
-                        <p className="mt-2 border-t border-app-line pt-2 text-[11px] text-app-muted">
-                          No extra provenance fields on this row
-                          {sheetImportEnabled ? ' (they often appear after a workbook import).' : '.'}
-                        </p>
-                      );
-                    })()}
-                  </details>
-                </div>
-
-                <div className="col-span-2 ui-panel-muted p-3">
-                  <div className="flex items-start justify-between gap-3">
+              <details className="rounded-lg border border-app-line bg-slate-50/70">
+                <summary className="cursor-pointer list-none px-3 py-2.5 text-[11px] font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
+                  <span className="underline decoration-dotted underline-offset-2">Advanced: sheet &amp; catalog metadata</span>
+                </summary>
+                <div className="border-t border-app-line p-3">
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <p className="ui-mono-kicker">Aliases</p>
-                      <p className="mt-1 text-[11px] text-slate-500">Alternate SKUs and search phrases that map to this item.</p>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">Model</label>
+                      <input
+                        type="text"
+                        className="ui-input"
+                        value={editingItem.model ?? ''}
+                        onChange={(e) =>
+                          setEditingItem({
+                            ...editingItem,
+                            model: e.target.value.trim() ? e.target.value.trim() : undefined,
+                          })
+                        }
+                      />
                     </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">Model number</label>
+                      <input
+                        type="text"
+                        className="ui-input"
+                        value={editingItem.modelNumber ?? ''}
+                        onChange={(e) =>
+                          setEditingItem({
+                            ...editingItem,
+                            modelNumber: e.target.value.trim() ? e.target.value.trim() : undefined,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">Series</label>
+                      <input
+                        type="text"
+                        className="ui-input"
+                        value={editingItem.series ?? ''}
+                        onChange={(e) =>
+                          setEditingItem({
+                            ...editingItem,
+                            series: e.target.value.trim() ? e.target.value.trim() : undefined,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">Item type (import)</label>
+                      <input
+                        type="text"
+                        className="ui-input"
+                        value={editingItem.itemType ?? ''}
+                        onChange={(e) =>
+                          setEditingItem({
+                            ...editingItem,
+                            itemType: e.target.value.trim() ? e.target.value.trim() : undefined,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">Family</label>
+                      <input
+                        type="text"
+                        className="ui-input"
+                        value={editingItem.family ?? ''}
+                        onChange={(e) =>
+                          setEditingItem({
+                            ...editingItem,
+                            family: e.target.value.trim() ? e.target.value.trim() : undefined,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">Subcategory</label>
+                      <input
+                        type="text"
+                        className="ui-input"
+                        value={editingItem.subcategory ?? ''}
+                        onChange={(e) =>
+                          setEditingItem({
+                            ...editingItem,
+                            subcategory: e.target.value.trim() ? e.target.value.trim() : undefined,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">Finish / variant group</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. SS, matte black"
+                        className="ui-input"
+                        value={editingItem.finishGroup ?? ''}
+                        onChange={(e) => setEditingItem({ ...editingItem, finishGroup: e.target.value.trim() ? e.target.value.trim() : null })}
+                      />
+                    </div>
+                    <div className="col-span-2 flex flex-wrap items-center gap-4 text-xs text-slate-700">
+                      <label className="inline-flex items-center gap-1.5">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(editingItem.deprecated)}
+                          onChange={(e) =>
+                            setEditingItem({
+                              ...editingItem,
+                              deprecated: e.target.checked,
+                              deprecatedReason: e.target.checked ? editingItem.deprecatedReason : null,
+                            })
+                          }
+                        />
+                        Deprecated (hide from default use)
+                      </label>
+                    </div>
+                    {editingItem.deprecated ? (
+                      <div className="col-span-2">
+                        <label className="block text-[11px] font-medium text-slate-600 mb-1">Deprecated note</label>
+                        <input
+                          className="ui-input"
+                          placeholder="Why this row is retired"
+                          value={editingItem.deprecatedReason ?? ''}
+                          onChange={(e) =>
+                            setEditingItem({
+                              ...editingItem,
+                              deprecatedReason: e.target.value.trim() ? e.target.value.trim() : null,
+                            })
+                          }
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </details>
+
+              <details className="ui-panel-muted rounded-lg border border-app-line p-0 overflow-hidden">
+                <summary className="cursor-pointer list-none px-3 py-2.5 text-[11px] font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
+                  <span className="underline decoration-dotted underline-offset-2">Aliases</span>
+                  <span className="ml-2 font-normal text-app-muted">(matching &amp; alternate SKUs)</span>
+                </summary>
+                <div className="border-t border-app-line p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-[11px] text-slate-500">Alternate SKUs and search phrases that map to this item.</p>
                     <button
                       type="button"
-                      className="ui-btn-secondary h-8 px-3 text-[11px]"
+                      className="ui-btn-secondary h-8 shrink-0 px-3 text-[11px]"
                       onClick={() => void loadAliasesForItem(editingItem.id)}
                       disabled={aliasesLoadingItemId === editingItem.id}
                     >
@@ -2473,18 +2401,19 @@ export function Catalog() {
                     )}
                   </div>
                 </div>
+              </details>
 
-                <div className="col-span-2 ui-panel-muted p-3">
+              <details className="ui-panel-muted rounded-lg border border-app-line p-0 overflow-hidden">
+                <summary className="cursor-pointer list-none px-3 py-2.5 text-[11px] font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
+                  <span className="underline decoration-dotted underline-offset-2">Attributes</span>
+                  <span className="ml-2 font-normal text-app-muted">(variants &amp; deltas)</span>
+                </summary>
+                <div className="border-t border-app-line p-3">
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="ui-mono-kicker">Attributes</p>
-                      <p className="mt-1 text-[11px] text-slate-500">
-                        Structured variants (finish, mounting, coating, assembly) so meaning doesn’t require duplicate SKUs.
-                      </p>
-                    </div>
+                    <p className="text-[11px] text-slate-500">Finish, mounting, and other structured variants with optional cost deltas.</p>
                     <button
                       type="button"
-                      className="ui-btn-secondary h-8 px-3 text-[11px]"
+                      className="ui-btn-secondary h-8 shrink-0 px-3 text-[11px]"
                       onClick={() => void loadAttributesForItem(editingItem.id)}
                       disabled={attrsLoadingItemId === editingItem.id}
                     >
@@ -2601,7 +2530,34 @@ export function Catalog() {
                     )}
                   </div>
                 </div>
-              </div>
+              </details>
+
+              <details className="rounded-lg border border-app-line bg-slate-50/70">
+                <summary className="cursor-pointer list-none px-3 py-2.5 text-[11px] font-semibold text-slate-800 [&::-webkit-details-marker]:hidden">
+                  <span className="underline decoration-dotted underline-offset-2">Import source</span>
+                  <span className="ml-2 font-normal text-app-muted">(read-only)</span>
+                </summary>
+                <div className="border-t border-app-line p-3">
+                  {(() => {
+                    const ro = catalogItemProvenanceRows(editingItem);
+                    return ro.length ? (
+                      <dl className="grid grid-cols-1 gap-x-4 gap-y-1.5 text-[11px] sm:grid-cols-2">
+                        {ro.map((row) => (
+                          <div key={row.label} className="min-w-0">
+                            <dt className="text-app-muted">{row.label}</dt>
+                            <dd className="break-words font-mono text-slate-800">{row.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    ) : (
+                      <p className="text-[11px] text-app-muted">
+                        No worksheet row is linked to this item
+                        {sheetImportEnabled ? ' (often set after a workbook import).' : '.'}
+                      </p>
+                    );
+                  })()}
+                </div>
+              </details>
             </div>
 
             <div className="p-3 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
@@ -2628,7 +2584,7 @@ export function Catalog() {
           <form onSubmit={handleSaveModifier} className="ui-panel w-full max-w-2xl overflow-hidden p-0 shadow-2xl">
             <div className="flex items-center justify-between border-b border-app-line px-4 py-3.5">
               <div>
-                <p className="ui-mono-kicker">Catalog / Modifier</p>
+                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Modifier</p>
                 <h2 className="mt-1 text-base font-semibold text-slate-900">Edit Modifier</h2>
               </div>
               <button type="button" onClick={() => setEditingModifier(null)} aria-label="Close edit modifier" className="ui-ghost-btn h-9 w-9 justify-center p-0">
@@ -2712,7 +2668,7 @@ export function Catalog() {
           <form onSubmit={handleSaveBundle} className="ui-panel w-full max-w-xl overflow-hidden p-0 shadow-2xl">
             <div className="flex items-center justify-between border-b border-app-line px-4 py-3.5">
               <div>
-                <p className="ui-mono-kicker">Catalog / Bundle</p>
+                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Bundle</p>
                 <h2 className="mt-1 text-base font-semibold text-slate-900">Edit Bundle</h2>
               </div>
               <button type="button" onClick={() => setEditingBundle(null)} aria-label="Close edit bundle" className="ui-ghost-btn h-9 w-9 justify-center p-0">

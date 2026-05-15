@@ -1,10 +1,15 @@
 import { randomUUID } from 'crypto';
 import type { TakeoffLineRecord } from '../../shared/types/estimator.ts';
-import { SHEETS_TABS, bulkUpsertRows, readRows, upsertRowById, type SheetsRow } from '../integrations/googleSheets.ts';
+import { bulkUpsertRows, readRowsWithLegacyTab, upsertRowById, SHEETS_TABS, type SheetsRow } from '../integrations/googleSheets.ts';
+import { projectSetupTabEstimateLines } from '../config/div10SheetsWorkbooks.ts';
 import { assertSheetsWorkbookId, getProjectsSpreadsheetId } from './dataBackend.ts';
 
+function estimateLinesTab(): string {
+  return projectSetupTabEstimateLines();
+}
+
 function projectsWorkbookId(): string {
-  return assertSheetsWorkbookId(getProjectsSpreadsheetId(), 'GOOGLE_PROJECTS_SPREADSHEET_ID');
+  return assertSheetsWorkbookId(getProjectsSpreadsheetId(), 'PROJECT_SETUP_ESTIMATE_PROPOSAL_SPREADSHEET_ID');
 }
 
 function toNumber(value: string | undefined, fallback = 0): number {
@@ -105,7 +110,7 @@ function mapLineFromSheet(row: Record<string, string>): TakeoffLineRecord {
 }
 
 export async function listEstimateLinesFromSheets(projectId: string, roomId?: string): Promise<TakeoffLineRecord[]> {
-  const rows = await readRows(SHEETS_TABS.ESTIMATE_LINES, projectsWorkbookId());
+  const rows = await readRowsWithLegacyTab(estimateLinesTab(), SHEETS_TABS.ESTIMATE_LINES, projectsWorkbookId());
   return rows
     .map(mapLineFromSheet)
     .filter((line) => line.projectId === projectId)
@@ -117,7 +122,7 @@ export async function upsertEstimateLinesToSheets(projectId: string, lines: Take
     .filter((line) => line.projectId === projectId)
     .map((line) => mapLineToSheetRow(line));
   if (rows.length === 0) return;
-  await bulkUpsertRows(SHEETS_TABS.ESTIMATE_LINES, 'EstimateLineID', rows, projectsWorkbookId());
+  await bulkUpsertRows(estimateLinesTab(), 'EstimateLineID', rows, projectsWorkbookId());
 }
 
 export async function createEstimateLineInSheets(input: Partial<TakeoffLineRecord> & { projectId: string; roomId: string; description: string }): Promise<TakeoffLineRecord> {
@@ -155,12 +160,12 @@ export async function createEstimateLineInSheets(input: Partial<TakeoffLineRecor
     createdAt: now,
     updatedAt: now,
   };
-  await upsertRowById(SHEETS_TABS.ESTIMATE_LINES, 'EstimateLineID', mapLineToSheetRow(line), projectsWorkbookId());
+  await upsertRowById(estimateLinesTab(), 'EstimateLineID', mapLineToSheetRow(line), projectsWorkbookId());
   return line;
 }
 
 export async function updateEstimateLineInSheets(lineId: string, input: Partial<TakeoffLineRecord>): Promise<TakeoffLineRecord | null> {
-  const rows = await readRows(SHEETS_TABS.ESTIMATE_LINES, projectsWorkbookId());
+  const rows = await readRowsWithLegacyTab(estimateLinesTab(), SHEETS_TABS.ESTIMATE_LINES, projectsWorkbookId());
   const row = rows.find((r) => String(r.EstimateLineID || '').trim() === lineId);
   if (!row) return null;
   const current = mapLineFromSheet(row);
@@ -170,7 +175,7 @@ export async function updateEstimateLineInSheets(lineId: string, input: Partial<
     id: lineId,
     updatedAt: new Date().toISOString(),
   };
-  await upsertRowById(SHEETS_TABS.ESTIMATE_LINES, 'EstimateLineID', mapLineToSheetRow(next), projectsWorkbookId());
+  await upsertRowById(estimateLinesTab(), 'EstimateLineID', mapLineToSheetRow(next), projectsWorkbookId());
   return next;
 }
 
@@ -180,11 +185,11 @@ export async function deleteEstimateLineInSheets(lineId: string): Promise<boolea
 }
 
 async function updateRowSoftDelete(lineId: string): Promise<boolean> {
-  const rows = await readRows(SHEETS_TABS.ESTIMATE_LINES, projectsWorkbookId());
+  const rows = await readRowsWithLegacyTab(estimateLinesTab(), SHEETS_TABS.ESTIMATE_LINES, projectsWorkbookId());
   const row = rows.find((r) => String(r.EstimateLineID || '').trim() === lineId);
   if (!row) return false;
   await upsertRowById(
-    SHEETS_TABS.ESTIMATE_LINES,
+    estimateLinesTab(),
     'EstimateLineID',
     {
       ...row,

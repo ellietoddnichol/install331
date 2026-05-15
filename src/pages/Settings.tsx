@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { CatalogPostCutoverHealthRecord, CatalogSyncRunHistoryRecord, CatalogSyncStatusRecord, DbPersistenceStatusRecord, IntakeCatalogAutoApplyMode, SettingsRecord } from '../shared/types/estimator';
 import { ensureProposalDefaults } from '../shared/utils/proposalDefaults';
@@ -169,8 +170,46 @@ export function Settings() {
 
   return (
     <div className="ui-page-narrow space-y-5">
+      <div className="ui-panel flex flex-wrap items-end justify-between gap-4 px-4 py-3.5">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <span className="ui-status-live">Live</span>
+            <span className="text-xs font-medium text-slate-500">Brighten Builders · Install App</span>
+          </div>
+          <h1 className="mt-1.5 text-[24px] font-semibold leading-tight tracking-tight text-slate-950 md:text-[28px]">Settings</h1>
+          <p className="mt-1 text-sm text-slate-600">Company profile, estimate defaults, and proposal copy.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => void loadAll()} disabled={saving || syncing || backfillingRegistry} className="ui-btn-secondary disabled:opacity-50">
+            Refresh
+          </button>
+          <button type="button" onClick={() => void saveSettings()} disabled={saving} className="ui-btn-cta disabled:opacity-60">
+            {saving ? 'Saving...' : 'Save Settings'}
+          </button>
+          <Link to="/admin/health" className="ui-btn-secondary inline-flex h-10 items-center px-4 text-[11px] font-semibold uppercase tracking-[0.06em]">
+            Workbook health (Admin)
+          </Link>
+        </div>
+      </div>
+
+      <details className="ui-accent-card group p-4">
+        <summary className="cursor-pointer list-none text-sm font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
+          Advanced operations & diagnostics
+          <span className="ml-2 text-xs font-normal text-slate-500">(sync, backups, integration env)</span>
+        </summary>
+        <div className="mt-4 space-y-5 border-t border-slate-100 pt-4">
+          {workbookPushEnabled ? (
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => void backfillTakeoffRegistry()} disabled={backfillingRegistry || syncing} className="ui-btn-secondary disabled:opacity-50">
+                {backfillingRegistry ? 'Backfilling...' : 'Backfill Takeoff Registry'}
+              </button>
+              <button type="button" onClick={() => void syncGoogleSheetsCatalog()} disabled={syncing} className="ui-btn-secondary disabled:opacity-50">
+                {syncing ? 'Syncing...' : 'Sync Google Sheets'}
+              </button>
+            </div>
+          ) : null}
       {integrationHealth ? (
-        <section className="ui-accent-card p-4 space-y-3">
+        <section className="space-y-3">
           <p className="ui-mono-kicker">Integrations</p>
           <h2 className="text-sm font-semibold text-slate-900">Environment readiness</h2>
           <p className="text-xs text-slate-500">
@@ -255,40 +294,7 @@ export function Settings() {
         </section>
       ) : null}
 
-      <div className="ui-panel flex flex-wrap items-end justify-between gap-4 px-4 py-3.5">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <span className="ui-status-live">Live</span>
-            <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-              Brighten Builders <span className="mx-1 text-slate-300">/</span> System Configuration
-            </span>
-          </div>
-          <h1 className="mt-1.5 text-[24px] font-semibold leading-tight tracking-tight text-slate-950 md:text-[28px]">Settings</h1>
-          <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.06em] text-slate-500">
-            Company Profile · Proposal Defaults · Catalog (Supabase; optional workbook import)
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => void loadAll()} disabled={saving || syncing || backfillingRegistry} className="ui-btn-secondary disabled:opacity-50">
-            Refresh
-          </button>
-          {workbookPushEnabled ? (
-            <>
-              <button type="button" onClick={() => void backfillTakeoffRegistry()} disabled={backfillingRegistry || syncing} className="ui-btn-secondary disabled:opacity-50">
-                {backfillingRegistry ? 'Backfilling...' : 'Backfill Takeoff Registry'}
-              </button>
-              <button type="button" onClick={() => void syncGoogleSheetsCatalog()} disabled={syncing} className="ui-btn-secondary disabled:opacity-50">
-                {syncing ? 'Syncing...' : 'Sync Google Sheets'}
-              </button>
-            </>
-          ) : null}
-          <button type="button" onClick={() => void saveSettings()} disabled={saving} className="ui-btn-cta disabled:opacity-60">
-            {saving ? 'Saving...' : 'Save Settings'}
-          </button>
-        </div>
-      </div>
-
-      <section className="ui-accent-card p-4 space-y-3">
+      <section className="space-y-3">
         <div className="flex items-start justify-between gap-2">
           <div>
             <p className="ui-mono-kicker">Module 00 / Project Durability</p>
@@ -561,11 +567,13 @@ export function Settings() {
           </div>
         )}
       </section>
+        </div>
+      </details>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <section className="ui-accent-card p-4 space-y-3">
           <div>
-            <p className="ui-mono-kicker">Module 03 / Company Profile</p>
+            <p className="ui-mono-kicker">Company profile</p>
             <h2 className="mt-1 text-sm font-semibold text-slate-900">Brand identity</h2>
           </div>
           <label className="text-xs text-slate-600 block">Company Name

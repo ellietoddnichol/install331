@@ -2,6 +2,8 @@
 
 Div 10 Brain adds a **Supabase (Postgres + Storage + pgvector)** knowledge layer and **OpenAI** classification / retrieval / drafting. All ingestion, embeddings, and service-role access run **only on the Node server**. Pricing math stays in the existing estimator code paths.
 
+**Sheets-backed estimator workspace** (projects, quotes, catalog in Google Sheets) uses a **separate** env contract: the three canonical Div 10 workbook spreadsheet ids and `DATA_BACKEND=sheets`. See **`docs/div10-sheets-workbooks.md`** (and `.env.example` § “Div 10 estimator — three Google Sheets workbooks”). Div 10 Brain variables below do **not** replace those workbook ids.
+
 ## Required
 
 | Variable | Purpose |

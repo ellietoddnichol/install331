@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import {
-  getCatalogInventoryCounts,
   getCatalogPostCutoverHealth,
   reactivateAllCatalogItems,
 } from '../../repos/catalogRepo.ts';
+import { getWorkspaceCatalogInventoryCounts } from '../../repos/catalogWorkspaceReads.ts';
 import {
   getCatalogSyncRunRowForCsv,
   getCatalogSyncStatus,
@@ -24,6 +24,8 @@ import { buildCatalogReviewCsv } from '../../services/catalogSyncReviewCsv.ts';
 import { isCatalogReviewQueueKey } from '../../../shared/catalogReviewQueues.ts';
 import { isSheetsDataBackend } from '../../repos/dataBackend.ts';
 import { getSettingsFromSheets, listTaxJurisdictionsFromSheets, updateSettingsInSheets } from '../../repos/sheetsSettingsRepo.ts';
+import { tryRespondSheetsNotFound, tryRespondSheetsPermissionDenied } from '../../http/jsonErrors.ts';
+import { isGoogleSheetsTabMissingError } from '../../integrations/googleSheets.ts';
 
 export const settingsRouter = Router();
 
@@ -33,7 +35,19 @@ settingsRouter.get('/integration-health', (_req, res) => {
 
 settingsRouter.get('/', async (_req, res) => {
   if (isSheetsDataBackend()) {
-    return res.json({ data: await getSettingsFromSheets() });
+    try {
+      return res.json({ data: await getSettingsFromSheets() });
+    } catch (err) {
+      if (tryRespondSheetsPermissionDenied(res, err, '[settings]')) return;
+      if (tryRespondSheetsNotFound(res, err, '[settings]')) return;
+      if (isGoogleSheetsTabMissingError(err)) {
+        return res.status(503).json({
+          error: 'Settings tab not found in the project workbook.',
+          hint: 'Div 10 default tab name is Settings (not APP_SETTINGS). Set GOOGLE_SHEETS_TAB_SETTINGS=Settings or create the tab on PROJECT_SETUP_ESTIMATE_PROPOSAL_SPREADSHEET_ID.',
+        });
+      }
+      throw err;
+    }
   }
   return res.json({ data: await getSettings() });
 });
@@ -124,7 +138,7 @@ settingsRouter.get('/catalog-sync-review-csv', async (req, res) => {
 
 settingsRouter.get('/catalog-inventory', async (_req, res, next) => {
   try {
-    return res.json({ data: await getCatalogInventoryCounts() });
+    return res.json({ data: await getWorkspaceCatalogInventoryCounts() });
   } catch (error: unknown) {
     next(error);
   }
@@ -144,8 +158,13 @@ settingsRouter.get('/catalog-post-cutover-health', async (_req, res, next) => {
 /** Sets every catalog row to active (e.g. after SQLite import). Sheet sync normally deactivates rows not in the sheet. */
 settingsRouter.post('/activate-all-catalog-items', async (_req, res, next) => {
   try {
+    if (isSheetsDataBackend()) {
+      return res.status(400).json({
+        error: 'Activate all is not available in Google Sheets catalog mode. Set Active=yes on rows in the CatalogItems tab.',
+      });
+    }
     const changed = await reactivateAllCatalogItems();
-    return res.json({ data: { changed, ...(await getCatalogInventoryCounts()) } });
+    return res.json({ data: { changed, ...(await getWorkspaceCatalogInventoryCounts()) } });
   } catch (error: unknown) {
     next(error);
   }

@@ -28,6 +28,7 @@ import {
   buildCatalogSyncWarningsPayload,
   preflightCatalogWorkbookSync,
 } from './catalogSyncWorkbookValidation.ts';
+import { findHeaderRowIndex } from './sheets/headerGridIo.ts';
 import { isCatalogSheetsWorkbookPushEnabled } from './catalogSheetsSyncPolicy.ts';
 import type { CatalogSyncRunAuditSummary, CatalogSyncRunContext } from '../../shared/types/catalogSyncAudit.ts';
 import { CATALOG_SYNC_REVIEW_MAX_SAMPLES, CATALOG_SYNC_RUN_CONTEXT_SCHEMA_VERSION } from '../../shared/types/catalogSyncAudit.ts';
@@ -950,7 +951,9 @@ export function buildGoogleServiceAccountJwt(scopes: string[] = [...DEFAULT_GOOG
   }
 
   const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL;
-  const privateKey = normalizePrivateKeyPem(process.env.GOOGLE_PRIVATE_KEY || '');
+  const privateKeyRaw =
+    process.env.GOOGLE_PRIVATE_KEY || process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '';
+  const privateKey = normalizePrivateKeyPem(privateKeyRaw);
 
   if (!clientEmail || !privateKey) {
     const rawInline = process.env.GOOGLE_SERVICE_ACCOUNT;
@@ -966,7 +969,8 @@ export function buildGoogleServiceAccountJwt(scopes: string[] = [...DEFAULT_GOOG
       `GOOGLE_SERVICE_ACCOUNT_FILE=${fileFromEnv ? `set (path="${fileFromEnv}")` : 'missing'}`,
       `GOOGLE_APPLICATION_CREDENTIALS=${fileFromAdc ? `set (path="${fileFromAdc}")` : 'missing'}`,
       `GOOGLE_SERVICE_ACCOUNT_EMAIL=${clientEmail ? 'set' : 'missing'}`,
-      `GOOGLE_PRIVATE_KEY=${privateKey ? 'set' : 'missing'}`,
+      `GOOGLE_PRIVATE_KEY=${process.env.GOOGLE_PRIVATE_KEY?.trim() ? 'set' : 'missing'}`,
+      `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=${process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.trim() ? 'set' : 'missing'} (legacy alias; prefer GOOGLE_PRIVATE_KEY)`,
       inlineEnvNote,
     ].join('\n');
     throw new Error(
@@ -974,14 +978,14 @@ export function buildGoogleServiceAccountJwt(scopes: string[] = [...DEFAULT_GOOG
         `Use one of:\n` +
         `  1) GOOGLE_SERVICE_ACCOUNT — paste full service account JSON (one line is OK)\n` +
         `  2) GOOGLE_SERVICE_ACCOUNT_BASE64 — same JSON file, base64-encoded (single line, no data: prefix)\n` +
-        `  3) GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_PRIVATE_KEY — from the JSON; use \\n in the key for newlines\n` +
+        `  3) GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_PRIVATE_KEY — from the JSON; use \\n in the key for newlines (GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY is accepted as an alias)\n` +
         `  4) GOOGLE_SERVICE_ACCOUNT_FILE or GOOGLE_APPLICATION_CREDENTIALS — absolute path to JSON **inside the running container** (e.g. a mounted secret file)\n` +
         `Current status:\n${diagnostics}`
     );
   }
 
-  assertPrivateKeyLooksLikePem(privateKey, 'GOOGLE_PRIVATE_KEY');
-  assertPrivateKeyParsesWithNode(privateKey, 'GOOGLE_PRIVATE_KEY');
+  assertPrivateKeyLooksLikePem(privateKey, 'GOOGLE_PRIVATE_KEY (or GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY)');
+  assertPrivateKeyParsesWithNode(privateKey, 'GOOGLE_PRIVATE_KEY (or GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY)');
   return new JWT({
     email: clientEmail,
     key: privateKey,
@@ -1054,7 +1058,8 @@ async function upsertRowInSheet(params: {
   });
 
   const values = validateSheetRows((response.data.values || []) as string[][], params.tabName);
-  const headersRaw = values[0].map((value) => String(value ?? '').trim());
+  const headerIndex = findHeaderRowIndex(values);
+  const headersRaw = (values[headerIndex] || []).map((value) => String(value ?? '').trim());
   const headers = headersRaw.map(normalizeHeader);
   const keyCol = columnIndex(headers, params.keyAliases.map(normalizeHeader));
   if (keyCol === null) {
@@ -1062,11 +1067,11 @@ async function upsertRowInSheet(params: {
   }
 
   const targetRowIndex = values.findIndex((row, index) => {
-    if (index === 0) return false;
+    if (index <= headerIndex) return false;
     return String(row[keyCol] || '').trim().toLowerCase() === params.keyValue.trim().toLowerCase();
   });
 
-  const baseRow = targetRowIndex > 0 ? values[targetRowIndex] : [];
+  const baseRow = targetRowIndex > headerIndex ? values[targetRowIndex] : [];
   const output = headersRaw.map((_header, index) => String(baseRow[index] ?? ''));
 
   const setByAliases = (aliases: string[], value: string) => {
@@ -1945,12 +1950,18 @@ export async function upsertBundles(
  * Lets callers short-circuit cleanly without throwing the giant diagnostic error.
  */
 export function isGoogleSheetsCredentialsConfigured(): boolean {
+  const hasEmailKeyPair = Boolean(
+    String(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL || '').trim() &&
+      String(
+        process.env.GOOGLE_PRIVATE_KEY || process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || ''
+      ).trim()
+  );
   const sources = [
     process.env.GOOGLE_SERVICE_ACCOUNT,
     process.env.GOOGLE_SERVICE_ACCOUNT_BASE64,
     process.env.GOOGLE_SERVICE_ACCOUNT_FILE,
     process.env.GOOGLE_APPLICATION_CREDENTIALS,
-    process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_PRIVATE_KEY ? 'pair' : '',
+    hasEmailKeyPair ? 'pair' : '',
   ];
   return sources.some((v) => typeof v === 'string' && v.trim().length > 0);
 }

@@ -15,6 +15,9 @@ const Settings = lazy(() => import('./pages/Settings.tsx').then((m) => ({ defaul
 const Div10BrainAdmin = lazy(() =>
   import('./pages/admin/Div10BrainAdmin.tsx').then((m) => ({ default: m.Div10BrainAdmin }))
 );
+const AdminHealthPage = lazy(() =>
+  import('./pages/admin/AdminHealthPage.tsx').then((m) => ({ default: m.AdminHealthPage }))
+);
 const ProjectWorkspaceIndexRedirect = lazy(() =>
   import('./components/routing/ProjectWorkspaceIndexRedirect.tsx').then((m) => ({ default: m.ProjectWorkspaceIndexRedirect }))
 );
@@ -43,6 +46,7 @@ export const appRouter = createBrowserRouter([
           { path: 'catalog', element: <Catalog /> },
           { path: 'help', element: <Help /> },
           { path: 'settings', element: <Settings /> },
+          { path: 'admin/health', element: <AdminHealthPage /> },
           { path: 'admin/div10-brain', element: <Div10BrainAdmin /> },
           { path: '*', element: <NotFound /> },
         ],

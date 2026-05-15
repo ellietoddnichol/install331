@@ -9,6 +9,8 @@ import {
 import { getTakeoffLinesTableName } from '../db/workspaceTable.ts';
 import { isCatalogSheetsWorkbookPushEnabled } from './catalogSheetsSyncPolicy.ts';
 import { isPgDriver } from '../db/driver.ts';
+import { isSheetsDataBackend } from '../repos/dataBackend.ts';
+import { peekResolvedCatalogItemsSheetTab } from '../repos/sheetsCatalogRepo.ts';
 
 /**
  * Non-secret integration readiness flags for Settings / diagnostics.
@@ -39,6 +41,8 @@ export type IntegrationHealthSnapshot = {
   catalogItemsReadTable: string;
   /** Resolved modifiers read relation (Postgres only). */
   catalogModifiersReadTable: string;
+  /** When `DATA_BACKEND=sheets`, catalog items are read from the labor workbook tab. */
+  catalogDataSource: 'sheets' | 'postgres' | 'sqlite';
 };
 
 export function getIntegrationHealthSnapshot(): IntegrationHealthSnapshot {
@@ -47,7 +51,13 @@ export function getIntegrationHealthSnapshot(): IntegrationHealthSnapshot {
     Boolean(String(process.env.GOOGLE_SERVICE_ACCOUNT_FILE || '').trim()) ||
     Boolean(String(process.env.GOOGLE_APPLICATION_CREDENTIALS || '').trim());
   const pg = isPgDriver();
+  const sheetsBackend = isSheetsDataBackend();
   const bundleReads = pg ? getBundlesReadTableNames() : { bundlesTable: '', bundleItemsTable: '' };
+  const catalogItemsReadTable = sheetsBackend
+    ? `GOOGLE_SHEETS:${peekResolvedCatalogItemsSheetTab()}`
+    : pg
+      ? getCatalogItemsTableName()
+      : '';
   return {
     dbDriver: String(process.env.DB_DRIVER || 'sqlite').trim() || 'sqlite',
     gemini: Boolean(
@@ -70,7 +80,8 @@ export function getIntegrationHealthSnapshot(): IntegrationHealthSnapshot {
     catalogAliasesLayout: pg ? getCatalogItemAliasesReadLayout() : 'sheet',
     catalogBundlesReadTable: pg ? bundleReads.bundlesTable : '',
     catalogBundleItemsReadTable: pg ? bundleReads.bundleItemsTable : '',
-    catalogItemsReadTable: pg ? getCatalogItemsTableName() : '',
+    catalogItemsReadTable,
     catalogModifiersReadTable: pg ? getCatalogModifiersReadTableName() : '',
+    catalogDataSource: sheetsBackend ? 'sheets' : pg ? 'postgres' : 'sqlite',
   };
 }

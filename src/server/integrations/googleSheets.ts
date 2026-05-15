@@ -1,5 +1,7 @@
 import { google } from 'googleapis';
 import type { sheets_v4 } from 'googleapis';
+import { escapeSheetTabForRange, findHeaderRowIndex } from '../services/sheets/headerGridIo.ts';
+import { getGaxiosLikeHttpStatus } from '../http/jsonErrors.ts';
 import { buildGoogleServiceAccountJwt } from '../services/googleSheetsCatalogSync.ts';
 
 export const SHEETS_TABS = {
@@ -48,6 +50,40 @@ function normalizeRowForWrite(row: SheetsRow, headers: string[]): string[] {
   return headers.map((header) => normalizeCell(row[header]));
 }
 
+function tabDataRange(tabName: string, a1Suffix: string): string {
+  return `${escapeSheetTabForRange(tabName)}!${a1Suffix}`;
+}
+
+/** True when the tab name is missing or the A1 range is invalid (Google often returns 400). */
+export function isGoogleSheetsTabMissingError(err: unknown): boolean {
+  const status = getGaxiosLikeHttpStatus(err);
+  if (status !== 400 && status !== 404) return false;
+  const message = err instanceof Error ? err.message : String(err);
+  return /unable to parse range|not found|requested entity was not found/i.test(message);
+}
+
+export async function readRowsWithLegacyTab(
+  primaryTab: string,
+  legacyTab: string,
+  spreadsheetId?: string
+): Promise<Array<Record<string, string>>> {
+  try {
+    return await readRows(primaryTab, spreadsheetId);
+  } catch (err) {
+    if (primaryTab === legacyTab || !isGoogleSheetsTabMissingError(err)) throw err;
+    return await readRows(legacyTab, spreadsheetId);
+  }
+}
+
+export async function readRowsOrEmpty(tabName: string, spreadsheetId?: string): Promise<Array<Record<string, string>>> {
+  try {
+    return await readRows(tabName, spreadsheetId);
+  } catch (err) {
+    if (isGoogleSheetsTabMissingError(err)) return [];
+    throw err;
+  }
+}
+
 export function getSheetsSpreadsheetId(): string {
   const spreadsheetId = String(
     process.env.GOOGLE_SHEETS_SPREADSHEET_ID || process.env.GOOGLE_SHEETS_ID || ''
@@ -85,7 +121,7 @@ export function isGoogleSheetsConfigured(): boolean {
   );
   const hasSplit = Boolean(
     String(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL || '').trim() &&
-    String(process.env.GOOGLE_PRIVATE_KEY || '').trim()
+    String(process.env.GOOGLE_PRIVATE_KEY || process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '').trim()
   );
 
   return hasInlineJson || hasInlineB64 || hasFile || hasSplit;
@@ -96,7 +132,7 @@ async function readRawMatrix(tabName: string, spreadsheetId?: string): Promise<s
   const resolvedSpreadsheetId = resolveSpreadsheetId(spreadsheetId);
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: resolvedSpreadsheetId,
-    range: `${tabName}!A:ZZ`,
+    range: tabDataRange(tabName, 'A:ZZ'),
   });
   const values = response.data.values || [];
   return values.map((row) => row.map((cell) => normalizeCell(cell)));
@@ -104,7 +140,7 @@ async function readRawMatrix(tabName: string, spreadsheetId?: string): Promise<s
 
 async function getHeaders(tabName: string, spreadsheetId?: string): Promise<string[]> {
   const values = await readRawMatrix(tabName, spreadsheetId);
-  const headerRow = values[0] || [];
+  const headerRow = values[findHeaderRowIndex(values)] || [];
   return headerRow.filter((header) => header.length > 0);
 }
 
@@ -112,10 +148,13 @@ async function setHeaders(tabName: string, headers: string[], spreadsheetId?: st
   const sheets = getSheetClient();
   const resolvedSpreadsheetId = resolveSpreadsheetId(spreadsheetId);
   if (headers.length === 0) return;
+  const values = await readRawMatrix(tabName, spreadsheetId);
+  const headerIndex = findHeaderRowIndex(values);
+  const rowNumber = headerIndex + 1;
   const endCol = toA1Column(headers.length - 1);
   await sheets.spreadsheets.values.update({
     spreadsheetId: resolvedSpreadsheetId,
-    range: `${tabName}!A1:${endCol}1`,
+    range: tabDataRange(tabName, `A${rowNumber}:${endCol}${rowNumber}`),
     valueInputOption: 'RAW',
     requestBody: {
       values: [headers],
@@ -144,10 +183,12 @@ async function ensureHeaders(tabName: string, incomingRows: SheetsRow[], spreads
 
 export async function readRows(tabName: string, spreadsheetId?: string): Promise<Array<Record<string, string>>> {
   const values = await readRawMatrix(tabName, spreadsheetId);
-  const headers = (values[0] || []).map((header) => header.trim());
+  const headerIndex = findHeaderRowIndex(values);
+  const body = values.slice(headerIndex);
+  const headers = (body[0] || []).map((header) => header.trim());
   if (headers.length === 0) return [];
 
-  return (values.slice(1) || [])
+  return (body.slice(1) || [])
     .filter((row) => row.some((cell) => String(cell || '').trim().length > 0))
     .map((row) => {
       const out: Record<string, string> = {};
@@ -169,7 +210,7 @@ export async function appendRows(tabName: string, rows: SheetsRow[], spreadsheet
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: resolvedSpreadsheetId,
-    range: `${tabName}!A:ZZ`,
+    range: tabDataRange(tabName, 'A:ZZ'),
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
@@ -188,13 +229,14 @@ export async function updateRowById(
   spreadsheetId?: string
 ): Promise<boolean> {
   const matrix = await readRawMatrix(tabName, spreadsheetId);
-  const headers = (matrix[0] || []).map((h) => h.trim()).filter(Boolean);
+  const headerIndex = findHeaderRowIndex(matrix);
+  const headers = (matrix[headerIndex] || []).map((h) => h.trim()).filter(Boolean);
   if (headers.length === 0) return false;
 
   const idIndex = headers.findIndex((header) => header === idColumn);
   if (idIndex < 0) return false;
 
-  const bodyRows = matrix.slice(1);
+  const bodyRows = matrix.slice(headerIndex + 1);
   const rowIndex = bodyRows.findIndex((row) => normalizeCell(row[idIndex]) === idValue);
   if (rowIndex < 0) return false;
 
@@ -207,7 +249,7 @@ export async function updateRowById(
     merged[key] = patch[key];
   });
 
-  const targetRowNumber = rowIndex + 2;
+  const targetRowNumber = headerIndex + rowIndex + 2;
   const endCol = toA1Column(headers.length - 1);
   const values = [normalizeRowForWrite(merged, headers)];
 
@@ -215,7 +257,7 @@ export async function updateRowById(
   const resolvedSpreadsheetId = resolveSpreadsheetId(spreadsheetId);
   await sheets.spreadsheets.values.update({
     spreadsheetId: resolvedSpreadsheetId,
-    range: `${tabName}!A${targetRowNumber}:${endCol}${targetRowNumber}`,
+    range: tabDataRange(tabName, `A${targetRowNumber}:${endCol}${targetRowNumber}`),
     valueInputOption: 'RAW',
     requestBody: {
       values,
@@ -238,7 +280,8 @@ export async function upsertRowById(
 
   const headers = await ensureHeaders(tabName, [row], spreadsheetId);
   const matrix = await readRawMatrix(tabName, spreadsheetId);
-  const bodyRows = matrix.slice(1);
+  const headerIndex = findHeaderRowIndex(matrix);
+  const bodyRows = matrix.slice(headerIndex + 1);
   const idIndex = headers.findIndex((header) => header === idColumn);
   if (idIndex < 0) {
     throw new Error(`Missing id column ${idColumn} on tab ${tabName}.`);
@@ -246,7 +289,7 @@ export async function upsertRowById(
 
   const rowIndex = bodyRows.findIndex((cells) => normalizeCell(cells[idIndex]) === idValue);
   if (rowIndex >= 0) {
-    const targetRowNumber = rowIndex + 2;
+    const targetRowNumber = headerIndex + rowIndex + 2;
     const endCol = toA1Column(headers.length - 1);
     const current = bodyRows[rowIndex] || [];
     const merged: SheetsRow = {};
@@ -261,7 +304,7 @@ export async function upsertRowById(
     const resolvedSpreadsheetId = resolveSpreadsheetId(spreadsheetId);
     await sheets.spreadsheets.values.update({
       spreadsheetId: resolvedSpreadsheetId,
-      range: `${tabName}!A${targetRowNumber}:${endCol}${targetRowNumber}`,
+      range: tabDataRange(tabName, `A${targetRowNumber}:${endCol}${targetRowNumber}`),
       valueInputOption: 'RAW',
       requestBody: {
         values: [normalizeRowForWrite(merged, headers)],

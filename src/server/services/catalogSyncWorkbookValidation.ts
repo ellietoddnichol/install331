@@ -436,22 +436,25 @@ export async function preflightCatalogWorkbookSync(input: {
         set.add(canonicalSku.toLowerCase());
         targetByAlias.set(key, set);
       }
-      const strictGenericNameMultiTarget = isEnvTruthyFlag(process.env.CATALOG_SYNC_PREFLIGHT_STRICT_GENERIC_NAME_ALIASES);
+      const strictGenericNameMultiTarget = isEnvTruthyFlag(
+        process.env.CATALOG_SYNC_PREFLIGHT_STRICT_GENERIC_NAME_ALIASES
+      );
       for (const [key, set] of targetByAlias) {
-        if (set.size > 1) {
-          aliasMultiTargetCount += 1;
-          pushReviewSample(aliasMultiTargetSampleKeys, key);
-          const skuPart = formatSkuSetForMessage(set);
-          const base = `ALIASES: alias key "${key}" maps to multiple canonical SKUs (${set.size}): ${skuPart}.`;
-          const isGenericNameKey = isGenericNameAliasAggKey(key);
-          if (isGenericNameKey && !strictGenericNameMultiTarget) {
-            warnings.push(
-              `${base} Allowed for generic_name (many catalog rows may share one broad phrase; intake resolves the first phrase match). ` +
-                `Set CATALOG_SYNC_PREFLIGHT_STRICT_GENERIC_NAME_ALIASES=1 to treat these as blocking.`
-            );
-          } else {
-            blocking.push(base);
-          }
+        if (set.size <= 1) continue;
+        const isGenericNameKey = isGenericNameAliasAggKey(key);
+        // Broad product phrases (shelving, whiteboard, …) often map to many SKUs by design.
+        if (isGenericNameKey && !strictGenericNameMultiTarget) continue;
+
+        aliasMultiTargetCount += 1;
+        pushReviewSample(aliasMultiTargetSampleKeys, key);
+        const skuPart = formatSkuSetForMessage(set);
+        const base = `ALIASES: alias key "${key}" maps to multiple canonical SKUs (${set.size}): ${skuPart}.`;
+        if (isGenericNameKey) {
+          blocking.push(
+            `${base} Set CATALOG_SYNC_PREFLIGHT_STRICT_GENERIC_NAME_ALIASES=0 to allow generic_name phrase collisions, or split aliases in the sheet.`
+          );
+        } else {
+          blocking.push(base);
         }
       }
     }

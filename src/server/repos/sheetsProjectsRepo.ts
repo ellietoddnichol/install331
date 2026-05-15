@@ -1,10 +1,15 @@
 import { randomUUID } from 'crypto';
 import type { ProjectRecord } from '../../shared/types/estimator.ts';
-import { SHEETS_TABS, readRows, upsertRowById, type SheetsRow } from '../integrations/googleSheets.ts';
+import { readRowsWithLegacyTab, upsertRowById, SHEETS_TABS, type SheetsRow } from '../integrations/googleSheets.ts';
+import { projectSetupTabProjects } from '../config/div10SheetsWorkbooks.ts';
 import { assertSheetsWorkbookId, getProjectsSpreadsheetId } from './dataBackend.ts';
 
+function projectsTab(): string {
+  return projectSetupTabProjects();
+}
+
 function projectsWorkbookId(): string {
-  return assertSheetsWorkbookId(getProjectsSpreadsheetId(), 'GOOGLE_PROJECTS_SPREADSHEET_ID');
+  return assertSheetsWorkbookId(getProjectsSpreadsheetId(), 'PROJECT_SETUP_ESTIMATE_PROPOSAL_SPREADSHEET_ID');
 }
 
 function parseNumber(value: string | undefined, fallback = 0): number {
@@ -187,7 +192,7 @@ function mapProjectFromSheet(row: Record<string, string>): ProjectRecord {
 }
 
 export async function listProjectsFromSheets(): Promise<ProjectRecord[]> {
-  const rows = await readRows(SHEETS_TABS.PROJECTS, projectsWorkbookId());
+  const rows = await readRowsWithLegacyTab(projectsTab(), SHEETS_TABS.PROJECTS, projectsWorkbookId());
   return rows
     .map(mapProjectFromSheet)
     .filter((project) => project.id)
@@ -255,7 +260,7 @@ export async function updateProjectInSheets(projectId: string, input: Partial<Pr
     id: projectId,
     updatedAt: new Date().toISOString(),
   };
-  await upsertRowById(SHEETS_TABS.PROJECTS, 'ProjectID', mapProjectToSheetRow(next), projectsWorkbookId());
+  await upsertRowById(projectsTab(), 'ProjectID', mapProjectToSheetRow(next), projectsWorkbookId());
   return next;
 }
 

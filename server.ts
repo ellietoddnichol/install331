@@ -25,6 +25,8 @@ import { syncCatalogFromGoogleSheets } from './src/server/services/googleSheetsC
 import { isCatalogSheetsWorkbookPushEnabled } from './src/server/services/catalogSheetsSyncPolicy.ts';
 import { v1Router } from './src/server/routes/v1/index.ts';
 import { legacyRouter } from './src/server/routes/legacyRouter.ts';
+import { adminRouter } from './src/server/routes/admin/index.ts';
+import { requireSession } from './src/server/auth/requireSession.ts';
 import { expressErrorHandler } from './src/server/http/jsonErrors.ts';
 import { prepareEstimatorDbForServer } from './src/server/db/connection.ts';
 import { logCatalogRuntimeHints } from './src/server/db/catalogRuntimeHints.ts';
@@ -105,6 +107,7 @@ async function startServer() {
     next();
   });
   gatedApi.use('/v1', v1Router);
+  gatedApi.use('/admin', requireSession, adminRouter);
   gatedApi.use(legacyRouter);
   gatedApi.use((req, res) => {
     res.status(404).json({ error: `API route not found: ${req.originalUrl}` });

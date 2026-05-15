@@ -10,7 +10,16 @@ import { queryKeys } from '../lib/queryKeys.ts';
 import { getCanonicalProjectDateTimestamp } from '../shared/utils/projectDates';
 
 type SortValue = 'newest' | 'oldest' | 'name';
-type ProjectFilterValue = 'all' | 'active' | 'Draft' | 'Submitted' | 'Awarded' | 'Lost' | 'completed' | 'Archived' | 'due-soon' | 'draft-proposals';
+type ProjectFilterValue =
+  | 'all'
+  | 'active'
+  | 'Draft'
+  | 'estimate'
+  | 'Submitted'
+  | 'Awarded'
+  | 'Archived'
+  | 'due-soon'
+  | 'draft-proposals';
 
 /**
  * Map the project's textual `status` into a left-accent tone + status-chip tone
@@ -28,13 +37,26 @@ function statusTone(status: string | null | undefined): { accent: string; chip: 
 }
 
 function resolveFilterLabel(filter: ProjectFilterValue): string {
-  if (filter === 'active') return 'Active projects';
+  if (filter === 'active') return 'Active';
+  if (filter === 'estimate') return 'Estimate';
+  if (filter === 'Submitted') return 'Proposal ready';
+  if (filter === 'Awarded') return 'Won';
   if (filter === 'due-soon') return 'Bids due soon';
   if (filter === 'draft-proposals') return 'Draft proposals';
-  if (filter === 'completed') return 'Completed / archived';
   if (filter === 'all') return 'All projects';
+  if (filter === 'Draft') return 'Draft';
+  if (filter === 'Archived') return 'Archived';
   return filter;
 }
+
+const PROJECT_FILTER_PILLS: Array<{ id: ProjectFilterValue; label: string }> = [
+  { id: 'active', label: 'Active' },
+  { id: 'Draft', label: 'Draft' },
+  { id: 'estimate', label: 'Estimate' },
+  { id: 'Submitted', label: 'Proposal Ready' },
+  { id: 'Awarded', label: 'Won' },
+  { id: 'Archived', label: 'Archived' },
+];
 
 export function Projects() {
   const navigate = useNavigate();
@@ -79,7 +101,10 @@ export function Projects() {
         return due >= now && due <= inSevenDays;
       }
       if (status === 'draft-proposals') return project.status === 'Draft';
-      if (status === 'completed') return project.status === 'Awarded' || project.status === 'Archived';
+      if (status === 'estimate') {
+        const s = String(project.status || '');
+        return s !== 'Draft' && s !== 'Submitted' && s !== 'Archived' && s !== 'Awarded' && s !== 'Lost';
+      }
       return project.status === status;
     });
 
@@ -121,9 +146,7 @@ export function Projects() {
             </span>
           </div>
           <h1 className="mt-1.5 text-[24px] font-semibold leading-tight tracking-tight text-slate-950 md:text-[28px]">Projects</h1>
-          <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.06em] text-slate-500">
-            Search · Filter · Sort · Manage Every Estimate
-          </p>
+          <p className="mt-1 text-sm text-slate-600">Find a job, open the workspace, and move it through quote → estimate → proposal.</p>
         </div>
         <button onClick={() => navigate('/project/new')} className="ui-btn-cta">
           <Plus className="mr-1.5 h-3.5 w-3.5" /> New Project
@@ -141,21 +164,23 @@ export function Projects() {
           />
         </div>
 
-        <label className="text-xs text-slate-600 flex items-center gap-2">
-          <Filter className="w-4 h-4" />
-          <select value={status} onChange={(e) => setStatus(e.target.value as ProjectFilterValue)} className="ui-input min-w-40">
-            <option value="all">All statuses</option>
-            <option value="active">Active</option>
-            <option value="due-soon">Bids Due Soon</option>
-            <option value="draft-proposals">Draft Proposals</option>
-            <option value="Draft">Draft</option>
-            <option value="Submitted">Submitted</option>
-            <option value="Awarded">Awarded</option>
-            <option value="Lost">Lost</option>
-            <option value="completed">Completed / Archived</option>
-            <option value="Archived">Archived</option>
-          </select>
-        </label>
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Project status filters">
+          <Filter className="hidden w-4 h-4 text-slate-400 sm:block" aria-hidden />
+          {PROJECT_FILTER_PILLS.map((pill) => (
+            <button
+              key={pill.id}
+              type="button"
+              onClick={() => setStatus(pill.id)}
+              className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
+                status === pill.id
+                  ? 'border-blue-300 bg-blue-50 text-blue-950'
+                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {pill.label}
+            </button>
+          ))}
+        </div>
 
         <label className="text-xs text-slate-600 flex items-center gap-2">
           <ArrowUpDown className="w-4 h-4" />

@@ -10,6 +10,13 @@ import { sqlCatalogActiveEqualsOne } from '../db/catalogSql.ts';
 import { dbCatalogAll, dbCatalogGet, dbCatalogRun } from '../db/query.ts';
 import { getBundlesReadTableNames, getCatalogModifiersReadTableName } from '../db/catalogTable.ts';
 import { listCatalogItemsForApi, searchCatalogItemsForApi } from '../repos/catalogRepo.ts';
+import { isSheetsDataBackend } from '../repos/dataBackend.ts';
+import {
+  deactivateWorkspaceCatalogItem,
+  listWorkspaceCatalogItems,
+  persistWorkspaceCatalogItem,
+  searchWorkspaceCatalogItems,
+} from '../repos/catalogWorkspaceReads.ts';
 import { createCatalogAlias, deleteCatalogAlias, listCatalogAliasesForItem } from '../repos/catalogAliasesRepo.ts';
 import { createCatalogAttribute, deactivateCatalogAttribute, listCatalogAttributesForItem } from '../repos/catalogAttributesRepo.ts';
 import { handleRouteError } from '../http/jsonErrors.ts';
@@ -69,6 +76,9 @@ legacyRouter.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 legacyRouter.get('/catalog/items', async (req, res) => {
   const includeInactive = req.query.includeInactive === '1' || req.query.includeInactive === 'true';
+  if (isSheetsDataBackend()) {
+    return res.json(await listWorkspaceCatalogItems(includeInactive));
+  }
   res.json(await listCatalogItemsForApi(includeInactive));
 });
 
@@ -79,14 +89,21 @@ legacyRouter.get('/catalog/search', async (req, res) => {
   const includeDeprecated = req.query.includeDeprecated === '1' || req.query.includeDeprecated === 'true';
   const includeNonCanonical = req.query.includeNonCanonical === '1' || req.query.includeNonCanonical === 'true';
   try {
-    const results = await searchCatalogItemsForApi({
-      query: q,
-      category,
-      includeInactive,
-      includeDeprecated,
-      includeNonCanonical,
-      limit: 60,
-    });
+    const results = isSheetsDataBackend()
+      ? await searchWorkspaceCatalogItems({
+          query: q,
+          category,
+          includeInactive,
+          limit: 60,
+        })
+      : await searchCatalogItemsForApi({
+          query: q,
+          category,
+          includeInactive,
+          includeDeprecated,
+          includeNonCanonical,
+          limit: 60,
+        });
     res.json(results);
   } catch (err: unknown) {
     handleRouteError(res, err, '[GET /api/catalog/search]');
@@ -225,6 +242,10 @@ legacyRouter.post('/catalog/items', async (req, res) => {
   if (!parsed.success) return handleRouteError(res, parsed.error, '[POST /api/catalog/items]');
   const i = parsed.data as CatalogItem;
   try {
+    if (isSheetsDataBackend()) {
+      const saved = await persistWorkspaceCatalogItem(i);
+      return res.status(201).json(saved);
+    }
     await dbCatalogRun(
       `INSERT INTO catalog_items (
           id, sku, canonical_sku, is_canonical, alias_of, category, subcategory, family, description, manufacturer, brand, model, model_number, series, image_url,
@@ -392,6 +413,11 @@ legacyRouter.put('/catalog/items/:id', async (req, res) => {
 
 legacyRouter.delete('/catalog/items/:id', async (req, res) => {
   try {
+    if (isSheetsDataBackend()) {
+      const ok = await deactivateWorkspaceCatalogItem(req.params.id);
+      if (!ok) return res.status(404).json({ error: 'Catalog item not found.' });
+      return res.json({ success: true });
+    }
     const existing = await dbCatalogGet<any>('SELECT * FROM catalog_items WHERE id = ?', [req.params.id]);
     if (!existing) {
       return res.status(404).json({ error: 'Catalog item not found.' });
