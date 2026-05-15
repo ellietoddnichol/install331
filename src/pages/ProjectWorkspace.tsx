@@ -59,7 +59,14 @@ import type { PartitionLayoutGeneratedLine } from '../shared/utils/partitionLayo
 import { toggleBulkSelectionForVisibleConcrete } from '../shared/utils/estimateBulkSelection';
 import { deriveEstimateLineHealth, type EstimateHealthFocus } from '../shared/utils/estimateLineHealth';
 import { PRICING_ALL_CATEGORIES, TAKEOFF_ALL_ROOMS } from '../shared/constants/workspaceUi';
-import { ProjectHeader } from '../components/workflow/ProjectHeader';
+import { WorkspaceProjectHeader } from '../components/workflow/WorkspaceProjectHeader';
+import { ProjectWorkflowReadinessBar } from '../components/workflow/ProjectWorkflowReadinessBar';
+import {
+  EstimateTabSummaryCard,
+  ProposalTabSummaryCard,
+  QuotesTabSummaryCard,
+  SetupTabSummaryCard,
+} from '../components/workflow/ProjectWorkspaceTabSummaries';
 import { ProjectStepNav } from '../components/workflow/ProjectStepNav.tsx';
 import { WorkflowRightDrawer } from '../components/workflow/WorkflowRightDrawer';
 import { EstimateToolbar, type EstimateToolbarBidBucketStat } from '../components/workflow/EstimateToolbar';
@@ -87,6 +94,7 @@ import { getDistanceInMiles } from '../utils/geo';
 import { CatalogCategorySelect } from '../components/intake/CatalogCategorySelect';
 import { useTransientNumericField } from '../hooks/useTransientNumericField';
 import { buildProposalScheduleSections, splitProposalTextLines } from '../shared/utils/proposalDocument';
+import { computeNextBestAction, computeWorkflowBarSteps } from '../shared/utils/projectWorkspaceReadiness';
 import { calculateWorkDuration, formatWorkWeeksLabel } from '../shared/utils/workDuration';
 
 interface RoomCreationDraft {
@@ -146,6 +154,7 @@ export function ProjectWorkspace() {
   const [bundles, setBundles] = useState<BundleRecord[]>([]);
   const [projectFiles, setProjectFiles] = useState<ProjectFileRecord[]>([]);
   const [sourceQuotes, setSourceQuotes] = useState<SourceQuoteRecord[]>([]);
+  const [allQuoteLines, setAllQuoteLines] = useState<SourceQuoteLineRecord[]>([]);
   const [activeQuoteId, setActiveQuoteId] = useState('');
   const [sourceQuoteLines, setSourceQuoteLines] = useState<SourceQuoteLineRecord[]>([]);
   const [fileUploading, setFileUploading] = useState(false);
@@ -163,7 +172,6 @@ export function ProjectWorkspace() {
   const [lineModifiersByLineId, setLineModifiersByLineId] = useState<Record<string, LineModifierRecord[]>>({});
 
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'ok' | 'error'>('idle');
-  const [catalogSheetsPushEnabled, setCatalogSheetsPushEnabled] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<{ tone: 'success' | 'error' | 'info' | 'warning'; message: string } | null>(null);
 
@@ -250,10 +258,6 @@ export function ProjectWorkspace() {
     ],
     []
   );
-
-  useEffect(() => {
-    void api.getV1IntegrationHealth().then((h) => setCatalogSheetsPushEnabled(h.catalogSheetsSyncEnabled));
-  }, []);
 
   useEffect(() => {
     void api
@@ -601,6 +605,25 @@ export function ProjectWorkspace() {
       cancelled = true;
     };
   }, [activeQuoteId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (sourceQuotes.length === 0) {
+      setAllQuoteLines([]);
+      return;
+    }
+    void (async () => {
+      try {
+        const batches = await Promise.all(sourceQuotes.map((q) => api.getV1SourceQuoteLines(q.id)));
+        if (!cancelled) setAllQuoteLines(batches.flat());
+      } catch {
+        if (!cancelled) setAllQuoteLines([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sourceQuotes]);
 
   async function refreshTakeoff(projectId: string) {
     const [lineData, summaryData] = await Promise.all([
@@ -1608,30 +1631,6 @@ export function ProjectWorkspace() {
     }
   }
 
-  async function syncCatalogFromSheets() {
-    setSyncState('syncing');
-    setActionFeedback({ tone: 'info', message: 'Catalog sync in progress...' });
-    try {
-      await api.syncV1Catalog();
-      setTimeout(() => {
-        window.dispatchEvent(new CustomEvent('catalog-synced'));
-      }, 0);
-      void api.getV1CatalogCategories().then((catList) => {
-        setWorkspaceCatalogCategories([
-          'all',
-          ...catList.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
-        ]);
-      });
-      void hydrateReferencedCatalogItems(linesRef.current);
-      setSyncState('ok');
-      setActionFeedback({ tone: 'success', message: 'Catalog sync complete.' });
-    } catch (error) {
-      console.error(error);
-      setSyncState('error');
-      setActionFeedback({ tone: 'error', message: 'Catalog sync failed. Check settings and try again.' });
-    }
-  }
-
   function openCreateRoomModal() {
     setRoomCreationDraft(DEFAULT_ROOM_CREATION_DRAFT);
     setRoomCreateModalOpen(true);
@@ -2476,79 +2475,104 @@ export function ProjectWorkspace() {
     return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspace…</div>;
   }
 
-  const nextAction = activeTab === 'overview'
-    ? { label: 'Configure setup', tab: 'setup' as const }
-    : activeTab === 'setup'
-      ? { label: 'Add quote', tab: 'quotes' as const }
-      : activeTab === 'quotes'
-        ? { label: 'Open estimate', tab: 'estimate' as const }
-        : activeTab === 'estimate'
-          ? { label: 'Preview proposal', tab: 'proposal' as const }
-          : { label: 'Back to estimate', tab: 'estimate' as const };
+  const lineHealth = useMemo(() => deriveEstimateLineHealth(lines, project.pricingMode), [lines, project.pricingMode]);
+
+  const workflowSteps = useMemo(
+    () =>
+      computeWorkflowBarSteps({
+        project,
+        defaultLaborRatePerHour: Number(settings?.defaultLaborRatePerHour || 0),
+        sourceQuotes,
+        allQuoteLines,
+        takeoffLines: lines,
+        summary,
+        lineHealth,
+      }),
+    [project, settings?.defaultLaborRatePerHour, sourceQuotes, allQuoteLines, lines, summary, lineHealth],
+  );
+
+  const nextBest = useMemo(() => computeNextBestAction(workflowSteps), [workflowSteps]);
+
+  const quoteRollup = useMemo(
+    () => ({
+      stagedRowCount: allQuoteLines.length,
+      quotesNeedingReview: sourceQuotes.filter((q) => q.importStatus === 'manual_review').length,
+      quotesReadyToImport: sourceQuotes.filter(
+        (q) => q.importStatus === 'ready_to_import' || q.importStatus === 'partially_imported',
+      ).length,
+      quotesImported: sourceQuotes.filter((q) => q.importStatus === 'imported').length,
+    }),
+    [allQuoteLines, sourceQuotes],
+  );
+
+  const effectiveLaborRatePerHour = useMemo(() => {
+    const base = Number(settings?.defaultLaborRatePerHour || 100);
+    return Number((base * (project.jobConditions?.laborRateMultiplier || 1)).toFixed(2));
+  }, [settings?.defaultLaborRatePerHour, project.jobConditions?.laborRateMultiplier]);
+
+  const importedFromQuoteLineCount = useMemo(
+    () => lines.filter((l) => l.sourceType === 'vendor_quote').length,
+    [lines],
+  );
+
+  const alternatesCount = useMemo(
+    () => lines.filter((l) => l.intakeScopeBucket === 'deduction_alternate').length,
+    [lines],
+  );
+
+  const { clarificationsCount, exclusionsCount } = useMemo(() => {
+    const s = ensureProposalDefaults(settings);
+    return {
+      clarificationsCount: splitProposalTextLines(s.proposalClarifications || DEFAULT_PROPOSAL_CLARIFICATIONS).length,
+      exclusionsCount: splitProposalTextLines(s.proposalExclusions || DEFAULT_PROPOSAL_EXCLUSIONS).length,
+    };
+  }, [settings]);
+
+  const setupSummaryPricingLabel =
+    project.pricingMode === 'labor_only'
+      ? 'Install only'
+      : project.pricingMode === 'material_only'
+        ? 'Material only'
+        : 'Full';
+
+  const lastUpdatedLabel = project.updatedAt
+    ? new Date(project.updatedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+    : null;
+  const lastSavedLabel = lastSavedAt
+    ? new Date(lastSavedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+    : null;
 
   return (
-    <div className="min-h-full">
-      <ProjectHeader
-        project={project}
-        sectionLabel={activeTab}
-        baseBidTotal={summary?.baseBidTotal || 0}
-        totalLaborHours={summary?.totalLaborHours || 0}
-        scopeLineCount={lines.length}
-        roomCount={rooms.length}
-        syncState={syncState}
-        lastSavedAt={lastSavedAt}
-        onBackToProjects={() => navigate('/projects')}
-        onSave={saveProject}
-        onExport={exportProposal}
-        onSubmitBid={submitBid}
-        onDeleteProject={deleteProjectPermanently}
-        statusActionLabel={statusActionLabel}
-      />
-      {actionFeedback ? (
-        <div className="px-1 pb-2">
+    <div className="min-h-full bg-slate-50/80">
+      <div className="ui-page-wide space-y-3 pt-3 md:pt-4">
+        <WorkspaceProjectHeader
+          project={project}
+          proposalTotal={summary?.baseBidTotal || 0}
+          lastUpdatedLabel={lastUpdatedLabel}
+          lastSavedLabel={lastSavedLabel}
+          saveBusy={syncState === 'syncing'}
+          onBackToProjects={() => navigate('/projects')}
+          onSave={saveProject}
+          onPreviewProposal={() => goToTab('proposal')}
+          onExportPdf={exportProposal}
+          onPrint={printProposalDocument}
+          onStatusAction={submitBid}
+          statusActionLabel={statusActionLabel}
+          onDeleteProject={deleteProjectPermanently}
+          estimateLineCount={lines.length}
+        />
+        {actionFeedback ? (
           <ActionFeedbackBanner
             tone={actionFeedback.tone}
             message={actionFeedback.message}
             onDismiss={() => setActionFeedback(null)}
           />
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
-      <div className="ui-page">
-        <ProjectStepNav
-          projectId={project.id}
-          items={stepNavItems}
-          trailing={
-            catalogSheetsPushEnabled ? (
-              <button
-                type="button"
-                onClick={() => void syncCatalogFromSheets()}
-                className="ui-btn-secondary h-8 px-2.5 text-[10px] font-semibold uppercase tracking-[0.06em]"
-              >
-                Sync catalog
-              </button>
-            ) : null
-          }
-        />
-        <section className="ui-surface mb-3 flex flex-wrap items-center gap-2 px-3 py-2.5">
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-600">
-            {sourceQuotes.length} quote{sourceQuotes.length === 1 ? '' : 's'}
-          </span>
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-600">
-            {lines.length} estimate line{lines.length === 1 ? '' : 's'}
-          </span>
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-600">
-            Total {formatCurrencySafe(summary?.baseBidTotal || 0)}
-          </span>
-          <span className="ml-auto text-xs text-slate-500">Next step</span>
-          <button
-            type="button"
-            onClick={() => goToTab(nextAction.tab)}
-            className="ui-btn-secondary h-8 px-3 text-[11px] font-semibold uppercase tracking-[0.06em]"
-          >
-            {nextAction.label}
-          </button>
-        </section>
+      <div className="ui-page-wide space-y-4 pb-8">
+        <ProjectWorkflowReadinessBar steps={workflowSteps} onSelectStep={goToTab} />
+        <ProjectStepNav projectId={project.id} items={stepNavItems} />
         <div className="flex flex-col gap-3">
           <div className="min-w-0 flex-1 space-y-3">
         {activeTab === 'overview' && (
@@ -2557,23 +2581,48 @@ export function ProjectWorkspace() {
             summary={summary}
             quotes={sourceQuotes}
             settings={settings}
-            setProject={setProject}
-            patchJobConditions={patchJobConditions}
+            quoteRollup={quoteRollup}
+            nextBestAction={nextBest}
+            effectiveLaborRatePerHour={effectiveLaborRatePerHour}
+            lineModifierRowCount={lineModifiers.length}
+            estimateLinesCount={lines.length}
+            importedFromQuoteLineCount={importedFromQuoteLineCount}
+            alternatesCount={alternatesCount}
+            clarificationsCount={clarificationsCount}
+            exclusionsCount={exclusionsCount}
             onGoToTab={goToTab}
           />
         )}
 
         {activeTab === 'setup' && (
-          <ProjectSetupPage
-            project={project}
-            settings={settings}
-            setProject={setProject}
-            patchJobConditions={patchJobConditions}
-          />
+          <>
+            <SetupTabSummaryCard
+              projectName={project.projectName}
+              customer={project.clientName?.trim() || '—'}
+              address={project.address?.trim() || '—'}
+              taxLocation={String(project.jobConditions.locationLabel || '').trim() || '—'}
+              laborRate={effectiveLaborRatePerHour}
+              proposalModeLabel={setupSummaryPricingLabel}
+            />
+            <ProjectSetupPage
+              project={project}
+              settings={settings}
+              setProject={setProject}
+              patchJobConditions={patchJobConditions}
+            />
+          </>
         )}
 
         {activeTab === 'quotes' && (
-          <QuotesPage
+          <>
+            <QuotesTabSummaryCard
+              quoteCount={sourceQuotes.length}
+              stagedRows={quoteRollup.stagedRowCount}
+              needingReviewQuotes={quoteRollup.quotesNeedingReview}
+              readyToImportQuotes={quoteRollup.quotesReadyToImport}
+              importedQuoteCount={quoteRollup.quotesImported}
+            />
+            <QuotesPage
             quotes={sourceQuotes}
             activeQuoteId={activeQuoteId}
             setActiveQuoteId={setActiveQuoteId}
@@ -2597,6 +2646,7 @@ export function ProjectWorkspace() {
               promoteQuoteLinesToCatalogCandidates(quoteId, selectedLineIds, includeNonCatalogTypes)
             }
           />
+          </>
         )}
 
         {activeTab === 'estimate' && (() => {
@@ -2656,6 +2706,13 @@ export function ProjectWorkspace() {
               </div>
             ) : null;
           return (
+          <>
+          <EstimateTabSummaryCard
+            material={summary?.materialLoadedSubtotal ?? summary?.materialSubtotal ?? 0}
+            labor={summary?.laborLoadedSubtotal ?? summary?.adjustedLaborSubtotal ?? summary?.laborSubtotal ?? 0}
+            modifierAddOnCount={lineModifiers.length}
+            total={summary?.baseBidTotal ?? 0}
+          />
           <div className="flex min-w-0 flex-col gap-1">
           <div className={estimateGridClass}>
             <div className="flex min-w-0 flex-col gap-1">
@@ -3053,23 +3110,25 @@ export function ProjectWorkspace() {
             laborLoadedSubtotal={summary?.laborLoadedSubtotal ?? summary?.adjustedLaborSubtotal ?? summary?.laborSubtotal}
           />
           </div>
+          </>
           );
         })()}
 
         {activeTab === 'proposal' && (
+          <>
+          <ProposalTabSummaryCard settings={settings} />
           <div className="space-y-4">
             <section className="ui-surface overflow-hidden p-4 sm:p-5">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2.5">
-                    <span className="ui-mono-chip ui-mono-chip--info">Proposal</span>
-                    <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-                      Module 03 <span className="mx-1 text-slate-300">/</span> Client Document
+                    <span className="rounded-full bg-sky-50 px-2.5 py-0.5 text-[11px] font-semibold text-sky-900 ring-1 ring-sky-200">
+                      Proposal
                     </span>
                   </div>
                   <h3 className="mt-1.5 text-[22px] font-semibold leading-tight tracking-tight text-slate-950 sm:text-[26px]">Review, edit, export</h3>
-                  <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.06em] text-slate-500">
-                    What you see is what prints · Export HTML → Print → Save as PDF
+                  <p className="mt-1 text-sm text-slate-600">
+                    Preview matches what you print. Use Export PDF or Print in the header when you are ready.
                   </p>
                 </div>
                 <div className="flex flex-shrink-0 flex-wrap items-center gap-2 lg:justify-end">
@@ -3217,7 +3276,7 @@ export function ProjectWorkspace() {
                   {pipelineNativeEnabled ? (
                     <div className="mb-3 space-y-2 rounded-lg border border-slate-200 bg-slate-50/90 p-3 text-[11px] text-slate-700">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-slate-900">DB estimate (native)</span>
+                        <span className="font-semibold text-slate-900">Linked estimate</span>
                         {nativeProposalLoading ? (
                           <span className="text-slate-500">Loading…</span>
                         ) : null}
@@ -3262,6 +3321,7 @@ export function ProjectWorkspace() {
               </div>
             </div>
           </div>
+          </>
         )}
 
           </div>
