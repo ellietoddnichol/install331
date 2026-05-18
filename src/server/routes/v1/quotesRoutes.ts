@@ -30,10 +30,31 @@ import {
 } from '../../repos/sheetsQuotesRepo.ts';
 import { isSheetsDataBackend } from '../../repos/dataBackend.ts';
 import { extractSourceQuoteFromAttachedFile } from '../../services/quoteSourceExtractionService.ts';
+import {
+  handleRouteError,
+  tryRespondSheetsNotFound,
+  tryRespondSheetsPermissionDenied,
+  tryRespondSheetsRateLimited,
+} from '../../http/jsonErrors.ts';
 
 export const quotesRouter = Router();
 
-quotesRouter.get('/', async (req, res) => {
+type AsyncQuotesHandler = (req: import('express').Request, res: import('express').Response) => Promise<void | import('express').Response>;
+
+function asyncQuotes(handler: AsyncQuotesHandler): import('express').RequestHandler {
+  return (req, res, _next) => {
+    void handler(req, res).catch((err: unknown) => {
+      if (tryRespondSheetsRateLimited(res, err, '[v1/quotes]')) return;
+      if (tryRespondSheetsPermissionDenied(res, err, '[v1/quotes]')) return;
+      if (tryRespondSheetsNotFound(res, err, '[v1/quotes]')) return;
+      handleRouteError(res, err, '[v1/quotes]');
+    });
+  };
+}
+
+quotesRouter.get(
+  '/',
+  asyncQuotes(async (req, res) => {
   const projectId = String(req.query.projectId || '').trim();
   if (!projectId) {
     return res.status(400).json({ error: 'projectId is required' });
@@ -42,9 +63,12 @@ quotesRouter.get('/', async (req, res) => {
     ? await listSourceQuotesFromSheets(projectId)
     : await listSourceQuotes(projectId);
   return res.json({ data });
-});
+  }),
+);
 
-quotesRouter.post('/', async (req, res) => {
+quotesRouter.post(
+  '/',
+  asyncQuotes(async (req, res) => {
   const projectId = String(req.body?.projectId || '').trim();
   const vendorName = String(req.body?.vendorName || '').trim();
   if (!projectId || !vendorName) {
@@ -60,9 +84,12 @@ quotesRouter.post('/', async (req, res) => {
     ? await createSourceQuoteInSheets(req.body)
     : await createSourceQuote(req.body);
   return res.status(201).json({ data: created });
-});
+  }),
+);
 
-quotesRouter.put('/:quoteId', async (req, res) => {
+quotesRouter.put(
+  '/:quoteId',
+  asyncQuotes(async (req, res) => {
   const updated = isSheetsDataBackend()
     ? await updateSourceQuoteInSheets(req.params.quoteId, req.body ?? {})
     : await updateSourceQuote(req.params.quoteId, req.body ?? {});
@@ -70,9 +97,12 @@ quotesRouter.put('/:quoteId', async (req, res) => {
     return res.status(404).json({ error: 'Quote not found' });
   }
   return res.json({ data: updated });
-});
+  }),
+);
 
-quotesRouter.delete('/:quoteId', async (req, res) => {
+quotesRouter.delete(
+  '/:quoteId',
+  asyncQuotes(async (req, res) => {
   const deleted = isSheetsDataBackend()
     ? await deleteSourceQuoteInSheets(req.params.quoteId)
     : await deleteSourceQuote(req.params.quoteId);
@@ -80,9 +110,12 @@ quotesRouter.delete('/:quoteId', async (req, res) => {
     return res.status(404).json({ error: 'Quote not found' });
   }
   return res.json({ data: { deleted: true } });
-});
+  }),
+);
 
-quotesRouter.get('/:quoteId/lines', async (req, res) => {
+quotesRouter.get(
+  '/:quoteId/lines',
+  asyncQuotes(async (req, res) => {
   const quote = isSheetsDataBackend()
     ? await getSourceQuoteFromSheets(req.params.quoteId)
     : await getSourceQuote(req.params.quoteId);
@@ -93,9 +126,12 @@ quotesRouter.get('/:quoteId/lines', async (req, res) => {
     ? await listSourceQuoteLinesFromSheets(req.params.quoteId)
     : await listSourceQuoteLines(req.params.quoteId);
   return res.json({ data: rows });
-});
+  }),
+);
 
-quotesRouter.post('/:quoteId/lines', async (req, res) => {
+quotesRouter.post(
+  '/:quoteId/lines',
+  asyncQuotes(async (req, res) => {
   const quote = isSheetsDataBackend()
     ? await getSourceQuoteFromSheets(req.params.quoteId)
     : await getSourceQuote(req.params.quoteId);
@@ -110,9 +146,12 @@ quotesRouter.post('/:quoteId/lines', async (req, res) => {
     ? await createSourceQuoteLineInSheets({ ...req.body, sourceQuoteId: req.params.quoteId })
     : await createSourceQuoteLine({ ...req.body, sourceQuoteId: req.params.quoteId });
   return res.status(201).json({ data: created });
-});
+  }),
+);
 
-quotesRouter.post('/:quoteId/lines/bulk', async (req, res) => {
+quotesRouter.post(
+  '/:quoteId/lines/bulk',
+  asyncQuotes(async (req, res) => {
   const quote = isSheetsDataBackend()
     ? await getSourceQuoteFromSheets(req.params.quoteId)
     : await getSourceQuote(req.params.quoteId);
@@ -127,9 +166,12 @@ quotesRouter.post('/:quoteId/lines/bulk', async (req, res) => {
     ? await createSourceQuoteLinesBulkInSheets(req.params.quoteId, rows)
     : await createSourceQuoteLinesBulk(req.params.quoteId, rows);
   return res.status(201).json({ data: created });
-});
+  }),
+);
 
-quotesRouter.put('/:quoteId/lines/:lineId', async (req, res) => {
+quotesRouter.put(
+  '/:quoteId/lines/:lineId',
+  asyncQuotes(async (req, res) => {
   const updated = isSheetsDataBackend()
     ? await updateSourceQuoteLineInSheets(req.params.lineId, req.body ?? {})
     : await updateSourceQuoteLine(req.params.lineId, req.body ?? {});
@@ -137,9 +179,12 @@ quotesRouter.put('/:quoteId/lines/:lineId', async (req, res) => {
     return res.status(404).json({ error: 'Quote line not found' });
   }
   return res.json({ data: updated });
-});
+  }),
+);
 
-quotesRouter.delete('/:quoteId/lines/:lineId', async (req, res) => {
+quotesRouter.delete(
+  '/:quoteId/lines/:lineId',
+  asyncQuotes(async (req, res) => {
   const deleted = isSheetsDataBackend()
     ? await deleteSourceQuoteLineInSheets(req.params.lineId)
     : await deleteSourceQuoteLine(req.params.lineId);
@@ -147,9 +192,12 @@ quotesRouter.delete('/:quoteId/lines/:lineId', async (req, res) => {
     return res.status(404).json({ error: 'Quote line not found' });
   }
   return res.json({ data: { deleted: true } });
-});
+  }),
+);
 
-quotesRouter.post('/:quoteId/import-selected', async (req, res) => {
+quotesRouter.post(
+  '/:quoteId/import-selected',
+  asyncQuotes(async (req, res) => {
   const quote = isSheetsDataBackend()
     ? await getSourceQuoteFromSheets(req.params.quoteId)
     : await getSourceQuote(req.params.quoteId);
@@ -160,9 +208,12 @@ quotesRouter.post('/:quoteId/import-selected', async (req, res) => {
     ? await importSelectedQuoteLinesToEstimateInSheets(req.params.quoteId)
     : await importSelectedQuoteLinesToEstimate(req.params.quoteId);
   return res.status(201).json({ data: created });
-});
+  }),
+);
 
-quotesRouter.post('/:quoteId/promote-candidates', async (req, res) => {
+quotesRouter.post(
+  '/:quoteId/promote-candidates',
+  asyncQuotes(async (req, res) => {
   const quote = isSheetsDataBackend()
     ? await getSourceQuoteFromSheets(req.params.quoteId)
     : await getSourceQuote(req.params.quoteId);
@@ -189,9 +240,12 @@ quotesRouter.post('/:quoteId/promote-candidates', async (req, res) => {
   });
 
   return res.status(201).json({ data: result });
-});
+  }),
+);
 
-quotesRouter.post('/:quoteId/extract-source', async (req, res) => {
+quotesRouter.post(
+  '/:quoteId/extract-source',
+  asyncQuotes(async (req, res) => {
   const quote = isSheetsDataBackend()
     ? await getSourceQuoteFromSheets(req.params.quoteId)
     : await getSourceQuote(req.params.quoteId);
@@ -257,4 +311,5 @@ quotesRouter.post('/:quoteId/extract-source', async (req, res) => {
       warnings: parsed.warnings,
     },
   });
-});
+  }),
+);

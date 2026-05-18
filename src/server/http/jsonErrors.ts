@@ -22,11 +22,30 @@ export function getGaxiosLikeHttpStatus(err: unknown): number | undefined {
     if (typeof c.code === 'number') return c.code;
     if (c.status === 'PERMISSION_DENIED') return 403;
     if (c.status === 'NOT_FOUND') return 404;
+    if (c.status === 'RESOURCE_EXHAUSTED') return 429;
   }
   const message = err instanceof Error ? err.message : String(err);
   if (/permission denied|forbidden/i.test(message)) return 403;
   if (/not found|requested entity was not found/i.test(message)) return 404;
+  if (/rate limit|quota exceeded|resource_exhausted|read requests per minute/i.test(message)) return 429;
   return undefined;
+}
+
+/**
+ * Google Sheets API rate limit (429) — return a retryable response instead of crashing the Node process.
+ * @returns true if a response was sent
+ */
+export function tryRespondSheetsRateLimited(res: Response, err: unknown, logLabel = '[api]'): boolean {
+  if (getGaxiosLikeHttpStatus(err) !== 429) return false;
+  const message = err instanceof Error ? err.message : String(err);
+  console.warn(`${logLabel} google sheets rate limited (429)`, message);
+  res.setHeader('Retry-After', '60');
+  res.status(503).json({
+    error: 'Google Sheets is temporarily rate-limiting read requests for this project.',
+    hint: 'Wait about a minute and retry. The default quota is roughly 60 reads/minute per Google Cloud project; rapid page refresh or many parallel workbook calls can exceed it. You can set GOOGLE_SHEETS_READ_MIN_INTERVAL_MS (milliseconds between tab reads, default 1100) to slow bursts in local dev.',
+    code: 'SHEETS_RATE_LIMIT',
+  });
+  return true;
 }
 
 /**
