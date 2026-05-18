@@ -1,6 +1,10 @@
 import React from 'react';
 import { AlertTriangle, CheckCircle2, Circle } from 'lucide-react';
 import type { ProjectRecord } from '../../shared/types/estimator';
+import {
+  PROJECT_BLOCKING_RULE_ID,
+  readBlockingStatusFromStructuredAssumptions,
+} from '../../shared/utils/projectBlockingAssumptions.ts';
 import { formatNumberSafe } from '../../utils/numberFormat';
 
 export type SetupReadinessStatus = 'complete' | 'incomplete' | 'attention';
@@ -12,22 +16,15 @@ export interface SetupChecklistItem {
   detail?: string;
 }
 
-const BLOCKING_RULE_ID = 'blocking_status';
-
 export function readProjectBlockingStatus(project: ProjectRecord): '' | 'included' | 'by_others' | 'unknown' {
-  const row = project.structuredAssumptions.find((a) => a.ruleId === BLOCKING_RULE_ID);
-  const text = (row?.text || '').toLowerCase();
-  if (text.includes('included')) return 'included';
-  if (text.includes('by other') || text.includes('by_other')) return 'by_others';
-  if (text.includes('unknown')) return 'unknown';
-  return '';
+  return readBlockingStatusFromStructuredAssumptions(project.structuredAssumptions) ?? '';
 }
 
 export function buildProjectBlockingAssumptions(
   project: ProjectRecord,
   value: '' | 'included' | 'by_others' | 'unknown',
 ): ProjectRecord['structuredAssumptions'] {
-  const rest = project.structuredAssumptions.filter((a) => a.ruleId !== BLOCKING_RULE_ID);
+  const rest = (project.structuredAssumptions || []).filter((a) => a.ruleId !== PROJECT_BLOCKING_RULE_ID);
   if (!value) return rest;
   const label =
     value === 'included' ? 'Blocking / backing included' : value === 'by_others' ? 'Blocking by others' : 'Blocking unknown';
@@ -36,7 +33,7 @@ export function buildProjectBlockingAssumptions(
     {
       id: `blocking-${project.id}`,
       source: 'manual',
-      ruleId: BLOCKING_RULE_ID,
+      ruleId: PROJECT_BLOCKING_RULE_ID,
       text: label,
       appliedFields: ['blocking_status'],
       confidence: 1,

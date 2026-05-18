@@ -94,3 +94,83 @@ test('resolveQuoteLineForEstimate blocks grab bar labor until blocking is known'
   assert.equal(resolved.createInput.laborMinutes, 0);
   assert.ok(resolved.flags.some((f) => /Needs Review|blocking|Install question/i.test(f)));
 });
+
+test('resolveQuoteLineForEstimate passes project blocking_status from structuredAssumptions', () => {
+  const resolved = resolveQuoteLineForEstimate({
+    quote,
+    line: line({
+      rawDescription: 'Bobrick 36 inch grab bar satin',
+      rowType: 'material',
+      skuModel: 'B-6806',
+      materialCost: 42,
+    }),
+    projectId: 'proj-1',
+    roomId: 'room-1',
+    catalogItems: [],
+    projectSetup: {
+      structuredAssumptions: [
+        {
+          id: 'blocking-1',
+          source: 'manual',
+          ruleId: 'blocking_status',
+          text: 'Blocking / backing included',
+          appliedFields: ['blocking_status'],
+          confidence: 1,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    },
+  });
+  assert.ok(Number(resolved.createInput.laborMinutes) > 0);
+  assert.ok(!resolved.flags.some((f) => /blocking_unknown/i.test(f)));
+});
+
+test('resolveQuoteLineForEstimate keeps grab bar labor gated when blocking is unknown', () => {
+  const resolved = resolveQuoteLineForEstimate({
+    quote,
+    line: line({
+      rawDescription: 'Bobrick 36 inch grab bar satin',
+      rowType: 'material',
+      skuModel: 'B-6806',
+      materialCost: 42,
+    }),
+    projectId: 'proj-1',
+    roomId: 'room-1',
+    catalogItems: [],
+    projectSetup: {
+      structuredAssumptions: [
+        {
+          id: 'blocking-1',
+          source: 'manual',
+          ruleId: 'blocking_status',
+          text: 'Blocking unknown',
+          appliedFields: ['blocking_status'],
+          confidence: 1,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    },
+  });
+  assert.equal(resolved.createInput.laborMinutes, 0);
+  assert.ok(resolved.flags.some((f) => /blocking|Needs Review|Install question/i.test(f)));
+});
+
+test('resolveQuoteLineForEstimate tolerates missing structuredAssumptions', () => {
+  assert.doesNotThrow(() =>
+    resolveQuoteLineForEstimate({
+      quote,
+      line: line({
+        rawDescription: 'Bobrick 36 inch grab bar satin',
+        rowType: 'material',
+        skuModel: 'B-6806',
+        materialCost: 42,
+      }),
+      projectId: 'proj-1',
+      roomId: 'room-1',
+      catalogItems: [],
+      projectSetup: {
+        structuredAssumptions: undefined,
+      },
+    }),
+  );
+});

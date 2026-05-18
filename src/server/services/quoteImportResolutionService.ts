@@ -1,5 +1,12 @@
 import type { CatalogItem } from '../../types.ts';
-import type { SourceQuoteLineRecord, SourceQuoteRecord, SourceQuoteRowType, TakeoffLineRecord } from '../../shared/types/estimator.ts';
+import type {
+  ProjectStructuredAssumption,
+  SourceQuoteLineRecord,
+  SourceQuoteRecord,
+  SourceQuoteRowType,
+  TakeoffLineRecord,
+} from '../../shared/types/estimator.ts';
+import { buildProjectAssumptionsForInstall } from '../../shared/utils/projectBlockingAssumptions.ts';
 import { classifyQuoteRow } from '../../shared/utils/quoteStagingParser.ts';
 import { prepareCatalogMatch } from './intakeCatalogMatching.ts';
 import { evaluateInstallability } from './intake/installabilityRules.ts';
@@ -23,14 +30,6 @@ function normalizeCode(value: unknown): string {
     .trim()
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, '');
-}
-
-function normalizeWallSubstrate(value: string | null | undefined): string | undefined {
-  const raw = String(value || '').trim().toLowerCase();
-  if (!raw) return undefined;
-  if (raw.includes('tile')) return 'tile';
-  if (raw.includes('gypsum') || raw.includes('drywall')) return 'gypsum';
-  return raw;
 }
 
 function findExactCatalogMatch(line: SourceQuoteLineRecord, catalog: CatalogItem[]): CatalogItem | null {
@@ -85,6 +84,7 @@ export function resolveQuoteLineForEstimate(input: {
     defaultProposalVisibility?: TakeoffLineRecord['proposalVisibility'];
     suppressAutoLaborForInstallServiceRows?: boolean;
     wallSubstrate?: string | null;
+    structuredAssumptions?: ProjectStructuredAssumption[] | null;
   };
 }): QuoteImportResolvedLine {
   const normalizedDescription = String(input.line.normalizedDescription || input.line.rawDescription || '').trim();
@@ -147,9 +147,10 @@ export function resolveQuoteLineForEstimate(input: {
       catalogLaborMinutes: Number(matchedCatalogItem?.baseLaborMinutes || 0),
       assumptions: {},
     },
-    projectAssumptions: {
-      wallSubstrate: normalizeWallSubstrate(input.projectSetup?.wallSubstrate),
-    },
+    projectAssumptions: buildProjectAssumptionsForInstall({
+      wallSubstrate: input.projectSetup?.wallSubstrate,
+      structuredAssumptions: input.projectSetup?.structuredAssumptions,
+    }),
     suppressBrightenLaborForVendorService: input.projectSetup?.suppressAutoLaborForInstallServiceRows ?? true,
   });
 

@@ -476,6 +476,7 @@ export async function importSelectedQuoteLinesToEstimate(sourceQuoteId: string):
           defaultProposalVisibility: jobConditions.defaultProposalVisibility,
           suppressAutoLaborForInstallServiceRows: jobConditions.suppressAutoLaborForInstallServiceRows,
           wallSubstrate: project.wallSubstrate,
+          structuredAssumptions: project.structuredAssumptions,
         },
       });
       const next = await createTakeoffLine(resolved.createInput);

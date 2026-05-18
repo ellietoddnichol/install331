@@ -468,6 +468,7 @@ export async function importSelectedQuoteLinesToEstimateInSheets(sourceQuoteId: 
         defaultProposalVisibility: jobConditions.defaultProposalVisibility,
         suppressAutoLaborForInstallServiceRows: jobConditions.suppressAutoLaborForInstallServiceRows,
         wallSubstrate: project.wallSubstrate,
+        structuredAssumptions: project.structuredAssumptions,
       },
     });
 

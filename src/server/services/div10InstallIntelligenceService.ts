@@ -398,9 +398,13 @@ function mergeAssumptions(
   project: ProjectAssumptions | undefined,
   defaults: Record<string, string>,
 ): Record<string, string> {
-  const merged: Record<string, string> = { ...defaults, ...line.assumptions };
+  const merged: Record<string, string> = { ...defaults };
   if (project?.wallSubstrate) merged.wall_substrate = project.wallSubstrate;
   for (const [k, v] of Object.entries(project || {})) {
+    if (k === 'wallSubstrate') continue;
+    if (v != null && String(v).trim()) merged[k] = String(v).trim();
+  }
+  for (const [k, v] of Object.entries(line.assumptions)) {
     if (v != null && String(v).trim()) merged[k] = String(v).trim();
   }
   return merged;

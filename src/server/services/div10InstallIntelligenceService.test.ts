@@ -52,6 +52,37 @@ test('tile wall applies labor modifier', () => {
   assert.ok(mod.minutes > 30);
 });
 
+test('project blocking_status included unlocks grab bar labor', () => {
+  const facts = lineFacts({
+    description: 'Bobrick grab bar',
+    categoryKey: 'grab_bar',
+    laborFamily: 'grab_bar_install',
+    assumptions: {},
+  });
+  const resolved = resolveInstallIntelligenceFromWorkbook(wb, {
+    lineFacts: facts,
+    projectAssumptions: { blocking_status: 'included' },
+  });
+  assert.ok(resolved.laborMinutes > 0);
+  assert.equal(resolved.blockAutoPriceLabor, false);
+  assert.ok(!resolved.reviewFlags.includes('blocking_unknown'));
+});
+
+test('line blocking_status overrides project blocking_status', () => {
+  const facts = lineFacts({
+    description: 'Bobrick grab bar',
+    categoryKey: 'grab_bar',
+    laborFamily: 'grab_bar_install',
+    assumptions: { blocking_status: 'unknown' },
+  });
+  const resolved = resolveInstallIntelligenceFromWorkbook(wb, {
+    lineFacts: facts,
+    projectAssumptions: { blocking_status: 'included' },
+  });
+  assert.equal(resolved.laborMinutes, 0);
+  assert.ok(resolved.reviewFlags.includes('blocking_unknown'));
+});
+
 test('unknown blocking triggers review and blocks auto-price', () => {
   const facts = lineFacts({
     description: 'Bobrick grab bar',
