@@ -96,7 +96,11 @@ import { formatCurrencySafe, formatLaborDurationMinutes, formatNumberSafe } from
 import { getDistanceInMiles } from '../utils/geo';
 import { CatalogCategorySelect } from '../components/intake/CatalogCategorySelect';
 import { useTransientNumericField } from '../hooks/useTransientNumericField';
-import { buildProposalScheduleSections, splitProposalTextLines } from '../shared/utils/proposalDocument';
+import {
+  buildProposalScheduleSections,
+  filterLinesForClientProposal,
+  splitProposalTextLines,
+} from '../shared/utils/proposalDocument';
 import { computeNextBestAction, computeWorkflowBarSteps } from '../shared/utils/projectWorkspaceReadiness';
 import { calculateWorkDuration, formatWorkWeeksLabel } from '../shared/utils/workDuration';
 
@@ -692,6 +696,10 @@ export function ProjectWorkspace() {
     pipelineNativeEnabled && nativeProposalLines !== null && nativeProposalSummary !== null;
   const proposalScheduleLines = useNativeProposalBundle ? nativeProposalLines! : lines;
   const proposalScheduleSummary = useNativeProposalBundle ? nativeProposalSummary! : summary;
+  const clientProposalLineCount = useMemo(
+    () => filterLinesForClientProposal(proposalScheduleLines).length,
+    [proposalScheduleLines]
+  );
 
   useEffect(() => {
     if (loading) return;
@@ -1390,13 +1398,15 @@ export function ProjectWorkspace() {
     const showLaborPricing = pricingMode !== 'material_only';
     const schedSummary = proposalScheduleSummary;
     if (!schedSummary) return;
+    const clientProposalLines = filterLinesForClientProposal(proposalScheduleLines);
     const scheduleSections = buildProposalScheduleSections(
-      proposalScheduleLines,
+      clientProposalLines,
       showMaterialPricing,
       showLaborPricing,
-      schedSummary.conditionLaborHoursMultiplier || 1
+      schedSummary.conditionLaborHoursMultiplier || 1,
+      null,
+      'cost_bucket'
     );
-    const conditionLines = schedSummary.conditionAssumptions || [];
     const introSource = (proposalSettings.proposalIntro || DEFAULT_PROPOSAL_INTRO)
       .split(/\n\n+/)
       .map((paragraph) => paragraph.trim())
@@ -1479,7 +1489,7 @@ export function ProjectWorkspace() {
         headStyles: { fillColor: [248, 250, 252], textColor: [71, 85, 105], fontStyle: 'bold' },
         bodyStyles: { fillColor: [255, 255, 255] },
         margin: { left: marginX, right: marginX },
-        head: [['Item / Description', 'Qty', 'Material Cost', 'Labor Cost']],
+        head: [['Item / Description', 'Qty', 'Material', 'Labor']],
         body: section.items.map((item) => [
           item.description,
           formatNumberSafe(item.quantity, Number.isInteger(item.quantity) ? 0 : 2),
@@ -1502,8 +1512,8 @@ export function ProjectWorkspace() {
       cursorY = ((doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || cursorY) + 12;
 
       const totalsRows = [
-        ['Total Material Cost', formatCurrencySafe(section.totalMaterialCost)],
-        ['Total Labor Cost', formatCurrencySafe(section.totalLaborCost)],
+        ['Material', formatCurrencySafe(section.totalMaterialCost)],
+        ['Labor', formatCurrencySafe(section.totalLaborCost)],
         ['Estimated Install Duration', formatWorkWeeksLabel(calculateWorkDuration(section.totalLaborHours, project.jobConditions).durationWeeks)],
         ['Section Total', formatCurrencySafe(section.sectionTotal)],
       ];
@@ -1541,9 +1551,6 @@ export function ProjectWorkspace() {
       });
     };
 
-    if (conditionLines.length > 0) {
-      writeBulletSection('Project Assumptions', conditionLines, 96);
-    }
     if (project.specialNotes?.trim()) {
       writeBulletSection('Additional Notes', [project.specialNotes.trim()], 72);
     }
@@ -3261,7 +3268,7 @@ export function ProjectWorkspace() {
                   setProject((prev) => (prev ? { ...prev, proposalIncludeCatalogImages: value } : prev))
                 }
                 baseBidTotal={proposalScheduleSummary?.baseBidTotal}
-                lineCount={proposalScheduleLines.length}
+                lineCount={clientProposalLineCount}
                 durationDays={proposalScheduleSummary?.durationDays}
               />
               <section className="space-y-4">

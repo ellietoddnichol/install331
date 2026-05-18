@@ -2,9 +2,9 @@ import React, { useMemo, useState } from 'react';
 import { EstimateSummary, ProjectRecord, SettingsRecord, TakeoffLineRecord, isMaterialOnlyMainBid } from '../../shared/types/estimator';
 import { isDisplayableCatalogImageUrl } from '../../shared/utils/catalogImageUrl';
 import {
-  buildInvestmentBreakdownRows,
-  buildLaborOriginFootnote,
+  buildClientFacingInvestmentBreakdownRows,
   buildProposalScheduleSectionsByBidBucket,
+  filterLinesForClientProposal,
   splitProposalTextLines,
 } from '../../shared/utils/proposalDocument';
 import { DEFAULT_PROPOSAL_ACCEPTANCE_LABEL, DEFAULT_PROPOSAL_CLARIFICATIONS, DEFAULT_PROPOSAL_EXCLUSIONS, DEFAULT_PROPOSAL_INTRO, DEFAULT_PROPOSAL_TERMS } from '../../shared/utils/proposalDefaults';
@@ -47,7 +47,6 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
   const pricingMode = project.pricingMode || 'labor_and_material';
   const showMaterial = pricingMode !== 'labor_only';
   const showLabor = !isMaterialOnlyMainBid(pricingMode);
-  const proposalVersion = `v${new Date(project.updatedAt).getTime().toString().slice(-5)}`;
   const activeProjectDate = project.bidDate || project.proposalDate || project.dueDate;
   const proposalDate = activeProjectDate
     ? new Date(activeProjectDate).toLocaleDateString()
@@ -56,37 +55,27 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
   const exclusionLines = splitProposalTextLines(settings?.proposalExclusions || DEFAULT_PROPOSAL_EXCLUSIONS);
   const clarificationLines = splitProposalTextLines(settings?.proposalClarifications || DEFAULT_PROPOSAL_CLARIFICATIONS);
 
-  /**
-   * Phase 3.1 — group the proposal schedule by bid bucket so alternates and deducts
-   * render as their own sections with their own subtotals. When a project only has
-   * one bucket (the common case), this collapses to a single group and the UI looks
-   * identical to the previous flat rendering.
-   */
+  const clientProposalLines = useMemo(() => filterLinesForClientProposal(lines), [lines]);
+
   const proposalBidGroups = useMemo(
     () =>
       buildProposalScheduleSectionsByBidBucket(
-        lines,
+        clientProposalLines,
         showMaterial,
         showLabor,
         summary.conditionLaborHoursMultiplier || 1,
-        catalogImageById
+        catalogImageById,
+        'cost_bucket'
       ),
-    [catalogImageById, lines, showLabor, showMaterial, summary.conditionLaborHoursMultiplier]
+    [catalogImageById, clientProposalLines, showLabor, showMaterial, summary.conditionLaborHoursMultiplier]
   );
   const showBidBucketGroups = proposalBidGroups.length > 1;
   const bidBucketDisplayLabel = (label: string): string => (label?.trim() ? label.trim() : 'Additional scope');
 
-  /**
-   * Phase 3.2 — plain-English note explaining which labor was vendor-quoted
-   * vs app-generated (catalog default / install-family fallback). Hidden when
-   * labor is hidden or when 100% of labor came from the source document.
-   */
-  const laborOriginNotes = useMemo(() => buildLaborOriginFootnote(lines, showLabor), [lines, showLabor]);
-
   const showLineImages = !isExecutive && project.proposalIncludeCatalogImages;
 
   const investmentRows = useMemo(
-    () => buildInvestmentBreakdownRows(summary, pricingMode),
+    () => buildClientFacingInvestmentBreakdownRows(summary, pricingMode),
     [summary, pricingMode]
   );
 
@@ -118,10 +107,10 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
   const titleIntro = isCondensed ? 'text-[13px] mt-3' : 'text-[14px] mt-5';
   const scopeHelp =
     showLineAmounts
-      ? 'Quantities, descriptions, and extended catalog costs (material + labor at loaded rates before job-wide taxes and markups).'
+      ? 'Quantities, descriptions, and extended amounts by line. Section totals roll up Material, Labor, and Add-Ins.'
       : isExecutive
-        ? 'Scope rollups by category. Line detail lives in the working estimate.'
-        : 'Quantities and descriptions are listed by scope. Section totals are direct catalog material + labor; taxes and markups are itemized in the investment summary below.';
+        ? 'Scope rollups by section. Detailed line items are available on request.'
+        : 'Quantities and descriptions are grouped by Material, Labor, and Add-Ins. The investment summary below shows your total proposal.';
 
   const lineGrid = showLineAmounts
     ? showLineImages
@@ -179,8 +168,6 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
               Ref. {project.projectNumber || project.id.slice(0, 8)}
               <span className="text-slate-300"> · </span>
               {proposalDate}
-              <span className="text-slate-300"> · </span>
-              {proposalVersion}
             </p>
           </div>
         </div>
@@ -197,6 +184,11 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
           {scopeHelp}
         </p>
         <div className={isCondensed ? 'mt-5 space-y-6' : 'mt-8 space-y-10'}>
+          {clientProposalLines.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm leading-relaxed text-slate-600">
+              No customer-facing scope lines yet. Import included quote rows or add estimate lines to preview this proposal.
+            </p>
+          ) : null}
           {proposalBidGroups.map((group) => (
             <div key={`group-${group.bucketLabel || 'unbucketed'}`} className="proposal-section">
               {showBidBucketGroups ? (
@@ -243,7 +235,7 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
               </div>
               {isExecutive ? (
                 <p className="mt-2 text-[11px] text-slate-500">
-                  {section.items.length} line item{section.items.length === 1 ? '' : 's'} — full schedule available internally.
+                  {section.items.length} line item{section.items.length === 1 ? '' : 's'} — detail available on request.
                 </p>
               ) : (
                 <div className={`mt-1 ${isCondensed ? 'text-[12px]' : 'text-[13px]'}`}>
@@ -299,15 +291,15 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
               {!isExecutive &&
               ((showMaterial && section.totalMaterialCost > 0) || (showLabor && section.totalLaborCost > 0)) ? (
                 <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 border-t border-slate-200 pt-3 text-[11px] text-slate-500">
-                  {showMaterial && section.totalMaterialCost > 0 ? (
+                  {showMaterial && section.totalMaterialCost > 0 && section.section !== 'Labor' ? (
                     <span>
-                      Scope material:{' '}
+                      Material:{' '}
                       <span className="font-medium tabular-nums text-slate-800">{formatCurrencySafe(section.totalMaterialCost)}</span>
                     </span>
                   ) : null}
-                  {showLabor && section.totalLaborCost > 0 ? (
+                  {showLabor && section.totalLaborCost > 0 && section.section !== 'Material' ? (
                     <span>
-                      Scope labor:{' '}
+                      Labor:{' '}
                       <span className="font-medium tabular-nums text-slate-800">{formatCurrencySafe(section.totalLaborCost)}</span>
                     </span>
                   ) : null}
@@ -319,22 +311,6 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
             </div>
           ))}
         </div>
-        {laborOriginNotes.length > 0 ? (
-          <div
-            className={`mt-6 rounded border border-slate-200 bg-slate-50/70 px-4 py-3 text-[11.5px] leading-[1.55] text-slate-600 proposal-avoid-break ${
-              isCondensed ? 'text-[11px]' : ''
-            }`}
-          >
-            <p className="text-[9.5px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-              How install labor was priced
-            </p>
-            <div className="mt-2 space-y-1.5">
-              {laborOriginNotes.map((note) => (
-                <p key={note}>{note}</p>
-              ))}
-            </div>
-          </div>
-        ) : null}
       </section>
 
       {project.proposalIncludeSpecialNotes && project.specialNotes?.trim() ? (
@@ -349,7 +325,7 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
       <section className={`proposal-totals border-t border-slate-300 proposal-section proposal-avoid-break ${isCondensed ? 'mt-6 pt-5' : 'mt-10 pt-8'}`}>
         <h2 className={sectionHeadingClass}>Investment summary</h2>
         <p className="mt-3 max-w-[42rem] text-[12px] leading-relaxed text-slate-500">
-          Section totals above are catalog material + labor before job-wide taxes and markups. The lines below add each sell-side layer so the math ties to the proposal total.
+          Your total proposal includes material, labor, taxes, and markups as applicable for this project.
         </p>
         <div className="mt-4 flex max-w-md justify-between gap-6 text-[13px] text-slate-600 sm:ml-auto">
           <span>Estimated duration</span>

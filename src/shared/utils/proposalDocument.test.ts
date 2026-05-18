@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { TakeoffLineRecord } from '../types/estimator.ts';
-import { buildProposalScheduleSectionsByBidBucket, formatClientProposalItemDisplay } from './proposalDocument.ts';
+import {
+  buildProposalScheduleSectionsByBidBucket,
+  filterLinesForClientProposal,
+  formatClientProposalItemDisplay,
+  proposalCostBucketForLine,
+} from './proposalDocument.ts';
 
 test('formatClientProposalItemDisplay: extinguisher with model, weight, and class', () => {
   const out = formatClientProposalItemDisplay('FE05C Cosmic 5lb Extinguisher 3A-40BC', 'FE05C');
@@ -85,6 +90,38 @@ function minimalLine(over: Partial<TakeoffLineRecord>): TakeoffLineRecord {
     ...over,
   };
 }
+
+test('filterLinesForClientProposal excludes internal and disclaimer rows', () => {
+  const lines = [
+    minimalLine({ id: 'ok', description: 'Grab bar 36 in', materialCost: 50, lineTotal: 50 }),
+    minimalLine({
+      id: 'sub',
+      description: 'Subtotal: $4,000',
+      sourceLineType: 'quote_subtotal',
+      proposalVisibility: 'internal_only',
+    }),
+    minimalLine({ id: 'int', description: 'Internal note', proposalVisibility: 'internal_only' }),
+    minimalLine({ id: 'mat', description: 'Material: $1200' }),
+  ];
+  const out = filterLinesForClientProposal(lines);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]?.id, 'ok');
+});
+
+test('proposalCostBucketForLine maps add-ins and labor-only rows', () => {
+  assert.equal(
+    proposalCostBucketForLine(
+      minimalLine({ id: 'a', sourceLineType: 'add_in', materialCost: 100, laborCost: 0 }),
+      true,
+      true
+    ),
+    'add_ins'
+  );
+  assert.equal(
+    proposalCostBucketForLine(minimalLine({ id: 'b', materialCost: 0, laborCost: 25, laborMinutes: 30 }), true, true),
+    'labor'
+  );
+});
 
 test('buildProposalScheduleSectionsByBidBucket splits by sourceBidBucket', () => {
   const lines: TakeoffLineRecord[] = [

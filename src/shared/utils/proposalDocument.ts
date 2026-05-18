@@ -1,5 +1,18 @@
 import { EstimateSummary, PricingMode, ProposalFormat, TakeoffLineRecord, isMaterialOnlyMainBid } from '../types/estimator';
 import { isDisplayableCatalogImageUrl } from './catalogImageUrl';
+import { looksLikeIntakePricingSummaryOrDisclaimerLine } from './intakeTextGuards';
+import { shouldIncludeLineInEstimateHealth } from './estimateLineHealth';
+
+/** How scope lines are grouped in the client proposal schedule. */
+export type ProposalScheduleSectionMode = 'category' | 'cost_bucket';
+
+export type ProposalCostBucket = 'material' | 'labor' | 'add_ins';
+
+const CLIENT_PROPOSAL_SECTION_ORDER: Record<ProposalCostBucket, number> = {
+  material: 0,
+  labor: 1,
+  add_ins: 2,
+};
 
 export const PROPOSAL_FORMAT_OPTIONS: Array<{ value: ProposalFormat; label: string; hint: string }> = [
   { value: 'standard', label: 'Standard', hint: 'Full schedule, detailed investment breakdown' },
@@ -271,6 +284,107 @@ export function getProposalSectionLabel(line: TakeoffLineRecord): string {
   return 'Additional Scope';
 }
 
+function readSourceRowTypeFromNotes(notes: string | null | undefined): string | null {
+  const match = String(notes || '').match(/Source row type:\s*([a-z_]+)/i);
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+/**
+ * Client proposal schedule — excludes internal quote/parser rows and pricing disclaimers.
+ * Alternates stay in proposal wording sections, not the priced scope schedule.
+ */
+export function filterLinesForClientProposal(lines: TakeoffLineRecord[]): TakeoffLineRecord[] {
+  return lines.filter((line) => {
+    if (!shouldIncludeLineInEstimateHealth(line)) return false;
+
+    const visibility = line.proposalVisibility ?? 'customer_visible';
+    if (visibility === 'internal_only') return false;
+    if (visibility === 'optional_or_alt') return false;
+
+    const sourceLineType = String(line.sourceLineType || '').toLowerCase();
+    const sourceType = String(line.sourceType || '').toLowerCase();
+    if (sourceLineType === 'quote_subtotal' || sourceType === 'quote_subtotal') return false;
+
+    const noteRowType = readSourceRowTypeFromNotes(line.notes);
+    if (noteRowType === 'note' || noteRowType === 'ignore') return false;
+    if (sourceLineType === 'add_in' && noteRowType === 'freight') {
+      // Freight / fee add-ins belong in Add-Ins section when included — not dropped here.
+    }
+
+    const description = String(line.description || '').trim();
+    if (!description) return false;
+    if (looksLikeIntakePricingSummaryOrDisclaimerLine(description)) return false;
+
+    const qty = Number(line.qty) || 0;
+    const materialExt = Number(line.materialCost || 0) * qty;
+    const laborExt = Number(line.laborCost || 0) * qty;
+    const laborMin = Number(line.laborMinutes || 0) * qty;
+    if (materialExt <= 0 && laborExt <= 0 && laborMin <= 0 && Number(line.lineTotal || 0) <= 0) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+/** Material / Labor / Add-Ins bucket for client proposal grouping. */
+export function proposalCostBucketForLine(
+  line: TakeoffLineRecord,
+  showMaterial: boolean,
+  showLabor: boolean
+): ProposalCostBucket {
+  const sourceLineType = String(line.sourceLineType || '').toLowerCase();
+  const noteRowType = readSourceRowTypeFromNotes(line.notes);
+  if (sourceLineType === 'add_in' || noteRowType === 'freight' || noteRowType === 'service') {
+    return 'add_ins';
+  }
+
+  const qty = Number(line.qty) || 0;
+  const materialExt = showMaterial ? Number(line.materialCost || 0) * qty : 0;
+  const laborExt = showLabor ? Number(line.laborCost || 0) * qty : 0;
+  const laborMin = showLabor ? Number(line.laborMinutes || 0) * qty : 0;
+  const hasLabor = laborExt > 0 || laborMin > 0;
+  const hasMaterial = materialExt > 0;
+
+  if (hasLabor && !hasMaterial) return 'labor';
+  if (hasMaterial) return 'material';
+  if (hasLabor) return 'labor';
+  return 'material';
+}
+
+export function getClientProposalSectionLabel(
+  line: TakeoffLineRecord,
+  sectionMode: ProposalScheduleSectionMode,
+  showMaterial: boolean,
+  showLabor: boolean
+): string {
+  if (sectionMode !== 'cost_bucket') {
+    return getProposalSectionLabel(line);
+  }
+  const bucket = proposalCostBucketForLine(line, showMaterial, showLabor);
+  if (bucket === 'add_ins') return 'Add-Ins';
+  if (bucket === 'labor') return 'Labor';
+  return 'Material';
+}
+
+function compareProposalSectionLabels(
+  left: string,
+  right: string,
+  sectionMode: ProposalScheduleSectionMode
+): number {
+  if (sectionMode === 'cost_bucket') {
+    const rank = (label: string): number => {
+      if (label === 'Material') return CLIENT_PROPOSAL_SECTION_ORDER.material;
+      if (label === 'Labor') return CLIENT_PROPOSAL_SECTION_ORDER.labor;
+      if (label === 'Add-Ins') return CLIENT_PROPOSAL_SECTION_ORDER.add_ins;
+      return 99;
+    };
+    const dr = rank(left) - rank(right);
+    if (dr !== 0) return dr;
+  }
+  return left.localeCompare(right);
+}
+
 export function buildProposalScopeBreakout(lines: TakeoffLineRecord[], showMaterial: boolean, showLabor: boolean): ProposalScopeSection[] {
   const sectionMap = new Map<string, ProposalScopeSection>();
 
@@ -355,7 +469,8 @@ export function buildProposalScheduleSections(
   showMaterial: boolean,
   showLabor: boolean,
   laborHourMultiplier = 1,
-  catalogImageById?: ReadonlyMap<string, string> | Map<string, string> | null
+  catalogImageById?: ReadonlyMap<string, string> | Map<string, string> | null,
+  sectionMode: ProposalScheduleSectionMode = 'category'
 ): ProposalScheduleSection[] {
   const normalizedLaborHourMultiplier = Number.isFinite(laborHourMultiplier) && laborHourMultiplier > 0
     ? laborHourMultiplier
@@ -363,7 +478,7 @@ export function buildProposalScheduleSections(
   const sectionMap = new Map<string, Map<string, ProposalScheduleItem>>();
 
   lines.forEach((line) => {
-    const section = getProposalSectionLabel(line);
+    const section = getClientProposalSectionLabel(line, sectionMode, showMaterial, showLabor);
     const rawCompact = compactProposalItemName(String(line.description || ''));
     const unit = String(line.unit || 'EA').trim() || 'EA';
     if (!rawCompact) return;
@@ -429,7 +544,12 @@ export function buildProposalScheduleSections(
         sectionTotal: Number((totalMaterialCost + totalLaborCost).toFixed(2)),
       };
     })
-    .sort((left, right) => right.sectionTotal - left.sectionTotal || left.section.localeCompare(right.section));
+    .sort((left, right) => {
+      if (sectionMode === 'cost_bucket') {
+        return compareProposalSectionLabels(left.section, right.section, sectionMode);
+      }
+      return right.sectionTotal - left.sectionTotal || left.section.localeCompare(right.section);
+    });
 }
 
 function classifyProposalBidBucket(raw: string | null | undefined): ProposalScheduleBidGroup['bucketKind'] {
@@ -466,7 +586,8 @@ export function buildProposalScheduleSectionsByBidBucket(
   showMaterial: boolean,
   showLabor: boolean,
   laborHourMultiplier = 1,
-  catalogImageById?: ReadonlyMap<string, string> | Map<string, string> | null
+  catalogImageById?: ReadonlyMap<string, string> | Map<string, string> | null,
+  sectionMode: ProposalScheduleSectionMode = 'category'
 ): ProposalScheduleBidGroup[] {
   const byBucket = new Map<string, TakeoffLineRecord[]>();
   lines.forEach((line) => {
@@ -486,7 +607,8 @@ export function buildProposalScheduleSectionsByBidBucket(
       showMaterial,
       showLabor,
       laborHourMultiplier,
-      catalogImageById
+      catalogImageById,
+      sectionMode
     );
     const groupMaterialCost = Number(sections.reduce((sum, s) => sum + s.totalMaterialCost, 0).toFixed(2));
     const groupLaborCost = Number(sections.reduce((sum, s) => sum + s.totalLaborCost, 0).toFixed(2));
@@ -654,6 +776,38 @@ export function buildInvestmentBreakdownRows(summary: EstimateSummary, pricingMo
   const adder = Number((summary.baseBidTotal - materialPart - laborPart).toFixed(2));
   if (Math.abs(adder) > 0.02) {
     rows.push({ label: 'Project conditions / adders', amount: adder });
+  }
+
+  rows.push({ label: 'Total proposal', amount: summary.baseBidTotal, isTotal: true });
+  return rows;
+}
+
+/**
+ * Customer-facing investment summary — Material and Labor sell subtotals plus total.
+ * Omits internal burden / markup line items shown in `buildInvestmentBreakdownRows`.
+ */
+export function buildClientFacingInvestmentBreakdownRows(
+  summary: EstimateSummary,
+  pricingMode: PricingMode
+): InvestmentBreakdownRow[] {
+  const showM = pricingMode !== 'labor_only';
+  const showL = !isMaterialOnlyMainBid(pricingMode);
+  const rows: InvestmentBreakdownRow[] = [];
+
+  if (showM && summary.materialLoadedSubtotal > 0) {
+    rows.push({
+      label: 'Material',
+      amount: summary.materialLoadedSubtotal,
+      isSectionBreak: showL && summary.laborLoadedSubtotal > 0,
+    });
+  }
+
+  if (showL && summary.laborLoadedSubtotal > 0) {
+    rows.push({
+      label: 'Labor',
+      amount: summary.laborLoadedSubtotal,
+      isSectionBreak: true,
+    });
   }
 
   rows.push({ label: 'Total proposal', amount: summary.baseBidTotal, isTotal: true });
