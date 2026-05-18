@@ -68,10 +68,17 @@ const LEGAL_TERMS_HINTS = [
   'governing law',
 ];
 
+/** Summary / tax / total lines — never auto-import. */
+const SUMMARY_OR_TOTAL_LINE = /^(?:material\s+)?(?:sub\s*total|total)\b|^(?:sales\s+)?tax\b|^grand\s+total\b|^quote\s+total\b|^subtotal\b/i;
+const TERMS_HEADER_LINE = /^terms\s+and\s+conditions\b|^payment\s+terms\b/i;
+
 export function normalizeSkuModel(input: string): string | null {
-  const match = String(input || '').match(/\b([A-Z0-9]{3,}[A-Z0-9\-]{2,})\b/i);
-  if (!match) return null;
-  return match[1].toUpperCase();
+  const hay = String(input || '');
+  const bobrickStyle = hay.match(/\b([A-Z]-\d{3,}[A-Z0-9]*)\b/i);
+  if (bobrickStyle) return bobrickStyle[1].toUpperCase();
+  const general = hay.match(/\b([A-Z0-9]{3,}[A-Z0-9\-]{2,})\b/i);
+  if (!general) return null;
+  return general[1].toUpperCase();
 }
 
 function parseMoney(input: string): number | null {
@@ -102,6 +109,23 @@ function hasAny(text: string, needles: string[]): boolean {
   return needles.some((needle) => lower.includes(needle));
 }
 
+function stripTrailingMoneyLabel(description: string): string {
+  return String(description || '')
+    .replace(/\s*[:]\s*\$?[\d,]+(?:\.\d{2})?\s*$/i, '')
+    .replace(/\s+\$?[\d,]+(?:\.\d{2})?\s*$/i, '')
+    .trim();
+}
+
+export function isQuoteSummaryOrTermsLine(description: string): boolean {
+  const trimmed = String(description || '').trim();
+  if (!trimmed) return false;
+  const label = stripTrailingMoneyLabel(trimmed).toLowerCase();
+  if (TERMS_HEADER_LINE.test(label)) return true;
+  if (SUMMARY_OR_TOTAL_LINE.test(label)) return true;
+  if (/^total$/i.test(label) && !hasAny(trimmed, MATERIAL_HINTS)) return true;
+  return false;
+}
+
 export function classifyQuoteRow(input: {
   description: string;
   unit?: string | null;
@@ -114,6 +138,9 @@ export function classifyQuoteRow(input: {
   const hasPrice = Number(input.unitCost || 0) > 0 || Number(input.totalCost || 0) > 0;
 
   if (!description) return 'ignore';
+  if (isQuoteSummaryOrTermsLine(description)) {
+    return TERMS_HEADER_LINE.test(stripTrailingMoneyLabel(description).toLowerCase()) ? 'note' : 'ignore';
+  }
   if (!hasPrice && hasAny(lower, LEGAL_TERMS_HINTS)) return 'ignore';
   if (!hasPrice && lower.length > 180) return 'note';
   if (unit === 'FRT' || hasAny(lower, FREIGHT_HINTS)) return 'freight';
@@ -125,8 +152,9 @@ export function classifyQuoteRow(input: {
   return hasPrice ? 'material' : 'note';
 }
 
+/** Billable material rows auto-select for import; freight/fees and narrative rows do not. */
 export function shouldImportRowType(rowType: SourceQuoteRowType): boolean {
-  return rowType !== 'note' && rowType !== 'ignore';
+  return rowType === 'material' || rowType === 'accessory' || rowType === 'installation' || rowType === 'service';
 }
 
 function parseDelimitedLine(line: string, delimiter: ',' | '\t'): string[] {
@@ -249,6 +277,190 @@ export function parseQuoteRowsFromRecords(records: Array<Record<string, unknown>
   const headerLine = headers.join(',');
   const body = records.map((record) => headers.map((h) => String(record[h] ?? '')).join(',')).join('\n');
   return parseTabularQuoteText(`${headerLine}\n${body}`);
+}
+
+function isValidUnitToken(token: string): boolean {
+  return VALID_UNITS.has(normalizeUnit(token));
+}
+
+function buildStagedRow(input: {
+  rawDescription: string;
+  qty: number;
+  unit: string;
+  unitCost: number | null;
+  totalCost: number | null;
+  skuModel?: string | null;
+  manufacturer?: string | null;
+  lineNumber?: string | null;
+}): QuoteStagedRowDraft {
+  const rawDescription = String(input.rawDescription || '').trim();
+  const qty = input.qty > 0 ? input.qty : 1;
+  const unit = normalizeUnit(input.unit);
+  const unitCost = input.unitCost;
+  const totalCost = input.totalCost;
+  const materialCost = unitCost != null
+    ? unitCost
+    : totalCost != null && qty > 0
+      ? Number((totalCost / qty).toFixed(2))
+      : 0;
+  const rowType = classifyQuoteRow({ description: rawDescription, unit, unitCost, totalCost });
+
+  return {
+    lineNumber: input.lineNumber ?? null,
+    rawDescription,
+    normalizedDescription: rawDescription,
+    skuModel: input.skuModel ?? normalizeSkuModel(rawDescription),
+    manufacturer: input.manufacturer ?? null,
+    qty,
+    unit,
+    unitCost,
+    totalCost,
+    materialCost,
+    rowType,
+    importSelected: shouldImportRowType(rowType),
+  };
+}
+
+type ParsedTailPrices = {
+  descriptionRemainder: string;
+  unitCost: number | null;
+  totalCost: number | null;
+};
+
+function extractPricesFromDescriptionTail(text: string): ParsedTailPrices {
+  let rest = String(text || '').trim();
+
+  const eachDash = rest.match(/^(.*?)(?:\s*-\s*)?\$?\s*([\d,]+(?:\.\d{2})?)\s+each\s*(?:-\s*)?\$?\s*([\d,]+(?:\.\d{2})?)\s*$/i);
+  if (eachDash) {
+    return {
+      descriptionRemainder: eachDash[1].trim(),
+      unitCost: parseMoney(eachDash[2]),
+      totalCost: parseMoney(eachDash[3]),
+    };
+  }
+
+  const twoMoney = rest.match(/^(.*?)\s+\$?\s*([\d,]+(?:\.\d{2})?)\s+\$?\s*([\d,]+(?:\.\d{2})?)\s*$/);
+  if (twoMoney) {
+    const unitCost = parseMoney(twoMoney[2]);
+    const totalCost = parseMoney(twoMoney[3]);
+    if (unitCost != null && totalCost != null) {
+      return { descriptionRemainder: twoMoney[1].trim(), unitCost, totalCost };
+    }
+  }
+
+  const oneMoney = rest.match(/^(.*?)\s+\$?\s*([\d,]+(?:\.\d{2})?)\s*$/);
+  if (oneMoney) {
+    const totalCost = parseMoney(oneMoney[2]);
+    return { descriptionRemainder: oneMoney[1].trim(), unitCost: null, totalCost };
+  }
+
+  return { descriptionRemainder: rest, unitCost: null, totalCost: null };
+}
+
+function parseFreeformPricedLine(line: string): QuoteStagedRowDraft | null {
+  const trimmed = String(line || '').trim();
+  if (!trimmed) return null;
+  if (/^(material|terms|notes?)\s*:\s*$/i.test(trimmed)) return null;
+  if (isLikelyTermsPage(trimmed)) return null;
+
+  const freightColon = trimmed.match(/^freight\s*:\s*\$?\s*([\d,.]+)\s*$/i);
+  if (freightColon) {
+    const totalCost = parseMoney(freightColon[1]) ?? 0;
+    return buildStagedRow({
+      rawDescription: 'Freight',
+      qty: 1,
+      unit: 'FRT',
+      unitCost: totalCost,
+      totalCost,
+    });
+  }
+
+  if (isQuoteSummaryOrTermsLine(trimmed)) {
+    const rowType = TERMS_HEADER_LINE.test(stripTrailingMoneyLabel(trimmed).toLowerCase()) ? 'note' : 'ignore';
+    return {
+      rawDescription: trimmed,
+      normalizedDescription: trimmed,
+      qty: 1,
+      unit: 'EA',
+      unitCost: parseMoney(trimmed),
+      totalCost: parseMoney(trimmed),
+      materialCost: 0,
+      rowType,
+      importSelected: false,
+    };
+  }
+
+  const qtyUnitMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s+([A-Za-z]{2,6})\s+(.+)$/i);
+  if (!qtyUnitMatch) return null;
+
+  const qty = parseQty(qtyUnitMatch[1]) ?? 1;
+  const unitToken = qtyUnitMatch[2];
+  if (!isValidUnitToken(unitToken)) return null;
+
+  const unit = normalizeUnit(unitToken);
+  const { descriptionRemainder, unitCost, totalCost } = extractPricesFromDescriptionTail(qtyUnitMatch[3]);
+  if (unitCost == null && totalCost == null) return null;
+
+  const rawDescription = descriptionRemainder.replace(/\s+/g, ' ').trim();
+  if (!rawDescription) return null;
+
+  const resolvedUnitCost = unitCost ?? (totalCost != null && qty > 0 ? Number((totalCost / qty).toFixed(2)) : null);
+  const resolvedTotal = totalCost ?? (resolvedUnitCost != null ? Number((resolvedUnitCost * qty).toFixed(2)) : null);
+
+  return buildStagedRow({
+    rawDescription,
+    qty,
+    unit,
+    unitCost: resolvedUnitCost,
+    totalCost: resolvedTotal,
+  });
+}
+
+/**
+ * Parses vendor-style freeform quote lines (qty unit description … prices).
+ * Use {@link parseQuotePasteText} to route between table and freeform input.
+ */
+export function parseFreeformPricedQuoteLines(text: string): QuoteStagedRowDraft[] {
+  const lines = String(text || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) return [];
+  if (isLikelyTermsPage(lines.join('\n'))) return [];
+
+  const rows: QuoteStagedRowDraft[] = [];
+  for (const line of lines) {
+    const row = parseFreeformPricedLine(line);
+    if (row) rows.push(row);
+  }
+  return rows;
+}
+
+function looksLikeDelimitedTable(text: string): boolean {
+  const lines = String(text || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return false;
+  if (lines.some((line) => line.includes('\t'))) return true;
+  const commaRows = lines.filter((line) => (line.match(/,/g) || []).length >= 2);
+  if (commaRows.length >= 2) return true;
+  const first = lines[0] || '';
+  return /(^|,)\s*(item|line|description|qty|quantity|unit|uom|cost|total|model|sku)/i.test(first);
+}
+
+/**
+ * Routes pasted quote text: delimited tables use {@link parseTabularQuoteText};
+ * otherwise tries {@link parseFreeformPricedQuoteLines}, then falls back to tabular.
+ */
+export function parseQuotePasteText(text: string): QuoteStagedRowDraft[] {
+  if (looksLikeDelimitedTable(text)) {
+    return parseTabularQuoteText(text);
+  }
+  const freeform = parseFreeformPricedQuoteLines(text);
+  if (freeform.length > 0) return freeform;
+  return parseTabularQuoteText(text);
 }
 
 function normalizeHeaderLine(line: string): string {

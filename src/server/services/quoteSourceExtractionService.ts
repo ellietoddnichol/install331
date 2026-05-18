@@ -8,6 +8,7 @@ import {
   isLikelyTermsPage,
   normalizeSkuModel,
   parseQuoteRowsFromRecords,
+  parseQuotePasteText,
   parseTabularQuoteText,
   shouldImportRowType,
   type QuoteHeaderDraft,
@@ -373,8 +374,8 @@ function parseQuoteRowsFromFile(input: { fileName: string; mimeType: string; dat
   }
 
   const fallbackText = Buffer.from(input.dataBase64, 'base64').toString('utf8');
-  const rows = parseTabularQuoteText(fallbackText);
-  return Promise.resolve({ rows, header: extractQuoteHeaderFromText(fallbackText), warnings: ['Unrecognized file type. Parsed as plain text table.'] });
+  const rows = parseQuotePasteText(fallbackText);
+  return Promise.resolve({ rows, header: extractQuoteHeaderFromText(fallbackText), warnings: ['Unrecognized file type. Parsed as plain text quote.'] });
 }
 
 export async function extractSourceQuoteFromAttachedFile(input: {
@@ -408,7 +409,7 @@ export async function extractSourceQuoteFromAttachedFile(input: {
 }
 
 export function parsePastedQuoteTable(text: string): QuoteStagedRowDraft[] {
-  return parseTabularQuoteText(text);
+  return parseQuotePasteText(text);
 }
 
 export function parseCsvRowsForQuoteStaging(csvText: string): QuoteStagedRowDraft[] {

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import type { ProjectFileRecord, SourceQuoteLineRecord, SourceQuoteRecord } from '../../shared/types/estimator';
 import { formatCurrencySafe } from '../../utils/numberFormat';
-import { parseTabularQuoteText } from '../../shared/utils/quoteStagingParser';
+import { parseQuotePasteText } from '../../shared/utils/quoteStagingParser';
 
 interface QuoteCreateDraft {
   vendorName: string;
@@ -234,7 +234,7 @@ export function QuotesPage({
 
   async function handleBulkImportText() {
     if (!activeQuoteId) return;
-    const rows = parseTabularQuoteText(bulkPaste).map((row) => ({
+    const rows = parseQuotePasteText(bulkPaste).map((row) => ({
       rawDescription: row.rawDescription,
       manufacturer: row.manufacturer || '',
       skuModel: row.skuModel || '',
@@ -255,7 +255,7 @@ export function QuotesPage({
   async function handleBulkImportFile(file: File | null) {
     if (!file) return;
     const text = await file.text();
-    const rows = parseTabularQuoteText(text).map((row) => ({
+    const rows = parseQuotePasteText(text).map((row) => ({
       rawDescription: row.rawDescription,
       manufacturer: row.manufacturer || '',
       skuModel: row.skuModel || '',
@@ -569,7 +569,7 @@ export function QuotesPage({
                 onChange={(event) => {
                   const next = event.target.value;
                   setBulkPaste(next);
-                  setBulkPreviewCount(parseTabularQuoteText(next).length);
+                  setBulkPreviewCount(parseQuotePasteText(next).length);
                 }}
               />
               <div className="mt-3 flex flex-wrap items-center gap-2">

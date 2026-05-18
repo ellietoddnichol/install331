@@ -105,12 +105,12 @@ export function resolveQuoteLineForEstimate(input: {
   };
 }): QuoteImportResolvedLine {
   const normalizedDescription = String(input.line.normalizedDescription || input.line.rawDescription || '').trim();
-  const rowType = classifyQuoteRow({
+  const rowType = (input.line.rowType || classifyQuoteRow({
     description: normalizedDescription,
     unit: input.line.unit,
     unitCost: input.line.unitCost,
     totalCost: input.line.totalCost,
-  }) as SourceQuoteRowType;
+  })) as SourceQuoteRowType;
 
   const flags: string[] = [];
 
@@ -152,8 +152,8 @@ export function resolveQuoteLineForEstimate(input: {
       || null;
 
   const installFamily = getInstallLaborFamily(installFamilyKey);
-  const vendorInstallIncluded = rowType === 'installation' || rowType === 'service';
-  const suppressServiceLabor = input.projectSetup?.suppressAutoLaborForInstallServiceRows ?? true;
+  const vendorServiceRow = rowType === 'installation' || rowType === 'service';
+  const catalogLaborEligible = rowType === 'material' || rowType === 'accessory';
 
   const catalogLaborMinutes = Number(matchedCatalogItem?.baseLaborMinutes || 0);
   const fallbackMinutes = Number(installFamily?.defaultInstallMinutes || 0);
@@ -165,16 +165,16 @@ export function resolveQuoteLineForEstimate(input: {
   if (rowType === 'freight') {
     laborMinutes = 0;
     laborOrigin = 'source';
-    flags.push('Freight row detected. Internal install labor suppressed.');
-  } else if (vendorInstallIncluded && suppressServiceLabor) {
+    flags.push('Freight row — cost add-in only; internal install labor suppressed.');
+  } else if (vendorServiceRow) {
     laborMinutes = 0;
     laborOrigin = 'source';
-    flags.push('Vendor installation/service row detected. Internal labor not added.');
-  } else if (catalogLaborMinutes > 0) {
+    flags.push('Vendor installation/service row — Brighten labor fallback suppressed.');
+  } else if (catalogLaborEligible && catalogLaborMinutes > 0) {
     laborMinutes = catalogLaborMinutes;
     laborOrigin = 'catalog';
     flags.push('Labor baseline from catalog match.');
-  } else if (fallbackMinutes > 0) {
+  } else if (catalogLaborEligible && fallbackMinutes > 0) {
     laborMinutes = fallbackMinutes;
     generatedLaborMinutes = fallbackMinutes;
     laborOrigin = 'install_family';
