@@ -21,7 +21,7 @@ interface EstimateLineDetailDrawerProps {
   onEditInstallAssumptions: (lineId: string) => void;
   onGoToQuote?: (quoteId: string) => void;
   onDuplicateLine?: (lineId: string) => void;
-  onExcludeFromProposal?: (lineId: string) => Promise<void>;
+  onRequestHideFromProposal?: (lineId: string) => void;
 }
 
 function Section(props: { title: string; subtitle?: string; children: React.ReactNode }) {
@@ -68,7 +68,7 @@ export function EstimateLineDetailDrawer({
   onEditInstallAssumptions,
   onGoToQuote,
   onDuplicateLine,
-  onExcludeFromProposal,
+  onRequestHideFromProposal,
 }: EstimateLineDetailDrawerProps) {
   const [materialCost, setMaterialCost] = useState('');
   const [laborMinutes, setLaborMinutes] = useState('');
@@ -180,11 +180,11 @@ export function EstimateLineDetailDrawer({
                 Duplicate line
               </button>
             ) : null}
-            {onExcludeFromProposal && visibility !== 'internal_only' ? (
+            {onRequestHideFromProposal && visibility !== 'internal_only' ? (
               <button
                 type="button"
                 className="ui-btn-secondary h-8 px-2.5 text-[11px] font-semibold"
-                onClick={() => void onExcludeFromProposal(line.id)}
+                onClick={() => onRequestHideFromProposal(line.id)}
               >
                 Hide from proposal
               </button>
@@ -356,7 +356,14 @@ export function EstimateLineDetailDrawer({
             <select
               className="ui-input w-full"
               value={visibility}
-              onChange={(e) => setVisibility(e.target.value as ProposalVisibility)}
+              onChange={(e) => {
+                const next = e.target.value as ProposalVisibility;
+                if (next === 'internal_only' && visibility !== 'internal_only' && onRequestHideFromProposal) {
+                  onRequestHideFromProposal(line.id);
+                  return;
+                }
+                setVisibility(next);
+              }}
             >
               <option value="customer_visible">Included in proposal</option>
               <option value="internal_only">Hidden from proposal</option>

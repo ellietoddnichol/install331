@@ -103,6 +103,13 @@ import {
 } from '../shared/utils/estimateLineDetailModel';
 import { buildProjectBlockingAssumptions } from '../components/project/ProjectSetupReadiness';
 import {
+  ConfirmExcludeModal,
+  type ConfirmExcludeMode,
+  type ConfirmExcludeResult,
+  type ConfirmExcludeTarget,
+} from '../components/estimate/ConfirmExcludeModal';
+import { appendScopeExclusionNote } from '../shared/utils/exclusionReasonLabels';
+import {
   buildQuoteImportResultSummary,
   type QuoteImportResultSummary,
 } from '../shared/utils/quoteImportResultSummary';
@@ -232,6 +239,15 @@ export function ProjectWorkspace() {
   const [installAssumptionsBusy, setInstallAssumptionsBusy] = useState(false);
   const [lineDetailDrawerOpen, setLineDetailDrawerOpen] = useState(false);
   const [lineDetailBusy, setLineDetailBusy] = useState(false);
+  const [confirmExcludeOpen, setConfirmExcludeOpen] = useState(false);
+  const [confirmExcludeMode, setConfirmExcludeMode] = useState<ConfirmExcludeMode>('hide_from_proposal');
+  const [confirmExcludeTarget, setConfirmExcludeTarget] = useState<ConfirmExcludeTarget | null>(null);
+  const [confirmExcludeBusy, setConfirmExcludeBusy] = useState(false);
+  const confirmExcludePendingRef = useRef<
+    | { kind: 'estimate'; lineId: string }
+    | { kind: 'quote'; quoteId: string; lineId: string }
+    | null
+  >(null);
   const [bundleModalOpen, setBundleModalOpen] = useState(false);
   const [partitionBuilderOpen, setPartitionBuilderOpen] = useState(false);
   const [modifiersModalOpen, setModifiersModalOpen] = useState(false);
@@ -2446,6 +2462,107 @@ export function ProjectWorkspace() {
     }
   }
 
+  function buildConfirmExcludeTargetFromEstimateLine(line: TakeoffLineRecord): ConfirmExcludeTarget {
+    const qty = Number(line.qty) || 0;
+    const src = findSourceQuoteContext(line, sourceQuotes, allQuoteLines);
+    return {
+      description: line.description || '?',
+      qty,
+      unit: line.unit || 'EA',
+      materialTotal: (Number(line.materialCost) || 0) * qty,
+      sourceLabel: src
+        ? `Vendor quote ? ${src.quote.vendorName}${src.quote.quoteNumber ? ` ? ${src.quote.quoteNumber}` : ''}`
+        : line.sourceType === 'vendor_quote'
+          ? 'Vendor quote import'
+          : null,
+    };
+  }
+
+  function buildConfirmExcludeTargetFromQuoteLine(
+    line: SourceQuoteLineRecord,
+    quote: SourceQuoteRecord | undefined,
+  ): ConfirmExcludeTarget {
+    const qty = Number(line.qty) || 0;
+    return {
+      description: String(line.normalizedDescription || line.rawDescription || '').trim() || '?',
+      qty,
+      unit: line.unit || 'EA',
+      materialTotal: Number(line.materialCost) || Number(line.unitCost) || 0,
+      sourceLabel: quote
+        ? `${quote.vendorName}${quote.quoteNumber ? ` ? ${quote.quoteNumber}` : ''}`
+        : null,
+    };
+  }
+
+  function requestHideFromProposal(lineId: string) {
+    const line = lines.find((l) => l.id === lineId);
+    if (!line) return;
+    confirmExcludePendingRef.current = { kind: 'estimate', lineId };
+    setConfirmExcludeMode('hide_from_proposal');
+    setConfirmExcludeTarget(buildConfirmExcludeTargetFromEstimateLine(line));
+    setConfirmExcludeOpen(true);
+  }
+
+  function requestExcludeQuoteLine(quoteId: string, line: SourceQuoteLineRecord) {
+    confirmExcludePendingRef.current = { kind: 'quote', quoteId, lineId: line.id };
+    setConfirmExcludeMode('exclude_from_estimate');
+    setConfirmExcludeTarget(buildConfirmExcludeTargetFromQuoteLine(line, sourceQuotes.find((q) => q.id === quoteId)));
+    setConfirmExcludeOpen(true);
+  }
+
+  function closeConfirmExcludeModal() {
+    setConfirmExcludeOpen(false);
+    confirmExcludePendingRef.current = null;
+    setConfirmExcludeTarget(null);
+  }
+
+  async function confirmExcludeAction(result: ConfirmExcludeResult) {
+    const pending = confirmExcludePendingRef.current;
+    if (!pending || !project) return;
+    setConfirmExcludeBusy(true);
+    try {
+      if (pending.kind === 'estimate') {
+        const line = lines.find((l) => l.id === pending.lineId);
+        if (!line) return;
+        await persistLine(pending.lineId, {
+          proposalVisibility: 'internal_only',
+          notes: appendScopeExclusionNote(line.notes, {
+            action: 'hide_from_proposal',
+            reason: result.reason,
+            note: result.note,
+          }),
+        });
+        setActionFeedback({
+          tone: 'success',
+          message: 'Line hidden from customer proposal ? still visible on the estimate.',
+        });
+      } else {
+        const quoteLine = allQuoteLines.find((l) => l.id === pending.lineId)
+          ?? sourceQuoteLines.find((l) => l.id === pending.lineId);
+        if (!quoteLine) return;
+        const nextNotes = appendScopeExclusionNote(quoteLine.notes, {
+          action: 'exclude_from_estimate',
+          reason: result.reason,
+          note: result.note,
+        });
+        await updateSourceQuoteLine(pending.quoteId, pending.lineId, {
+          rowType: 'ignore',
+          importSelected: false,
+          notes: nextNotes,
+        });
+        setActionFeedback({
+          tone: 'success',
+          message: 'Row excluded from estimate import ? still saved on the quote.',
+        });
+      }
+      closeConfirmExcludeModal();
+    } catch (error) {
+      window.alert(getErrorMessage(error, 'Could not update scope visibility.'));
+    } finally {
+      setConfirmExcludeBusy(false);
+    }
+  }
+
   async function saveLineDetailAndRecalculate(lineId: string) {
     if (!project) return;
     setLineDetailBusy(true);
@@ -2804,6 +2921,7 @@ export function ProjectWorkspace() {
             onPromoteToCatalogCandidates={(quoteId, selectedLineIds, includeNonCatalogTypes) =>
               promoteQuoteLinesToCatalogCandidates(quoteId, selectedLineIds, includeNonCatalogTypes)
             }
+            onRequestExcludeQuoteLine={(quoteId, line) => requestExcludeQuoteLine(quoteId, line)}
           />
           </>
         )}
@@ -3233,11 +3351,13 @@ export function ProjectWorkspace() {
                       healthHighlightLineIds={healthHighlightLineIds}
                       onSelectLine={selectEstimateLine}
                       onOpenLineDetail={openLineDetailDrawer}
-                      onToggleInclude={(lineId, nextIncluded) =>
-                        void persistLine(lineId, {
-                          proposalVisibility: nextIncluded ? 'customer_visible' : 'internal_only',
-                        })
-                      }
+                      onToggleInclude={(lineId, nextIncluded) => {
+                        if (nextIncluded) {
+                          void persistLine(lineId, { proposalVisibility: 'customer_visible' });
+                          return;
+                        }
+                        requestHideFromProposal(lineId);
+                      }}
                       onReviewInstallAssumptions={focusInstallAssumptionsForLine}
                     />
                     <EstimateCockpitLinePanel
@@ -3505,6 +3625,15 @@ export function ProjectWorkspace() {
         onApplyBundle={applyBundle}
       />
 
+      <ConfirmExcludeModal
+        open={confirmExcludeOpen}
+        mode={confirmExcludeMode}
+        target={confirmExcludeTarget}
+        busy={confirmExcludeBusy}
+        onCancel={closeConfirmExcludeModal}
+        onConfirm={confirmExcludeAction}
+      />
+
       <EstimateLineDetailDrawer
         open={lineDetailDrawerOpen}
         model={lineDetailModel}
@@ -3529,9 +3658,7 @@ export function ProjectWorkspace() {
           goToTab('quotes');
         }}
         onDuplicateLine={(lineId) => void duplicateLine(lineId)}
-        onExcludeFromProposal={async (lineId) => {
-          await persistLine(lineId, { proposalVisibility: 'internal_only' });
-        }}
+        onRequestHideFromProposal={(lineId) => requestHideFromProposal(lineId)}
       />
 
       <InstallAssumptionsDrawer

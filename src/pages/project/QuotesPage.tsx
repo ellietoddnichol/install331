@@ -44,6 +44,8 @@ interface QuotesPageProps {
   onImportSelected: (quoteId: string) => Promise<void>;
   onExtractSourceFile: (quoteId: string, replaceExisting: boolean) => Promise<void>;
   onPromoteToCatalogCandidates: (quoteId: string, selectedLineIds: string[], includeNonCatalogTypes?: boolean) => Promise<{ promotedCount: number; skippedCount: number }>;
+  /** Opens confirm modal before excluding a staged quote row from estimate import. */
+  onRequestExcludeQuoteLine?: (quoteId: string, line: SourceQuoteLineRecord) => void;
 }
 
 const DEFAULT_QUOTE_CREATE_DRAFT: QuoteCreateDraft = {
@@ -147,6 +149,7 @@ export function QuotesPage({
   onImportSelected,
   onExtractSourceFile,
   onPromoteToCatalogCandidates,
+  onRequestExcludeQuoteLine,
 }: QuotesPageProps) {
   const [quoteDraft, setQuoteDraft] = useState<QuoteCreateDraft>(DEFAULT_QUOTE_CREATE_DRAFT);
   const [lineDraft, setLineDraft] = useState<QuoteLineDraft>(DEFAULT_QUOTE_LINE_DRAFT);
@@ -359,7 +362,13 @@ export function QuotesPage({
               <button
                 type="button"
                 className="rounded-md border border-slate-200 bg-white px-2 py-1 text-left text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
-                onClick={() => void onUpdateQuoteLine(activeQuote.id, line.id, { rowType: 'ignore' })}
+                onClick={() => {
+                  if (onRequestExcludeQuoteLine) {
+                    onRequestExcludeQuoteLine(activeQuote.id, line);
+                  } else {
+                    void onUpdateQuoteLine(activeQuote.id, line.id, { rowType: 'ignore', importSelected: false });
+                  }
+                }}
               >
                 Exclude
               </button>
