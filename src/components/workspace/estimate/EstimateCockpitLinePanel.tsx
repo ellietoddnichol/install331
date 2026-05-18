@@ -10,6 +10,11 @@ import type {
 } from '../../../shared/types/estimator';
 import type { ProjectJobConditions } from '../../../shared/types/estimator';
 import { deriveEstimateLaborBasisUi } from '../../../shared/utils/estimateCockpitDerived';
+import { deriveInstallAssumptionGateUi } from '../../../shared/utils/installIntelligenceLineUi';
+import {
+  InstallAssumptionDetailPanel,
+  InstallAssumptionLaborBlockedHint,
+} from './InstallAssumptionGateCallout';
 import { createDefaultProjectJobConditions } from '../../../shared/utils/jobConditions';
 import { ModifierPanel } from '../ModifierPanel';
 import { CatalogCategorySelect } from '../../intake/CatalogCategorySelect';
@@ -81,6 +86,10 @@ interface EstimateCockpitLinePanelProps {
   onApplyModifier: (modifierId: string) => void;
   onRemoveModifier: (lineModifierId: string) => void;
   onOpenAdvancedTools?: () => void;
+  projectWallSubstrate?: string | null;
+  onOpenProjectSetup?: () => void;
+  linePanelId?: string;
+  onFocusInstallAssumptions?: () => void;
 }
 
 export function EstimateCockpitLinePanel({
@@ -99,6 +108,10 @@ export function EstimateCockpitLinePanel({
   onApplyModifier,
   onRemoveModifier,
   onOpenAdvancedTools,
+  projectWallSubstrate,
+  onOpenProjectSetup,
+  linePanelId,
+  onFocusInstallAssumptions,
 }: EstimateCockpitLinePanelProps) {
   const jc = jobConditions ?? createDefaultProjectJobConditions();
 
@@ -117,6 +130,7 @@ export function EstimateCockpitLinePanel({
   const dirty = !!(draft && baseline && !draftsEqual(draft, baseline));
 
   const laborUi = line ? deriveEstimateLaborBasisUi(line, pricingMode) : null;
+  const installGate = line ? deriveInstallAssumptionGateUi(line, pricingMode) : null;
 
   const vendorQuote = line?.sourceType === 'vendor_quote';
 
@@ -170,7 +184,10 @@ export function EstimateCockpitLinePanel({
   }
 
   return (
-    <aside className="flex max-h-[calc(100vh-12rem)] min-w-[min(100%,22rem)] max-w-md flex-col overflow-hidden rounded-xl border border-app-line bg-app-surface shadow-sm">
+    <aside
+      id={linePanelId}
+      className="flex max-h-[calc(100vh-12rem)] min-w-[min(100%,22rem)] max-w-md flex-col overflow-hidden rounded-xl border border-app-line bg-app-surface shadow-sm"
+    >
       <div className="border-b border-app-line px-3 py-2.5">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
@@ -200,10 +217,16 @@ export function EstimateCockpitLinePanel({
           </button>
         </div>
         {showLabor && laborUi ? (
-          <p className="mt-2 rounded-lg bg-app-surface-soft px-2 py-1 text-[11px] text-app">
-            <span className="font-semibold text-app-muted">Labor · </span>
-            {laborUi.label}
-          </p>
+          <div className="mt-2 rounded-lg bg-app-surface-soft px-2 py-1 text-[11px] text-app">
+            <p>
+              <span className="font-semibold text-app-muted">Labor · </span>
+              {laborUi.label}
+            </p>
+            {installGate?.isGated ? <InstallAssumptionLaborBlockedHint gate={installGate} /> : null}
+            {installGate?.isVendorLaborSuppressed ? (
+              <p className="mt-1 text-[10px] text-app-muted">{installGate.vendorLaborSuppressedLabel}</p>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
@@ -286,9 +309,16 @@ export function EstimateCockpitLinePanel({
                     )
                   }
                 />
-                <span className="mt-1 block text-[10px] text-app-muted">
-                  Saving recomputes labor dollars from minutes via the server when labor cost is cleared.
-                </span>
+                {installGate?.isGated ? (
+                  <span className="mt-1 block text-[10px] text-amber-900">
+                    {installGate.blockedLaborHeadline}
+                    {installGate.topMissingPrompt ? ` ${installGate.topMissingPrompt}.` : ''}
+                  </span>
+                ) : (
+                  <span className="mt-1 block text-[10px] text-app-muted">
+                    Saving recomputes labor dollars from minutes via the server when labor cost is cleared.
+                  </span>
+                )}
               </label>
               <label className="block text-[11px] font-medium text-app">
                 Labor amount override ($ / unit)

@@ -57,6 +57,16 @@ test('deriveEstimateLineHealth skips material checks in labor_only mode', () => 
   assert.equal(h.missingMaterial.count, 0);
 });
 
+test('deriveEstimateLineHealth excludes install-gated lines from missing labor', () => {
+  const gatedNotes =
+    'Source row type: material | Install review: blocking_unknown | Install questions: Is backing/blocking in place? | Needs Review';
+  const h = deriveEstimateLineHealth(
+    [line({ id: 'gated', materialCost: 10, laborMinutes: 0, notes: gatedNotes })],
+    'labor_and_material',
+  );
+  assert.equal(h.missingLabor.count, 0);
+});
+
 test('deriveEstimateLineHealth counts missing labor when pricing shows labor in main bid', () => {
   const h = deriveEstimateLineHealth(
     [

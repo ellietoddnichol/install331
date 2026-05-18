@@ -1,5 +1,6 @@
 import type { PricingMode, TakeoffLineRecord } from '../types/estimator';
 import { isMaterialOnlyMainBid } from '../types/estimator';
+import { deriveInstallAssumptionGateUi } from './installIntelligenceLineUi';
 
 export type EstimateHealthFocus = 'material' | 'labor' | 'installFamily';
 
@@ -39,8 +40,11 @@ export function deriveEstimateLineHealth(
     }
 
     if (showLabor) {
-      const min = Number(line.laborMinutes);
-      if (!Number.isFinite(min) || min <= 0) missingLabor.push(line.id);
+      const gate = deriveInstallAssumptionGateUi(line, pricingMode);
+      if (!gate.isGated && !gate.isVendorLaborSuppressed) {
+        const min = Number(line.laborMinutes);
+        if (!Number.isFinite(min) || min <= 0) missingLabor.push(line.id);
+      }
     }
 
     if (line.laborOrigin === 'install_family') {

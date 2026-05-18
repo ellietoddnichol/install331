@@ -1,6 +1,7 @@
 import type { PricingMode, TakeoffLineRecord } from '../types/estimator';
 import { isMaterialOnlyMainBid } from '../types/estimator';
 import { shouldIncludeLineInEstimateHealth } from './estimateLineHealth';
+import { deriveInstallAssumptionGateUi } from './installIntelligenceLineUi';
 
 /** Primary cockpit grouping — each line appears in exactly one bucket. */
 export type EstimateCockpitRowGroup = 'vendor_quote' | 'manual_catalog' | 'allowance_alt_note';
@@ -35,7 +36,7 @@ export function groupEstimateLinesForCockpit(lines: TakeoffLineRecord[]): Array<
   return order.filter((g) => buckets[g].length > 0).map((g) => ({ group: g, lines: buckets[g] }));
 }
 
-export type EstimateLaborBasisUiKind = 'matched' | 'fallback' | 'manual' | 'needs';
+export type EstimateLaborBasisUiKind = 'matched' | 'fallback' | 'manual' | 'needs' | 'gated' | 'suppressed';
 
 export interface EstimateLaborBasisUi {
   kind: EstimateLaborBasisUiKind;
@@ -56,6 +57,17 @@ export function deriveEstimateLaborBasisUi(line: TakeoffLineRecord, pricingMode:
 
   if (!shouldIncludeLineInEstimateHealth(line)) {
     return { kind: 'matched', label: 'Labor matched' };
+  }
+
+  const gate = deriveInstallAssumptionGateUi(line, pricingMode);
+  if (gate.isVendorLaborSuppressed) {
+    return {
+      kind: 'suppressed',
+      label: gate.vendorLaborSuppressedLabel || 'No Brighten labor',
+    };
+  }
+  if (gate.isGated) {
+    return { kind: 'gated', label: 'Waiting on assumptions' };
   }
 
   const laborMin = Number(line.laborMinutes);
@@ -97,6 +109,13 @@ export function deriveLineAttentionHint(line: TakeoffLineRecord, pricingMode: Pr
     const mat = Number(line.materialCost);
     if (!Number.isFinite(mat) || mat <= 0) parts.push('Material');
   }
+
+  const gate = deriveInstallAssumptionGateUi(line, pricingMode);
+  if (gate.isGated) {
+    parts.push(gate.needsReview ? 'Install review' : 'Install assumptions');
+    return parts.join(' · ');
+  }
+  if (gate.isVendorLaborSuppressed) return null;
 
   const laborUi = deriveEstimateLaborBasisUi(line, pricingMode);
   if (showLabor && laborUi.kind === 'needs') parts.push('Labor');

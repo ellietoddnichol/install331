@@ -91,6 +91,16 @@ function minimalLine(over: Partial<TakeoffLineRecord>): TakeoffLineRecord {
   };
 }
 
+test('gated grab bar line notes do not leak into client proposal item display', () => {
+  const notes =
+    'Source row type: material | Install review: blocking_unknown | Install questions: Is backing/blocking in place? | Needs Review';
+  const display = formatClientProposalItemDisplay('Bobrick 36 inch grab bar satin', 'B-6806');
+  const displayText = `${display.title} ${display.subtitle || ''}`;
+  assert.ok(!displayText.includes('blocking_unknown'));
+  assert.ok(!displayText.includes('Install review'));
+  assert.ok(!notes.includes(displayText));
+});
+
 test('filterLinesForClientProposal excludes internal and disclaimer rows', () => {
   const lines = [
     minimalLine({ id: 'ok', description: 'Grab bar 36 in', materialCost: 50, lineTotal: 50 }),

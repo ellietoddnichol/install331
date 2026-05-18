@@ -2012,6 +2012,13 @@ export function ProjectWorkspace() {
     setSelectedLineId(lineId);
   }
 
+  const focusInstallAssumptionsForLine = useCallback((lineId: string) => {
+    setSelectedLineId(lineId);
+    window.requestAnimationFrame(() => {
+      document.getElementById('estimate-cockpit-line-panel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  }, []);
+
   async function applyModifier(modifierId: string) {
     if (!project) {
       window.alert('No project loaded.');
@@ -3091,8 +3098,15 @@ export function ProjectWorkspace() {
                           proposalVisibility: nextIncluded ? 'customer_visible' : 'internal_only',
                         })
                       }
+                      onReviewInstallAssumptions={focusInstallAssumptionsForLine}
                     />
                     <EstimateCockpitLinePanel
+                      linePanelId="estimate-cockpit-line-panel"
+                      projectWallSubstrate={project?.wallSubstrate}
+                      onOpenProjectSetup={() => goToTab('setup')}
+                      onFocusInstallAssumptions={() => {
+                        if (selectedLineId) focusInstallAssumptionsForLine(selectedLineId);
+                      }}
                       line={
                         selectedLine && sortedPricingGridLines.some((l) => l.id === selectedLine.id)
                           ? selectedLine

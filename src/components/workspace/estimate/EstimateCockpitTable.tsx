@@ -7,6 +7,11 @@ import {
   deriveLineAttentionHint,
   groupEstimateLinesForCockpit,
 } from '../../../shared/utils/estimateCockpitDerived';
+import { deriveInstallAssumptionGateUi } from '../../../shared/utils/installIntelligenceLineUi';
+import {
+  InstallAssumptionGateBadge,
+  InstallAssumptionLaborBlockedHint,
+} from './InstallAssumptionGateCallout';
 import { formatCurrencySafe, formatLaborDurationMinutes, formatNumberSafe } from '../../../utils/numberFormat';
 
 const GROUP_LABEL: Record<EstimateCockpitRowGroup, string> = {
@@ -24,6 +29,7 @@ interface EstimateCockpitTableProps {
   onSelectLine: (lineId: string) => void;
   /** Proposal-facing inclusion — excludes internal-only lines from typical bid presentation. */
   onToggleInclude: (lineId: string, nextIncluded: boolean) => void;
+  onReviewInstallAssumptions?: (lineId: string) => void;
 }
 
 export function EstimateCockpitTable({
@@ -34,6 +40,7 @@ export function EstimateCockpitTable({
   healthHighlightLineIds,
   onSelectLine,
   onToggleInclude,
+  onReviewInstallAssumptions,
 }: EstimateCockpitTableProps) {
   const showMaterial = pricingMode !== 'labor_only';
   const showLabor = !isMaterialOnlyMainBid(pricingMode);
@@ -86,6 +93,11 @@ export function EstimateCockpitTable({
                   showLabor={showLabor}
                   onSelect={() => onSelectLine(line.id)}
                   onToggleInclude={(next) => onToggleInclude(line.id, next)}
+                  onReviewInstallAssumptions={
+                    onReviewInstallAssumptions
+                      ? () => onReviewInstallAssumptions(line.id)
+                      : undefined
+                  }
                 />
               ))}
             </React.Fragment>
@@ -106,9 +118,20 @@ function CockpitRow(props: {
   showLabor: boolean;
   onSelect: () => void;
   onToggleInclude: (included: boolean) => void;
+  onReviewInstallAssumptions?: () => void;
 }) {
-  const { line, pricingMode, laborMultiplier, selected, healthHighlight, showMaterial, showLabor, onSelect, onToggleInclude } =
-    props;
+  const {
+    line,
+    pricingMode,
+    laborMultiplier,
+    selected,
+    healthHighlight,
+    showMaterial,
+    showLabor,
+    onSelect,
+    onToggleInclude,
+    onReviewInstallAssumptions,
+  } = props;
 
   const qty = Number(line.qty) || 0;
   const matUnit = Number(line.materialCost) || 0;
@@ -116,6 +139,7 @@ function CockpitRow(props: {
   const laborExtended =
     (Number(line.laborCost) || 0) * qty * Math.max(0.001, laborMultiplier || 1);
   const laborBasis = deriveEstimateLaborBasisUi(line, pricingMode);
+  const installGate = deriveInstallAssumptionGateUi(line, pricingMode);
   const extMinutes = (Number(line.laborMinutes) || 0) * qty;
   const mods = (line.modifierNames && line.modifierNames.length > 0
     ? line.modifierNames
@@ -149,6 +173,7 @@ function CockpitRow(props: {
               Vendor quote
             </span>
           ) : null}
+          {installGate.badgeLabel ? <InstallAssumptionGateBadge label={installGate.badgeLabel} /> : null}
           <span className="font-medium text-app">{line.description || '—'}</span>
         </div>
         {line.sourceRef ? (
@@ -171,7 +196,13 @@ function CockpitRow(props: {
         <>
           <td className="align-top px-2 py-2">
             <div className="font-medium text-app">{laborBasis.label}</div>
-            <div className="text-[10px] text-app-muted">{formatLaborDurationMinutes(extMinutes)} total</div>
+            {installGate.isGated ? (
+              <InstallAssumptionLaborBlockedHint gate={installGate} compact />
+            ) : installGate.isVendorLaborSuppressed ? (
+              <p className="mt-0.5 text-[10px] text-app-muted">{installGate.vendorLaborSuppressedLabel}</p>
+            ) : (
+              <div className="text-[10px] text-app-muted">{formatLaborDurationMinutes(extMinutes)} total</div>
+            )}
           </td>
           <td className="align-top tabular-nums px-2 py-2">{formatCurrencySafe(laborExtended)}</td>
         </>
@@ -179,7 +210,29 @@ function CockpitRow(props: {
       <td className="align-top px-2 py-2 text-[11px] text-app-muted">{mods || '—'}</td>
       <td className="align-top tabular-nums px-2 py-2 font-semibold text-app">{formatCurrencySafe(line.lineTotal)}</td>
       <td className="align-top px-2 py-2">
-        {attention ? (
+        {installGate.isGated ? (
+          <div className="space-y-1">
+            {installGate.badgeLabel ? (
+              <InstallAssumptionGateBadge label={installGate.badgeLabel} />
+            ) : null}
+            {onReviewInstallAssumptions ? (
+              <button
+                type="button"
+                className="block text-left text-[10px] font-semibold text-amber-900 underline decoration-amber-300/80 underline-offset-2 hover:text-amber-950"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onReviewInstallAssumptions();
+                }}
+              >
+                Review install assumptions
+              </button>
+            ) : null}
+          </div>
+        ) : installGate.isVendorLaborSuppressed ? (
+          <span className="inline-flex rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-slate-200">
+            {installGate.vendorLaborSuppressedLabel}
+          </span>
+        ) : attention ? (
           <span className="inline-flex rounded-md bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-900 ring-1 ring-rose-100">
             Needs attention · {attention}
           </span>

@@ -57,6 +57,22 @@ test('allowance bucket from visibility / line types', () => {
   );
 });
 
+test('deriveEstimateLaborBasisUi labels install-gated labor separately from missing labor', () => {
+  const gatedNotes =
+    'Source row type: material | Install review: blocking_unknown | Install questions: Is backing/blocking in place? | Needs Review';
+  assert.equal(
+    deriveEstimateLaborBasisUi(
+      L({ id: 'gate', sourceType: 'vendor_quote', laborMinutes: 0, notes: gatedNotes }),
+      'labor_and_material'
+    ).kind,
+    'gated'
+  );
+  assert.equal(
+    deriveEstimateLaborBasisUi(L({ id: 'f', sourceType: 'manual', laborMinutes: 0, laborCost: 0 }), 'labor_and_material').kind,
+    'needs'
+  );
+});
+
 test('deriveEstimateLaborBasisUi maps origins', () => {
   assert.equal(
     deriveEstimateLaborBasisUi(L({ id: 'd', sourceType: 'manual', laborMinutes: 30, laborOrigin: 'catalog' }), 'labor_and_material')
