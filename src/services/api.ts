@@ -301,6 +301,22 @@ export const api = {
     const payload = await handleResponse<{ data: TakeoffLineRecord }>(res);
     return readDataObject<TakeoffLineRecord>(payload, 'Takeoff line update response was missing data.');
   },
+  async applyV1TakeoffInstallAssumptions(
+    lineId: string,
+    input: {
+      lineAssumptions?: Record<string, string>;
+      recalculateLabor?: boolean;
+      replaceLineAssumptions?: boolean;
+    },
+  ): Promise<TakeoffLineRecord> {
+    const res = await apiFetch(`${API_BASE}/v1/takeoff/lines/${encodeURIComponent(lineId)}/install-assumptions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const payload = await handleResponse<{ data: TakeoffLineRecord }>(res);
+    return readDataObject<TakeoffLineRecord>(payload, 'Install assumptions apply response was missing data.');
+  },
   async bulkMoveV1TakeoffLines(input: { lineIds: string[]; roomId: string }): Promise<TakeoffLineRecord[]> {
     const res = await apiFetch(`${API_BASE}/v1/takeoff/lines/bulk-move`, {
       method: 'POST',

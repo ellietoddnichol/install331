@@ -21,6 +21,7 @@ import { tryRespondSheetsNotFound, tryRespondSheetsPermissionDenied } from '../.
 import { isGoogleSheetsTabMissingError } from '../../integrations/googleSheets.ts';
 import { calculateEstimateSummary } from '../../services/estimateEngineV1.ts';
 import { generateInstallReviewEmailDraft } from '../../services/installReviewEmailService.ts';
+import { applyTakeoffInstallAssumptions } from '../../services/applyTakeoffInstallAssumptionsService.ts';
 
 export const takeoffRouter = Router();
 
@@ -92,6 +93,28 @@ takeoffRouter.put('/lines/:lineId', async (req, res) => {
   }
 
   return res.json({ data: line });
+});
+
+takeoffRouter.post('/lines/:lineId/install-assumptions', async (req, res) => {
+  if (isSheetsDataBackend()) {
+    return res.status(503).json({ error: 'Install assumption apply is not yet supported in sheets mode.' });
+  }
+  const lineAssumptions =
+    req.body?.lineAssumptions && typeof req.body.lineAssumptions === 'object'
+      ? (req.body.lineAssumptions as Record<string, string>)
+      : undefined;
+  const recalculateLabor = req.body?.recalculateLabor !== false;
+  const replaceLineAssumptions = req.body?.replaceLineAssumptions === true;
+  const updated = await applyTakeoffInstallAssumptions({
+    lineId: req.params.lineId,
+    lineAssumptions,
+    replaceLineAssumptions,
+    recalculateLabor,
+  });
+  if (!updated) {
+    return res.status(404).json({ error: 'Takeoff line not found' });
+  }
+  return res.json({ data: updated });
 });
 
 takeoffRouter.delete('/lines/:lineId', async (req, res) => {

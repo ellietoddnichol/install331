@@ -93,6 +93,11 @@ import { ProjectSetupPage } from './project/ProjectSetupPage';
 import { QuotesPage } from './project/QuotesPage';
 import { QuoteImportResultModal } from '../components/quotes/QuoteImportResultModal';
 import {
+  InstallAssumptionsDrawer,
+  type InstallAssumptionApplyScope,
+} from '../components/workspace/estimate/InstallAssumptionsDrawer';
+import { buildProjectBlockingAssumptions } from '../components/project/ProjectSetupReadiness';
+import {
   buildQuoteImportResultSummary,
   type QuoteImportResultSummary,
 } from '../shared/utils/quoteImportResultSummary';
@@ -218,6 +223,8 @@ export function ProjectWorkspace() {
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [quoteImportResultOpen, setQuoteImportResultOpen] = useState(false);
   const [quoteImportResult, setQuoteImportResult] = useState<QuoteImportResultSummary | null>(null);
+  const [installAssumptionsDrawerOpen, setInstallAssumptionsDrawerOpen] = useState(false);
+  const [installAssumptionsBusy, setInstallAssumptionsBusy] = useState(false);
   const [bundleModalOpen, setBundleModalOpen] = useState(false);
   const [partitionBuilderOpen, setPartitionBuilderOpen] = useState(false);
   const [modifiersModalOpen, setModifiersModalOpen] = useState(false);
@@ -2025,12 +2032,15 @@ export function ProjectWorkspace() {
     setSelectedLineId(lineId);
   }
 
-  const focusInstallAssumptionsForLine = useCallback((lineId: string) => {
+  const openInstallAssumptionsDrawer = useCallback((lineId: string) => {
     setSelectedLineId(lineId);
-    window.requestAnimationFrame(() => {
-      document.getElementById('estimate-cockpit-line-panel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    });
-  }, []);
+    setInstallAssumptionsDrawerOpen(true);
+    if (activeTab !== 'estimate') goToTab('estimate');
+  }, [activeTab, goToTab]);
+
+  const focusInstallAssumptionsForLine = useCallback((lineId: string) => {
+    openInstallAssumptionsDrawer(lineId);
+  }, [openInstallAssumptionsDrawer]);
 
   async function applyModifier(modifierId: string) {
     if (!project) {
@@ -2385,8 +2395,51 @@ export function ProjectWorkspace() {
     closeQuoteImportResultModal();
     goToTab('estimate');
     if (selectPausedLine && quoteImportResult?.laborPaused[0]) {
-      setSelectedLineId(quoteImportResult.laborPaused[0].id);
+      openInstallAssumptionsDrawer(quoteImportResult.laborPaused[0].id);
       setHealthStripFocus('labor');
+    }
+  }
+
+  async function saveInstallAssumptions(input: {
+    scope: InstallAssumptionApplyScope;
+    lineAssumptions: Record<string, string>;
+    projectBlockingStatus?: '' | 'included' | 'by_others' | 'unknown';
+    projectWallSubstrate?: string | null;
+    recalculateLabor: boolean;
+  }) {
+    if (!project || !selectedLineId) return;
+    setInstallAssumptionsBusy(true);
+    try {
+      if (input.scope === 'project') {
+        const updates: Partial<ProjectRecord> = {};
+        if (input.projectWallSubstrate !== undefined) {
+          updates.wallSubstrate = input.projectWallSubstrate;
+        }
+        if (input.projectBlockingStatus !== undefined) {
+          updates.structuredAssumptions = buildProjectBlockingAssumptions(project, input.projectBlockingStatus);
+        }
+        if (Object.keys(updates).length > 0) {
+          const saved = await api.updateV1Project(project.id, updates);
+          setProject(saved);
+        }
+      }
+      await api.applyV1TakeoffInstallAssumptions(selectedLineId, {
+        lineAssumptions: input.scope === 'line' ? input.lineAssumptions : {},
+        replaceLineAssumptions: input.scope === 'project',
+        recalculateLabor: input.recalculateLabor,
+      });
+      await refreshTakeoff(project.id);
+      setInstallAssumptionsDrawerOpen(false);
+      setActionFeedback({
+        tone: 'success',
+        message: input.recalculateLabor
+          ? 'Install assumptions saved and labor recalculated.'
+          : 'Install assumptions saved.',
+      });
+    } catch (error) {
+      window.alert(getErrorMessage(error, 'Could not save install assumptions.'));
+    } finally {
+      setInstallAssumptionsBusy(false);
     }
   }
 
@@ -3386,6 +3439,16 @@ export function ProjectWorkspace() {
         onCategory={setCatalogCategory}
         onAddItems={addDraftItems}
         onApplyBundle={applyBundle}
+      />
+
+      <InstallAssumptionsDrawer
+        open={installAssumptionsDrawerOpen}
+        line={lines.find((l) => l.id === selectedLineId) ?? null}
+        project={project}
+        pricingMode={pricingMode}
+        busy={installAssumptionsBusy}
+        onClose={() => setInstallAssumptionsDrawerOpen(false)}
+        onSave={saveInstallAssumptions}
       />
 
       <QuoteImportResultModal
