@@ -2449,35 +2449,10 @@ export function ProjectWorkspace() {
     setSettings(ensureProposalDefaults(next));
   }
 
-  if (loading) {
-    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspace…</div>;
-  }
-
-  if (workspaceLoadError) {
-    return (
-      <div className="ui-page flex min-h-[50vh] flex-col items-center justify-center gap-4 p-8 text-center">
-        <p className="text-sm font-semibold text-slate-900">Could not open this project</p>
-        <p className="max-w-md text-sm text-slate-600">{workspaceLoadError}</p>
-        <p className="max-w-md text-xs text-slate-500">
-          The project is still in your library unless it was deleted. Try again, or go back and open it from the list.
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <button type="button" className="ui-btn-primary h-9 px-4 text-sm" onClick={() => id && void loadWorkspace(id)}>
-            Retry
-          </button>
-          <button type="button" className="ui-btn-secondary h-9 px-4 text-sm" onClick={() => navigate('/projects')}>
-            All projects
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!project) {
-    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspace…</div>;
-  }
-
-  const lineHealth = useMemo(() => deriveEstimateLineHealth(lines, project.pricingMode), [lines, project.pricingMode]);
+  const lineHealth = useMemo(
+    () => deriveEstimateLineHealth(lines, project?.pricingMode ?? 'labor_and_material'),
+    [lines, project?.pricingMode],
+  );
 
   const workflowSteps = useMemo(
     () =>
@@ -2509,8 +2484,8 @@ export function ProjectWorkspace() {
 
   const effectiveLaborRatePerHour = useMemo(() => {
     const base = Number(settings?.defaultLaborRatePerHour || 100);
-    return Number((base * (project.jobConditions?.laborRateMultiplier || 1)).toFixed(2));
-  }, [settings?.defaultLaborRatePerHour, project.jobConditions?.laborRateMultiplier]);
+    return Number((base * (project?.jobConditions?.laborRateMultiplier || 1)).toFixed(2));
+  }, [settings?.defaultLaborRatePerHour, project?.jobConditions?.laborRateMultiplier]);
 
   const importedFromQuoteLineCount = useMemo(
     () => lines.filter((l) => l.sourceType === 'vendor_quote').length,
@@ -2535,6 +2510,34 @@ export function ProjectWorkspace() {
       exclusionsCount: splitProposalTextLines(s.proposalExclusions || DEFAULT_PROPOSAL_EXCLUSIONS).length,
     };
   }, [settings]);
+
+  if (loading) {
+    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspace…</div>;
+  }
+
+  if (workspaceLoadError) {
+    return (
+      <div className="ui-page flex min-h-[50vh] flex-col items-center justify-center gap-4 p-8 text-center">
+        <p className="text-sm font-semibold text-slate-900">Could not open this project</p>
+        <p className="max-w-md text-sm text-slate-600">{workspaceLoadError}</p>
+        <p className="max-w-md text-xs text-slate-500">
+          The project is still in your library unless it was deleted. Try again, or go back and open it from the list.
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <button type="button" className="ui-btn-primary h-9 px-4 text-sm" onClick={() => id && void loadWorkspace(id)}>
+            Retry
+          </button>
+          <button type="button" className="ui-btn-secondary h-9 px-4 text-sm" onClick={() => navigate('/projects')}>
+            All projects
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!project) {
+    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspace…</div>;
+  }
 
   const setupSummaryPricingLabel =
     project.pricingMode === 'labor_only'

@@ -74,14 +74,41 @@ export function sanitizeProposalSettings(input: Partial<SettingsRecord>): Partia
   };
 }
 
-export function ensureProposalDefaults(settings: SettingsRecord): SettingsRecord {
-  const mode = settings.intakeCatalogAutoApplyMode ?? 'off';
+function baselineSettingsRecord(): SettingsRecord {
+  return {
+    id: '',
+    companyName: '',
+    companyAddress: '',
+    companyPhone: '',
+    companyEmail: '',
+    logoUrl: '',
+    defaultLaborRatePerHour: 100,
+    defaultOverheadPercent: 0,
+    defaultProfitPercent: 0,
+    defaultTaxPercent: 0,
+    defaultLaborBurdenPercent: 0,
+    defaultLaborOverheadPercent: 5,
+    proposalIntro: DEFAULT_PROPOSAL_INTRO,
+    proposalTerms: DEFAULT_PROPOSAL_TERMS,
+    proposalExclusions: DEFAULT_PROPOSAL_EXCLUSIONS,
+    proposalClarifications: DEFAULT_PROPOSAL_CLARIFICATIONS,
+    proposalAcceptanceLabel: DEFAULT_PROPOSAL_ACCEPTANCE_LABEL,
+    intakeCatalogAutoApplyMode: 'off',
+    intakeCatalogTierAMinScore: 0.82,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/** Fills proposal + intake catalog defaults; safe when settings are still loading (null). */
+export function ensureProposalDefaults(settings: SettingsRecord | null | undefined): SettingsRecord {
+  const merged: SettingsRecord = { ...baselineSettingsRecord(), ...(settings ?? {}) };
+  const mode = merged.intakeCatalogAutoApplyMode ?? 'off';
   const tier =
-    typeof settings.intakeCatalogTierAMinScore === 'number' && Number.isFinite(settings.intakeCatalogTierAMinScore)
-      ? settings.intakeCatalogTierAMinScore
+    typeof merged.intakeCatalogTierAMinScore === 'number' && Number.isFinite(merged.intakeCatalogTierAMinScore)
+      ? merged.intakeCatalogTierAMinScore
       : 0.82;
   const sanitized = sanitizeProposalSettings({
-    ...settings,
+    ...merged,
     intakeCatalogAutoApplyMode: mode,
     intakeCatalogTierAMinScore: tier,
   }) as SettingsRecord;
