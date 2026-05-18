@@ -29,9 +29,33 @@ function resolveGoogleSheetsStatus(integration: IntegrationSnap | null, health: 
     };
   }
 
+  if (integration?.googleSheets) {
+    return {
+      label: 'Sheets backend active',
+      tone: 'ready' as const,
+      detail: health.googleAuthError
+        ? `Integration reports credentials; live workbook probe failed: ${health.googleAuthError}`
+        : undefined,
+    };
+  }
+
+  const workbooksConfigured = (health.workbooks || []).some(
+    (wb) => wb.spreadsheetIdMasked && wb.spreadsheetIdMasked !== '(unset)',
+  );
+
+  if (workbooksConfigured || (health.missingEnvVars?.length ?? 0) === 0) {
+    return {
+      label: 'Sheets backend active',
+      tone: 'ready' as const,
+      detail: health.googleAuthError
+        ? `Spreadsheet IDs are set. Add Google service account credentials to run live workbook checks: ${health.googleAuthError}`
+        : 'Spreadsheet IDs are set. Configure Google service account credentials to run live workbook checks.',
+    };
+  }
+
   return {
-    label: 'Not configured',
-    tone: 'neutral' as const,
+    label: 'Credentials needed for workbook checks',
+    tone: 'review' as const,
     detail: health.googleAuthError,
   };
 }
