@@ -90,6 +90,7 @@ interface EstimateCockpitLinePanelProps {
   onOpenProjectSetup?: () => void;
   linePanelId?: string;
   onFocusInstallAssumptions?: () => void;
+  onOpenLineDetail?: () => void;
 }
 
 export function EstimateCockpitLinePanel({
@@ -112,6 +113,7 @@ export function EstimateCockpitLinePanel({
   onOpenProjectSetup,
   linePanelId,
   onFocusInstallAssumptions,
+  onOpenLineDetail,
 }: EstimateCockpitLinePanelProps) {
   const jc = jobConditions ?? createDefaultProjectJobConditions();
 
@@ -208,13 +210,24 @@ export function EstimateCockpitLinePanel({
               )}
             </div>
           </div>
-          <button
-            type="button"
-            className="shrink-0 rounded-md border border-app-line bg-app-surface-soft px-2 py-1 text-[11px] font-medium text-app hover:bg-app-surface-muted"
-            onClick={onClearSelection}
-          >
-            Close
-          </button>
+          <div className="flex shrink-0 flex-col gap-1">
+            {onOpenLineDetail ? (
+              <button
+                type="button"
+                className="rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-950 hover:bg-sky-100"
+                onClick={onOpenLineDetail}
+              >
+                Line detail
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="rounded-md border border-app-line bg-app-surface-soft px-2 py-1 text-[11px] font-medium text-app hover:bg-app-surface-muted"
+              onClick={onClearSelection}
+            >
+              Close
+            </button>
+          </div>
         </div>
         {showLabor && laborUi ? (
           <div className="mt-2 rounded-lg bg-app-surface-soft px-2 py-1 text-[11px] text-app">

@@ -27,6 +27,7 @@ interface EstimateCockpitTableProps {
   selectedLineId: string | null;
   healthHighlightLineIds: ReadonlySet<string> | null;
   onSelectLine: (lineId: string) => void;
+  onOpenLineDetail?: (lineId: string) => void;
   /** Proposal-facing inclusion — excludes internal-only lines from typical bid presentation. */
   onToggleInclude: (lineId: string, nextIncluded: boolean) => void;
   onReviewInstallAssumptions?: (lineId: string) => void;
@@ -39,6 +40,7 @@ export function EstimateCockpitTable({
   selectedLineId,
   healthHighlightLineIds,
   onSelectLine,
+  onOpenLineDetail,
   onToggleInclude,
   onReviewInstallAssumptions,
 }: EstimateCockpitTableProps) {
@@ -92,6 +94,9 @@ export function EstimateCockpitTable({
                   showMaterial={showMaterial}
                   showLabor={showLabor}
                   onSelect={() => onSelectLine(line.id)}
+                  onOpenLineDetail={
+                    onOpenLineDetail ? () => onOpenLineDetail(line.id) : undefined
+                  }
                   onToggleInclude={(next) => onToggleInclude(line.id, next)}
                   onReviewInstallAssumptions={
                     onReviewInstallAssumptions
@@ -117,6 +122,7 @@ function CockpitRow(props: {
   showMaterial: boolean;
   showLabor: boolean;
   onSelect: () => void;
+  onOpenLineDetail?: () => void;
   onToggleInclude: (included: boolean) => void;
   onReviewInstallAssumptions?: () => void;
 }) {
@@ -129,6 +135,7 @@ function CockpitRow(props: {
     showMaterial,
     showLabor,
     onSelect,
+    onOpenLineDetail,
     onToggleInclude,
     onReviewInstallAssumptions,
   } = props;
@@ -156,6 +163,10 @@ function CockpitRow(props: {
         selected ? 'bg-blue-50/90 ring-1 ring-inset ring-blue-200/80' : 'hover:bg-app-surface-soft/80'
       } ${healthHighlight ? 'bg-amber-50/50' : ''}`}
       onClick={onSelect}
+      onDoubleClick={(e) => {
+        e.preventDefault();
+        onOpenLineDetail?.();
+      }}
     >
       <td className="align-top px-2 py-2" onClick={(e) => e.stopPropagation()}>
         <input
@@ -175,6 +186,18 @@ function CockpitRow(props: {
           ) : null}
           {installGate.badgeLabel ? <InstallAssumptionGateBadge label={installGate.badgeLabel} /> : null}
           <span className="font-medium text-app">{line.description || '—'}</span>
+          {onOpenLineDetail ? (
+            <button
+              type="button"
+              className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-semibold text-slate-700 hover:bg-slate-50"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenLineDetail();
+              }}
+            >
+              Detail
+            </button>
+          ) : null}
         </div>
         {line.sourceRef ? (
           <p className="mt-0.5 truncate text-[10px] text-app-muted" title={`${line.sourceType}:${line.sourceRef}`}>

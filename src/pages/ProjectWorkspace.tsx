@@ -96,6 +96,11 @@ import {
   InstallAssumptionsDrawer,
   type InstallAssumptionApplyScope,
 } from '../components/workspace/estimate/InstallAssumptionsDrawer';
+import { EstimateLineDetailDrawer } from '../components/estimate/EstimateLineDetailDrawer';
+import {
+  buildEstimateLineDetailModel,
+  findSourceQuoteContext,
+} from '../shared/utils/estimateLineDetailModel';
 import { buildProjectBlockingAssumptions } from '../components/project/ProjectSetupReadiness';
 import {
   buildQuoteImportResultSummary,
@@ -225,6 +230,8 @@ export function ProjectWorkspace() {
   const [quoteImportResult, setQuoteImportResult] = useState<QuoteImportResultSummary | null>(null);
   const [installAssumptionsDrawerOpen, setInstallAssumptionsDrawerOpen] = useState(false);
   const [installAssumptionsBusy, setInstallAssumptionsBusy] = useState(false);
+  const [lineDetailDrawerOpen, setLineDetailDrawerOpen] = useState(false);
+  const [lineDetailBusy, setLineDetailBusy] = useState(false);
   const [bundleModalOpen, setBundleModalOpen] = useState(false);
   const [partitionBuilderOpen, setPartitionBuilderOpen] = useState(false);
   const [modifiersModalOpen, setModifiersModalOpen] = useState(false);
@@ -2033,10 +2040,49 @@ export function ProjectWorkspace() {
   }
 
   const openInstallAssumptionsDrawer = useCallback((lineId: string) => {
+    setLineDetailDrawerOpen(false);
     setSelectedLineId(lineId);
     setInstallAssumptionsDrawerOpen(true);
     if (activeTab !== 'estimate') goToTab('estimate');
   }, [activeTab, goToTab]);
+
+  const openLineDetailDrawer = useCallback((lineId: string) => {
+    setSelectedLineId(lineId);
+    setLineDetailDrawerOpen(true);
+    if (activeTab !== 'estimate') goToTab('estimate');
+  }, [activeTab, goToTab]);
+
+  const lineDetailLine = useMemo(
+    () => (selectedLineId ? lines.find((l) => l.id === selectedLineId) ?? null : null),
+    [lines, selectedLineId],
+  );
+
+  const lineDetailModel = useMemo(() => {
+    if (!lineDetailLine || !project) return null;
+    const catalogItem = lineDetailLine.catalogItemId
+      ? catalogBrowseItems.find((item) => item.id === lineDetailLine.catalogItemId) ?? null
+      : null;
+    const rate = Number(settings?.defaultLaborRatePerHour || 100)
+      * Number(summary?.conditionLaborMultiplier || project.jobConditions?.laborRateMultiplier || 1);
+    return buildEstimateLineDetailModel({
+      line: lineDetailLine,
+      project,
+      pricingMode,
+      laborRatePerHour: rate,
+      laborMultiplier: summary?.conditionLaborMultiplier || 1,
+      sourceQuoteContext: findSourceQuoteContext(lineDetailLine, sourceQuotes, allQuoteLines),
+      catalogItem,
+    });
+  }, [
+    lineDetailLine,
+    project,
+    pricingMode,
+    settings?.defaultLaborRatePerHour,
+    summary?.conditionLaborMultiplier,
+    catalogBrowseItems,
+    sourceQuotes,
+    allQuoteLines,
+  ]);
 
   const focusInstallAssumptionsForLine = useCallback((lineId: string) => {
     openInstallAssumptionsDrawer(lineId);
@@ -2397,6 +2443,20 @@ export function ProjectWorkspace() {
     if (selectPausedLine && quoteImportResult?.laborPaused[0]) {
       openInstallAssumptionsDrawer(quoteImportResult.laborPaused[0].id);
       setHealthStripFocus('labor');
+    }
+  }
+
+  async function saveLineDetailAndRecalculate(lineId: string) {
+    if (!project) return;
+    setLineDetailBusy(true);
+    try {
+      await api.applyV1TakeoffInstallAssumptions(lineId, { recalculateLabor: true });
+      await refreshTakeoff(project.id);
+      setActionFeedback({ tone: 'success', message: 'Labor recalculated from install assumptions.' });
+    } catch (error) {
+      window.alert(getErrorMessage(error, 'Could not recalculate labor.'));
+    } finally {
+      setLineDetailBusy(false);
     }
   }
 
@@ -3172,6 +3232,7 @@ export function ProjectWorkspace() {
                       selectedLineId={selectedLineId}
                       healthHighlightLineIds={healthHighlightLineIds}
                       onSelectLine={selectEstimateLine}
+                      onOpenLineDetail={openLineDetailDrawer}
                       onToggleInclude={(lineId, nextIncluded) =>
                         void persistLine(lineId, {
                           proposalVisibility: nextIncluded ? 'customer_visible' : 'internal_only',
@@ -3185,6 +3246,9 @@ export function ProjectWorkspace() {
                       onOpenProjectSetup={() => goToTab('setup')}
                       onFocusInstallAssumptions={() => {
                         if (selectedLineId) focusInstallAssumptionsForLine(selectedLineId);
+                      }}
+                      onOpenLineDetail={() => {
+                        if (selectedLineId) openLineDetailDrawer(selectedLineId);
                       }}
                       line={
                         selectedLine && sortedPricingGridLines.some((l) => l.id === selectedLine.id)
@@ -3439,6 +3503,35 @@ export function ProjectWorkspace() {
         onCategory={setCatalogCategory}
         onAddItems={addDraftItems}
         onApplyBundle={applyBundle}
+      />
+
+      <EstimateLineDetailDrawer
+        open={lineDetailDrawerOpen}
+        model={lineDetailModel}
+        line={lineDetailLine}
+        showMaterial={showMaterial}
+        showLabor={showLabor}
+        busy={lineDetailBusy}
+        onClose={() => setLineDetailDrawerOpen(false)}
+        onSave={async (lineId, updates) => {
+          setLineDetailBusy(true);
+          try {
+            await persistLine(lineId, updates);
+          } finally {
+            setLineDetailBusy(false);
+          }
+        }}
+        onSaveAndRecalculateLabor={(lineId) => saveLineDetailAndRecalculate(lineId)}
+        onEditInstallAssumptions={(lineId) => openInstallAssumptionsDrawer(lineId)}
+        onGoToQuote={(quoteId) => {
+          setLineDetailDrawerOpen(false);
+          setActiveQuoteId(quoteId);
+          goToTab('quotes');
+        }}
+        onDuplicateLine={(lineId) => void duplicateLine(lineId)}
+        onExcludeFromProposal={async (lineId) => {
+          await persistLine(lineId, { proposalVisibility: 'internal_only' });
+        }}
       />
 
       <InstallAssumptionsDrawer
