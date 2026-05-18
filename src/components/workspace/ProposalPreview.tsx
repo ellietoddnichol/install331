@@ -173,6 +173,37 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
         </div>
       </header>
 
+      {(showMaterial || showLabor) && summary.baseBidTotal > 0 ? (
+        <div className={`proposal-avoid-break grid gap-3 sm:grid-cols-3 ${isCondensed ? 'mt-4' : 'mt-6'}`}>
+          {showMaterial && summary.materialLoadedSubtotal > 0 ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Material</p>
+              <p className="mt-1 text-xl font-semibold tabular-nums text-slate-950">
+                {formatCurrencySafe(summary.materialLoadedSubtotal)}
+              </p>
+            </div>
+          ) : null}
+          {showLabor && summary.laborLoadedSubtotal > 0 ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Labor</p>
+              <p className="mt-1 text-xl font-semibold tabular-nums text-slate-950">
+                {formatCurrencySafe(summary.laborLoadedSubtotal)}
+              </p>
+            </div>
+          ) : null}
+          <div
+            className={`rounded-xl border border-orange-200 bg-orange-50/50 p-4 ring-1 ring-orange-100 ${
+              !showMaterial || !showLabor || summary.materialLoadedSubtotal <= 0 || summary.laborLoadedSubtotal <= 0
+                ? 'sm:col-span-3'
+                : ''
+            }`}
+          >
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-orange-800">Total investment</p>
+            <p className="mt-1 text-xl font-semibold tabular-nums text-orange-950">{formatCurrencySafe(summary.baseBidTotal)}</p>
+          </div>
+        </div>
+      ) : null}
+
       <section className={`${secY} proposal-section`}>
         <h2 className={sectionHeadingClass}>Introduction</h2>
         <p className={`max-w-[42rem] leading-[1.65] text-slate-700 ${titleIntro}`}>{introText}</p>
@@ -343,7 +374,7 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
                     : 'text-slate-600'
               }`}
             >
-              <span>{row.label}</span>
+              <span>{row.isTotal ? 'Total investment' : row.label}</span>
               <span className={`tabular-nums ${row.isTotal ? 'text-slate-950' : 'font-medium text-slate-900'}`}>
                 {formatCurrencySafe(row.amount)}
               </span>
@@ -402,3 +433,5 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
     </article>
   );
 }
+
+

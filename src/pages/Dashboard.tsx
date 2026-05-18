@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import { useProjectsQuery } from '../hooks/api/useProjectsQuery.ts';
 import type { ProjectRecord } from '../shared/types/estimator';
 import { StatusBadge } from '../components/ui/mvp/StatusBadge';
+import { FieldOpsPageHeader } from '../components/fieldops/FieldOpsPrimitives';
 import {
   countBidsDueThisWeek,
   countByDashboardDisplayStatus,
@@ -173,13 +174,13 @@ function KpiCard({
       <button
         type="button"
         onClick={onNavigate}
-        className="rounded-2xl border border-slate-200/90 bg-white p-5 text-left shadow-sm transition hover:border-slate-300 hover:shadow-md"
+        className="ui-fo-kpi text-left transition hover:ring-1 hover:ring-orange-200"
       >
         {body}
       </button>
     );
   }
-  return <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">{body}</div>;
+  return <div className="ui-fo-kpi">{body}</div>;
 }
 
 function AttentionSection({
@@ -271,28 +272,26 @@ export function Dashboard() {
   }
 
   return (
-    <div className="min-h-full bg-slate-50/80">
+    <div className="min-h-full">
       <div className="ui-page-wide space-y-8 px-4 py-8 sm:px-6 lg:px-8">
-        {/* Header */}
-        <header className="flex flex-col gap-4 border-b border-slate-200/90 pb-8 sm:flex-row sm:items-end sm:justify-between">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-[28px]">Dashboard</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
-              Track active projects, quotes needing review, estimates in progress, and proposals ready to send.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={goNewProject} className="ui-btn-cta h-10 px-5 text-sm">
-              New Project
-            </button>
-            <button type="button" onClick={() => navigate('/projects')} className="ui-btn-secondary h-10 px-4 text-sm">
-              View Projects
-            </button>
-            <button type="button" onClick={() => navigate('/catalog')} className="ui-btn-secondary h-10 px-4 text-sm">
-              Open Catalog
-            </button>
-          </div>
-        </header>
+        <FieldOpsPageHeader
+          kicker="Command center"
+          title="Project Command Dashboard"
+          subtitle="Overview of projects, pipeline, and field operations — quote → estimate → proposal for Division 10 installs."
+          actions={
+            <>
+              <button type="button" onClick={goNewProject} className="ui-fo-btn-primary h-10 px-5">
+                + New Project
+              </button>
+              <button type="button" onClick={() => navigate('/projects')} className="ui-fo-btn-secondary h-10 px-4">
+                View Projects
+              </button>
+              <button type="button" onClick={() => navigate('/catalog')} className="ui-fo-btn-secondary h-10 px-4">
+                Catalog
+              </button>
+            </>
+          }
+        />
 
         {isError ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-sm">
@@ -346,7 +345,7 @@ export function Dashboard() {
 
             <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_minmax(17rem,20rem)] xl:grid-cols-[1fr_minmax(19rem,22rem)]">
               {/* Main table */}
-              <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm sm:p-6">
+              <section className="ui-fo-card p-5 sm:p-6">
                 <div className="flex flex-col gap-1 border-b border-slate-100 pb-4">
                   <h2 className="text-lg font-semibold text-slate-900">Active Projects</h2>
                   <p className="text-sm text-slate-600">Open project workspaces and continue the next step.</p>
@@ -370,7 +369,7 @@ export function Dashboard() {
                         onClick={() => setTableFilter(pill.id)}
                         className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold transition ${
                           tableFilter === pill.id
-                            ? 'border-blue-200 bg-blue-50 text-blue-950'
+                            ? 'border-orange-300 bg-orange-50 text-orange-950'
                             : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                         }`}
                       >
@@ -450,7 +449,7 @@ export function Dashboard() {
               </section>
 
               {/* Attention queue */}
-              <aside className="h-fit rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm sm:p-6">
+              <aside className="ui-fo-card h-fit p-5 sm:p-6">
                 <div className="border-b border-slate-100 pb-3">
                   <h2 className="text-lg font-semibold text-slate-900">Attention Queue</h2>
                   <p className="mt-1 text-[12px] text-slate-500">What needs a tap next across your work.</p>
@@ -470,7 +469,7 @@ export function Dashboard() {
             </div>
 
             {/* Proposal pipeline */}
-            <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm sm:p-6">
+            <section className="ui-fo-card p-5 sm:p-6">
               <h2 className="text-lg font-semibold text-slate-900">Proposal Pipeline</h2>
               <p className="mt-1 text-sm text-slate-600">Where active jobs sit in quote → estimate → proposal.</p>
               <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

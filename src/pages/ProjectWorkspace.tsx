@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -63,9 +63,7 @@ import { WorkspaceProjectHeader } from '../components/workflow/WorkspaceProjectH
 import { ProjectWorkflowReadinessBar } from '../components/workflow/ProjectWorkflowReadinessBar';
 import {
   EstimateTabSummaryCard,
-  ProposalTabSummaryCard,
   QuotesTabSummaryCard,
-  SetupTabSummaryCard,
 } from '../components/workflow/ProjectWorkspaceTabSummaries';
 import { ProjectStepNav } from '../components/workflow/ProjectStepNav.tsx';
 import { WorkflowRightDrawer } from '../components/workflow/WorkflowRightDrawer';
@@ -75,11 +73,14 @@ import { RoomManager } from '../components/workspace/RoomManager';
 import { ProposalSectionEditor } from '../components/workflow/ProposalSectionEditor';
 import { ProposalSettingsRail } from '../components/workflow/ProposalSettingsRail';
 import { ProposalPreview } from '../components/workflow/ProposalPreview';
+import { buildProposalReadinessItems, ProposalReadinessRail } from '../components/workflow/ProposalReadinessRail';
+import { FieldOpsPageHeader } from '../components/fieldops/FieldOpsPrimitives';
 import { EstimateGrid } from '../components/workspace/EstimateGrid';
 import { EstimateHealthStrip } from '../components/workspace/EstimateHealthStrip';
 import { LaborPlanPanel } from '../components/workspace/LaborPlanPanel';
 import { EstimateWorkspaceFooter } from '../components/workspace/EstimateWorkspaceFooter';
-import { EstimateCockpitHeader } from '../components/workspace/estimate/EstimateCockpitHeader';
+import { EstimateReviewShell } from '../components/workspace/estimate/EstimateReviewShell';
+import { deriveInstallAssumptionGateUi } from '../shared/utils/installIntelligenceLineUi';
 import { EstimateCockpitSummaryBar } from '../components/workspace/estimate/EstimateCockpitSummaryBar';
 import { EstimateCockpitTable } from '../components/workspace/estimate/EstimateCockpitTable';
 import { EstimateCockpitLinePanel } from '../components/workspace/estimate/EstimateCockpitLinePanel';
@@ -699,6 +700,11 @@ export function ProjectWorkspace() {
   const clientProposalLineCount = useMemo(
     () => filterLinesForClientProposal(proposalScheduleLines).length,
     [proposalScheduleLines]
+  );
+
+  const proposalReadinessItems = useMemo(
+    () => (project ? buildProposalReadinessItems(project, settings, proposalScheduleLines) : []),
+    [project, settings, proposalScheduleLines],
   );
 
   useEffect(() => {
@@ -1344,7 +1350,7 @@ export function ProjectWorkspace() {
     };
 
     // `noopener` in the features string makes `window.open` return `null` in Chromium 88+ and
-    // Firefox 79+ even when popups are allowed — do not use it here; we need the Window handle.
+    // Firefox 79+ even when popups are allowed ? do not use it here; we need the Window handle.
     const printWindow = window.open('about:blank', '_blank', 'popup=yes,width=1100,height=900');
     if (printWindow) {
       printWindow.document.open();
@@ -1506,7 +1512,7 @@ export function ProjectWorkspace() {
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(9);
           doc.setTextColor(148, 163, 184);
-          doc.text(`Proposal ${getProposalFileStem()} · Page ${pageNumber}`, pageWidth - marginX, pageHeight - 22, { align: 'right' });
+          doc.text(`Proposal ${getProposalFileStem()} ? Page ${pageNumber}`, pageWidth - marginX, pageHeight - 22, { align: 'right' });
         },
       });
       cursorY = ((doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || cursorY) + 12;
@@ -1544,7 +1550,7 @@ export function ProjectWorkspace() {
       doc.setTextColor(51, 65, 85);
 
       items.forEach((item) => {
-        const wrapped = doc.splitTextToSize(`• ${item}`, maxTextWidth - 8);
+        const wrapped = doc.splitTextToSize(`? ${item}`, maxTextWidth - 8);
         cursorY = ensurePageSpace(cursorY, wrapped.length * 12 + 4);
         doc.text(wrapped, marginX, cursorY);
         cursorY += wrapped.length * 12;
@@ -1834,9 +1840,9 @@ export function ProjectWorkspace() {
     },
   });
   /**
-   * Labor minutes per unit field — lets the estimator adjust the install timer
+   * Labor minutes per unit field ? lets the estimator adjust the install timer
    * directly rather than only through labor dollars. Clearing this to a new
-   * number re-drives labor cost via the server's labor-rate × minutes rule on
+   * number re-drives labor cost via the server's labor-rate ? minutes rule on
    * the next persist (takeoffRepo.updateTakeoffLine re-derives labor cost from
    * minutes when the caller omits a labor-cost override or provides zero).
    */
@@ -2519,7 +2525,7 @@ export function ProjectWorkspace() {
   }, [settings]);
 
   if (loading) {
-    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspace…</div>;
+    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspace?</div>;
   }
 
   if (workspaceLoadError) {
@@ -2543,15 +2549,8 @@ export function ProjectWorkspace() {
   }
 
   if (!project) {
-    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspace…</div>;
+    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspace?</div>;
   }
-
-  const setupSummaryPricingLabel =
-    project.pricingMode === 'labor_only'
-      ? 'Install only'
-      : project.pricingMode === 'material_only'
-        ? 'Material only'
-        : 'Full';
 
   const lastUpdatedLabel = project.updatedAt
     ? new Date(project.updatedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
@@ -2613,22 +2612,14 @@ export function ProjectWorkspace() {
         )}
 
         {activeTab === 'setup' && (
-          <>
-            <SetupTabSummaryCard
-              projectName={project.projectName}
-              customer={project.clientName?.trim() || '—'}
-              address={project.address?.trim() || '—'}
-              taxLocation={String(project.jobConditions.locationLabel || '').trim() || '—'}
-              laborRate={effectiveLaborRatePerHour}
-              proposalModeLabel={setupSummaryPricingLabel}
-            />
-            <ProjectSetupPage
-              project={project}
-              settings={settings}
-              setProject={setProject}
-              patchJobConditions={patchJobConditions}
-            />
-          </>
+          <ProjectSetupPage
+            project={project}
+            settings={settings}
+            setProject={setProject}
+            patchJobConditions={patchJobConditions}
+            onSave={saveProject}
+            saveBusy={syncState === 'syncing'}
+          />
         )}
 
         {activeTab === 'quotes' && (
@@ -2671,7 +2662,7 @@ export function ProjectWorkspace() {
         {activeTab === 'estimate' && (() => {
           /**
            * Pricing view uses the Estimate cockpit (table + side panel). Detailed catalog /
-           * “line + add-ins” tools remain in the modifiers drawer opened from the toolbar or panel.
+           * ?line + add-ins? tools remain in the modifiers drawer opened from the toolbar or panel.
            */
           const estimateGridClass = 'isolate grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4';
           const takeoffBulkSelectEnabled = takeoffRoomFilter !== TAKEOFF_ALL_ROOMS;
@@ -2689,7 +2680,7 @@ export function ProjectWorkspace() {
                       disabled={rooms.length < 2}
                       aria-label="Target room for bulk move"
                     >
-                      <option value="">Room…</option>
+                      <option value="">Room?</option>
                       {rooms.map((r) => (
                         <option key={r.id} value={r.id}>
                           {r.roomName}
@@ -2711,7 +2702,7 @@ export function ProjectWorkspace() {
                   className="rounded-md bg-red-600 px-2.5 py-1 font-semibold text-white shadow-sm hover:bg-red-700"
                   onClick={() => void bulkDeleteSelectedLines()}
                 >
-                  Delete selected…
+                  Delete selected?
                 </button>
                 <button
                   type="button"
@@ -2843,24 +2834,23 @@ export function ProjectWorkspace() {
                   />
                 </div>
               ) : (
+              <EstimateReviewShell
+                projectName={project?.projectName || 'Project'}
+                lines={sortedPricingGridLines}
+                pricingMode={pricingMode}
+                materialTotal={summary?.materialLoadedSubtotal ?? summary?.materialSubtotal ?? 0}
+                laborTotal={summary?.laborLoadedSubtotal ?? summary?.adjustedLaborSubtotal ?? summary?.laborSubtotal ?? 0}
+                grandTotal={summary?.baseBidTotal ?? pricingChipSubtotal ?? 0}
+                onReviewInstallAssumptions={() => {
+                  const firstGated = sortedPricingGridLines.find((l) =>
+                    deriveInstallAssumptionGateUi(l, pricingMode).isGated,
+                  );
+                  if (firstGated) focusInstallAssumptionsForLine(firstGated.id);
+                  else if (selectedLineId) focusInstallAssumptionsForLine(selectedLineId);
+                }}
+                onOpenProjectSetup={() => goToTab('setup')}
+              >
               <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-              {project ? (
-                <EstimateCockpitHeader
-                  projectName={project.projectName}
-                  pricingMode={pricingMode}
-                  projectStatus={project.status}
-                  runningTotal={pricingChipSubtotal}
-                  scopeHint={[
-                    roomNamesById[activeRoomId] ? `Room · ${roomNamesById[activeRoomId]}` : null,
-                    pricingOrganizeMode === 'categories' && pricingCategoryFilter !== PRICING_ALL_CATEGORIES
-                      ? `Category · ${pricingCategoryFilter}`
-                      : null,
-                    estimateSourceFilter !== 'all' ? `Source · ${estimateSourceFilter.replace('_', ' ')}` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                />
-              ) : null}
               <div className="ui-panel space-y-2 p-2 sm:p-2.5">
                 <div>
                   <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -2921,7 +2911,7 @@ export function ProjectWorkspace() {
                               key={room.id}
                               type="button"
                               onClick={() => selectWorkspaceRoom(room.id)}
-                              title={`${metric.count} lines · ${formatCurrencySafe(metric.subtotal)}`}
+                              title={`${metric.count} lines ? ${formatCurrencySafe(metric.subtotal)}`}
                               className={`shrink-0 rounded-lg px-3 py-2 text-left transition-all ${
                                 active
                                   ? 'text-white shadow-md ring-1 ring-blue-900/30'
@@ -2977,7 +2967,7 @@ export function ProjectWorkspace() {
                                   key={cat}
                                   type="button"
                                   onClick={() => setPricingCategoryFilter(cat)}
-                                  title={`${metric.count} lines · ${formatCurrencySafe(metric.subtotal)}`}
+                                  title={`${metric.count} lines ? ${formatCurrencySafe(metric.subtotal)}`}
                                   className={`shrink-0 rounded-lg px-3 py-2 text-left transition-all ${
                                     active
                                       ? 'text-white shadow-md ring-1 ring-blue-900/30'
@@ -3043,7 +3033,7 @@ export function ProjectWorkspace() {
                   {fieldScheduleHint ? (
                     <span className="inline-flex items-center gap-1 rounded-md border border-blue-200/70 bg-blue-50/60 px-2 py-1 font-medium text-blue-900">
                       <CalendarClock className="h-3 w-3 text-blue-700/80" aria-hidden />
-                      Field hint: {fieldScheduleHint.fieldCrew} crew · ~{formatNumberSafe(fieldScheduleHint.fieldDays, 1)} d (advisory)
+                      Field hint: {fieldScheduleHint.fieldCrew} crew ? ~{formatNumberSafe(fieldScheduleHint.fieldDays, 1)} d (advisory)
                     </span>
                   ) : null}
                   {(summary?.conditionAssumptions?.length || 0) > 0 ? (
@@ -3133,6 +3123,7 @@ export function ProjectWorkspace() {
                 )}
               </div>
               </div>
+              </EstimateReviewShell>
               )}
             </div>
           </div>
@@ -3145,9 +3136,7 @@ export function ProjectWorkspace() {
               materialLoadedSubtotal={summary?.materialLoadedSubtotal ?? summary?.materialSubtotal}
               laborLoadedSubtotal={summary?.laborLoadedSubtotal ?? summary?.adjustedLaborSubtotal ?? summary?.laborSubtotal}
             />
-          ) : (
-            <EstimateCockpitSummaryBar summary={summary} jobConditions={jobConditions} />
-          )}
+          ) : null}
           </div>
           </>
           );
@@ -3155,49 +3144,31 @@ export function ProjectWorkspace() {
 
         {activeTab === 'proposal' && (
           <>
-          <ProposalTabSummaryCard settings={settings} />
           <div className="space-y-4">
-            <section className="ui-surface overflow-hidden p-4 sm:p-5">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2.5">
-                    <span className="rounded-full bg-sky-50 px-2.5 py-0.5 text-[11px] font-semibold text-sky-900 ring-1 ring-sky-200">
-                      Proposal
-                    </span>
-                  </div>
-                  <h3 className="mt-1.5 text-[22px] font-semibold leading-tight tracking-tight text-slate-950 sm:text-[26px]">Review, edit, export</h3>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Preview matches what you print. Use Export PDF or Print in the header when you are ready.
-                  </p>
-                </div>
-                <div className="flex flex-shrink-0 flex-wrap items-center gap-2 lg:justify-end">
-                  <button
-                    type="button"
-                    onClick={() => void saveProposalWording()}
-                    className="ui-btn-secondary inline-flex h-9 items-center justify-center rounded-full px-4 text-[11px] font-semibold"
-                  >
+            <FieldOpsPageHeader
+              kicker="Proposal"
+              title="Proposal Preview"
+              subtitle="Client-facing document ? preview matches print and export. Internal review flags never appear here."
+              actions={
+                <>
+                  <button type="button" onClick={() => void saveProposalWording()} className="ui-fo-btn-secondary h-10 px-4">
                     Save edits
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => void printProposalDocument()}
-                    className="ui-btn-secondary inline-flex h-9 items-center justify-center rounded-full px-4 text-[11px] font-semibold"
-                  >
+                  <button type="button" onClick={() => void printProposalDocument()} className="ui-fo-btn-secondary h-10 px-4">
                     Print
                   </button>
                   <button
                     type="button"
                     onClick={exportProposal}
-                    title="Downloads HTML. Open the file in a browser, then Print → Save as PDF if you need a PDF."
-                    className="ui-btn-cta inline-flex items-center gap-1.5"
+                    title="Downloads HTML. Open in a browser, then Print to Save as PDF."
+                    className="ui-fo-btn-primary inline-flex items-center gap-1.5"
                   >
-                    <Download className="h-3.5 w-3.5" />
-                    Export HTML
+                    <Download className="h-4 w-4" />
+                    Print / PDF
                   </button>
-                </div>
-              </div>
-
-            </section>
+                </>
+              }
+            />
 
             <details className="ui-surface group mt-5 overflow-hidden open:shadow-md [&_summary::-webkit-details-marker]:hidden">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-slate-50/80 sm:px-5">
@@ -3209,7 +3180,7 @@ export function ProjectWorkspace() {
                   </span>
                   <div>
                     <p className="text-sm font-semibold text-slate-900">Internal install email</p>
-                    <p className="text-[11px] text-slate-500">Crew-facing draft — not shown on the client proposal</p>
+                    <p className="text-[11px] text-slate-500">Crew-facing draft ? not shown on the client proposal</p>
                   </div>
                 </div>
                 <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition group-open:rotate-180" />
@@ -3239,7 +3210,7 @@ export function ProjectWorkspace() {
                   </span>
                   <div>
                     <p className="text-sm font-semibold text-slate-900">AI writing assist</p>
-                    <p className="text-[11px] text-slate-500">Optional — confirms before replacing existing text</p>
+                    <p className="text-[11px] text-slate-500">Optional ? confirms before replacing existing text</p>
                   </div>
                 </div>
                 <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition group-open:rotate-180" />
@@ -3252,7 +3223,7 @@ export function ProjectWorkspace() {
                     disabled={proposalDrafting !== null}
                     className="inline-flex h-9 flex-1 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:min-w-[10rem]"
                   >
-                    {proposalDrafting === 'scope_summary' ? 'Generating…' : 'Scope summary'}
+                    {proposalDrafting === 'scope_summary' ? 'Generating?' : 'Scope summary'}
                   </button>
                   <button
                     type="button"
@@ -3260,7 +3231,7 @@ export function ProjectWorkspace() {
                     disabled={proposalDrafting !== null}
                     className="inline-flex h-9 flex-1 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:min-w-[10rem]"
                   >
-                    {proposalDrafting === 'default_short' ? 'Drafting…' : 'Short proposal pack'}
+                    {proposalDrafting === 'default_short' ? 'Drafting?' : 'Short proposal pack'}
                   </button>
                   <button
                     type="button"
@@ -3268,14 +3239,20 @@ export function ProjectWorkspace() {
                     disabled={proposalDrafting !== null}
                     className="inline-flex h-9 flex-1 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:min-w-[10rem]"
                   >
-                    {proposalDrafting === 'terms_and_conditions' ? 'Working…' : 'Terms & conditions'}
+                    {proposalDrafting === 'terms_and_conditions' ? 'Working?' : 'Terms & conditions'}
                   </button>
                 </div>
               </div>
             </details>
 
-            <div className="grid gap-4 xl:grid-cols-[minmax(240px,280px)_minmax(0,1fr)_minmax(520px,640px)] xl:items-start">
-              <ProposalSettingsRail
+            <div className="grid gap-6 xl:grid-cols-[1fr_minmax(17rem,20rem)] xl:items-start">
+              <div className="space-y-4">
+              <details className="ui-fo-card group overflow-hidden [&_summary::-webkit-details-marker]:hidden">
+                <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-900 hover:bg-slate-50">
+                  Edit proposal wording and document settings
+                </summary>
+                <div className="grid gap-4 border-t border-slate-100 p-4 lg:grid-cols-[minmax(200px,240px)_1fr]">
+                  <ProposalSettingsRail
                 proposalFormat={project.proposalFormat || 'standard'}
                 onProposalFormatChange={(value) =>
                   setProject((prev) => (prev ? { ...prev, proposalFormat: value } : prev))
@@ -3288,8 +3265,6 @@ export function ProjectWorkspace() {
                 lineCount={clientProposalLineCount}
                 durationDays={proposalScheduleSummary?.durationDays}
               />
-              <section className="space-y-4">
-                <div className="ui-surface p-4 sm:p-5">
                   {settings ? (
                     <ProposalSectionEditor
                       settings={settings}
@@ -3298,27 +3273,19 @@ export function ProjectWorkspace() {
                       onResetAll={() => resetProposalDefaults('all')}
                     />
                   ) : (
-                    <p className="text-sm text-slate-500">Loading proposal defaults…</p>
+                    <p className="text-sm text-slate-500">Loading proposal defaults</p>
                   )}
                 </div>
-              </section>
+              </details>
 
-              <div className="space-y-3 xl:sticky xl:top-4">
-                <div className="ui-panel flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Live preview</p>
-                    <p className="text-xs font-medium text-slate-700">What the client sees</p>
-                  </div>
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-medium text-slate-600">Print / export</span>
-                </div>
-                <div className="ui-panel-muted max-h-[calc(100vh-220px)] overflow-auto p-3">
+              <section className="rounded-xl border border-slate-200/80 bg-gradient-to-b from-slate-200/60 to-slate-100/80 p-4 sm:p-6 shadow-inner">
+                <p className="mb-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Client document preview</p>
+                <div className="max-h-[calc(100vh-240px)] overflow-auto">
                   {pipelineNativeEnabled ? (
-                    <div className="mb-3 space-y-2 rounded-lg border border-slate-200 bg-slate-50/90 p-3 text-[11px] text-slate-700">
+                    <div className="mb-3 space-y-2 rounded-lg border border-slate-200 bg-white/90 p-3 text-[11px] text-slate-700">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-semibold text-slate-900">Linked estimate</span>
-                        {nativeProposalLoading ? (
-                          <span className="text-slate-500">Loading…</span>
-                        ) : null}
+                        {nativeProposalLoading ? <span className="text-slate-500">Loading</span> : null}
                       </div>
                       <label className="flex flex-col gap-1">
                         <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Estimate record</span>
@@ -3332,7 +3299,7 @@ export function ProjectWorkspace() {
                             setNativeProposalSummary(null);
                           }}
                         >
-                          <option value="">Select estimate…</option>
+                          <option value="">Select estimate</option>
                           {pipelineProposalEstimates.map((e) => (
                             <option key={String((e as { id: string }).id)} value={String((e as { id: string }).id)}>
                               {String((e as { name?: string }).name || (e as { id: string }).id)}
@@ -3357,7 +3324,9 @@ export function ProjectWorkspace() {
                     catalogImageById={catalogImageById}
                   />
                 </div>
+              </section>
               </div>
+              <ProposalReadinessRail items={proposalReadinessItems} />
             </div>
           </div>
           </>
@@ -3538,7 +3507,7 @@ export function ProjectWorkspace() {
                               onClick={() => void createCatalogItemFromSelectedLine()}
                               disabled={addToCatalogBusy}
                             >
-                              {addToCatalogBusy ? 'Creating…' : 'Create & Match'}
+                              {addToCatalogBusy ? 'Creating?' : 'Create & Match'}
                             </button>
                           </div>
                         </div>
@@ -3625,12 +3594,12 @@ export function ProjectWorkspace() {
                             {Number(selectedLine.qty || 0) !== 1 ? (
                               <span className="text-slate-500">
                                 {' '}
-                                ({formatNumberSafe(selectedLine.qty, 0)} × {formatNumberSafe(selectedLine.laborMinutes, 1)} min)
+                                ({formatNumberSafe(selectedLine.qty, 0)} ? {formatNumberSafe(selectedLine.laborMinutes, 1)} min)
                               </span>
                             ) : null}
-                            <span className="ml-1 text-slate-400">·</span>
+                            <span className="ml-1 text-slate-400">?</span>
                             <span className="ml-1 text-[10px] text-slate-500">
-                              Saving re-drives labor cost from minutes × subcontractor rate.
+                              Saving re-drives labor cost from minutes ? subcontractor rate.
                             </span>
                           </p>
                         </label>
@@ -3785,3 +3754,5 @@ export function ProjectWorkspace() {
     </div>
   );
 }
+
+

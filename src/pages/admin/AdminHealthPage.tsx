@@ -1,8 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, RefreshCw } from 'lucide-react';
+import { Activity, CheckCircle2, RefreshCw } from 'lucide-react';
 import { api } from '../../services/api';
+import { FieldOpsPageHeader } from '../../components/fieldops/FieldOpsPrimitives';
 import { StatusBadge } from '../../components/ui/mvp/StatusBadge';
 import { getErrorMessage } from '../../shared/utils/errorMessage';
+
+function workbookTitle(key: string): string {
+  if (key === 'projectSetupEstimateProposal') return 'Project Setup';
+  if (key === 'vendorIntakeBackend') return 'Vendor Intake';
+  if (key === 'catalogLaborBackend') return 'Catalog Labor';
+  if (/install/i.test(key)) return 'Install Intelligence';
+  return key;
+}
 
 type Div10Health = Awaited<ReturnType<typeof api.getAdminDiv10SheetsHealth>>;
 type IntegrationSnap = Awaited<ReturnType<typeof api.getV1IntegrationHealth>>;
@@ -98,48 +107,66 @@ export function AdminHealthPage() {
     [integration, health, loading],
   );
 
+  const sheetsActive = Boolean(health?.sheetsBackendActive);
+
   return (
     <div className="ui-page space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Administrator</p>
-          <h1 className="mt-1 text-2xl font-semibold text-slate-900">Health & workbooks</h1>
-          <p className="mt-1 max-w-2xl text-sm text-slate-600">
-            Backend workbook status, Google Sheets connection, and data backend mode. This detail is not shown on everyday estimating screens.
-          </p>
-        </div>
-        <button type="button" onClick={() => void load()} className="ui-btn-secondary gap-2" disabled={loading}>
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
-      </div>
+      <FieldOpsPageHeader
+        kicker="Administrator"
+        title="Health & Workbooks"
+        subtitle="Operations status board for Google Sheets workbooks, credentials, and data freshness."
+        actions={
+          <button type="button" onClick={() => void load()} className="ui-fo-btn-primary gap-2" disabled={loading}>
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Recheck all
+          </button>
+        }
+      />
 
       {error ? (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
       ) : null}
 
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-semibold text-slate-900">Connection summary</h2>
-        <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
-          <div>
-            <dt className="text-slate-500">DATA_BACKEND</dt>
-            <dd className="font-mono text-xs font-medium text-slate-900">{health?.dataBackend ?? '—'}</dd>
+      <section className={`ui-fo-card p-5 ${sheetsActive ? 'border-emerald-200 bg-emerald-50/40' : ''}`}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex min-w-0 gap-3">
+            {sheetsActive ? (
+              <CheckCircle2 className="mt-0.5 h-8 w-8 shrink-0 text-emerald-600" aria-hidden />
+            ) : (
+              <Activity className="mt-0.5 h-8 w-8 shrink-0 text-slate-400" aria-hidden />
+            )}
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">
+                {sheetsActive ? 'Sheets backend active' : 'Sheets backend inactive'}
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                {sheetsActive
+                  ? 'Workbook routing is configured for the sheets data backend.'
+                  : health?.message || 'Set DATA_BACKEND=sheets to enable workbook health checks.'}
+              </p>
+              {sheetsStatus.detail ? <p className="mt-2 text-xs text-slate-600">{sheetsStatus.detail}</p> : null}
+            </div>
           </div>
-          <div>
-            <dt className="text-slate-500">Google Sheets</dt>
-            <dd className="space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge label={sheetsStatus.label} tone={sheetsStatus.tone} />
-                {integration && !integration.googleSheets && health?.googleAuthConfigured ? (
-                  <span className="text-[11px] text-slate-500">(service account not detected via standard env names)</span>
-                ) : null}
-              </div>
-              {sheetsStatus.detail ? <p className="text-xs text-slate-600">{sheetsStatus.detail}</p> : null}
+          <StatusBadge label={sheetsStatus.label} tone={sheetsStatus.tone} />
+        </div>
+        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-lg border border-slate-200/80 bg-white px-3 py-2">
+            <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Connection</dt>
+            <dd className="mt-1 font-medium text-slate-900">{sheetsActive ? 'Connected' : '—'}</dd>
+          </div>
+          <div className="rounded-lg border border-slate-200/80 bg-white px-3 py-2">
+            <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Authentication</dt>
+            <dd className="mt-1 font-medium text-slate-900">
+              {health?.googleAuthConfigured || integration?.googleSheets ? 'Authorized' : 'Needs credentials'}
             </dd>
           </div>
-          <div>
-            <dt className="text-slate-500">Catalog items source</dt>
-            <dd className="font-mono text-xs text-slate-800">{integration?.catalogItemsReadTable ?? '—'}</dd>
+          <div className="rounded-lg border border-slate-200/80 bg-white px-3 py-2">
+            <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Sheets access</dt>
+            <dd className="mt-1 font-medium text-slate-900">{sheetsActive ? 'Read / write routing' : '—'}</dd>
+          </div>
+          <div className="rounded-lg border border-slate-200/80 bg-white px-3 py-2">
+            <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Data backend</dt>
+            <dd className="mt-1 font-mono text-xs font-medium text-slate-900">{health?.dataBackend ?? '—'}</dd>
           </div>
         </dl>
       </section>
@@ -213,14 +240,8 @@ export function AdminHealthPage() {
       ) : null}
 
       {health ? (
+        <div className="grid gap-6 xl:grid-cols-[1fr_minmax(16rem,20rem)]">
         <section className="space-y-4">
-          <div className="flex items-center gap-2 text-sm text-slate-600">
-            <Activity className="h-4 w-4" />
-            <span className="inline-flex items-center gap-2">
-              Sheets backend {health.sheetsBackendActive ? 'active' : 'inactive'} · overall{' '}
-              {health.ok ? <StatusBadge label="OK" tone="ready" /> : <StatusBadge label="Issues" tone="review" />}
-            </span>
-          </div>
           {health.missingEnvVars?.length ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
               Missing env: {health.missingEnvVars.join(', ')}
@@ -236,12 +257,12 @@ export function AdminHealthPage() {
               </ul>
             </div>
           ) : null}
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             {health.workbooks.map((wb) => (
-              <article key={wb.key} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <article key={wb.key} className="ui-fo-card p-4">
                 <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-slate-900">{wb.key}</h3>
-                  {wb.ok ? <StatusBadge label="OK" tone="ready" /> : <StatusBadge label="Check" tone="review" />}
+                  <h3 className="text-sm font-semibold text-slate-900">{workbookTitle(wb.key)}</h3>
+                  {wb.ok ? <StatusBadge label="Active" tone="ready" /> : <StatusBadge label="Warning" tone="review" />}
                 </div>
                 <p className="mt-1 font-mono text-[11px] text-slate-500">{wb.spreadsheetIdMasked}</p>
                 {wb.error ? <p className="mt-2 text-xs text-rose-700">{wb.error}</p> : null}
@@ -262,10 +283,48 @@ export function AdminHealthPage() {
                     </li>
                   ))}
                 </ul>
+                <button type="button" className="ui-fo-btn-secondary mt-3 h-8 w-full text-xs" onClick={() => void load()}>
+                  Recheck
+                </button>
               </article>
             ))}
           </div>
+          <section className="ui-fo-card p-5">
+            <h2 className="text-sm font-semibold text-slate-900">Guidance &amp; common checks</h2>
+            <ul className="mt-3 space-y-2 text-sm text-slate-700">
+              {['Credential check', 'Tab structure check', 'Permission check', 'Data freshness check'].map((label) => (
+                <li key={label} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                  <span>{label}</span>
+                  <button type="button" className="ui-fo-btn-secondary h-8 px-3 text-xs" onClick={() => void load()}>
+                    Check
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
         </section>
+        <aside className="space-y-4">
+          <section className={`ui-fo-card p-4 ${health.ok ? 'border-emerald-200 bg-emerald-50/30' : 'border-amber-200 bg-amber-50/30'}`}>
+            <h2 className="text-sm font-semibold text-slate-900">System health</h2>
+            <p className="mt-2 text-sm text-slate-700">
+              {health.ok ? 'All critical systems are operating normally.' : 'One or more workbook checks need attention.'}
+            </p>
+            <div className="mt-3">
+              {health.ok ? <StatusBadge label="Healthy" tone="ready" /> : <StatusBadge label="Needs review" tone="review" />}
+            </div>
+          </section>
+          <section className="ui-fo-card p-4 text-sm text-slate-600">
+            <h2 className="font-semibold text-slate-900">What is this?</h2>
+            <p className="mt-2 leading-relaxed">
+              Validates Div 10 Google Sheets workbooks for project setup, vendor intake, and catalog labor routing.
+            </p>
+          </section>
+          <section className="ui-fo-card p-4 text-sm text-slate-600">
+            <h2 className="font-semibold text-slate-900">Need help?</h2>
+            <p className="mt-2 leading-relaxed">See docs/div10-brain-env.md for workbook IDs and service account setup.</p>
+          </section>
+        </aside>
+        </div>
       ) : null}
     </div>
   );

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import type { ProjectFileRecord, SourceQuoteLineRecord, SourceQuoteRecord } from '../../shared/types/estimator';
+import { FieldOpsKpiCard } from '../../components/fieldops/FieldOpsPrimitives';
 import { formatCurrencySafe } from '../../utils/numberFormat';
 import { parseQuotePasteText } from '../../shared/utils/quoteStagingParser';
 
@@ -161,6 +162,19 @@ export function QuotesPage({
   const selectedCount = quoteLines.filter((line) => line.importSelected).length;
 
   const buckets = useMemo(() => partitionQuoteLines(quoteLines, importedQuoteLineIds), [quoteLines, importedQuoteLineIds]);
+
+  const cockpitKpis = useMemo(() => {
+    const vendorNames = new Set(quotes.map((q) => q.vendorName.trim()).filter(Boolean));
+    const readyLines = buckets.readyToImport;
+    const estAmount = readyLines.reduce((sum, line) => sum + (line.materialCost || 0), 0);
+    return {
+      vendors: vendorNames.size,
+      quotes: quotes.length,
+      totalLines: quoteLines.length,
+      readyToImport: readyLines.length,
+      estAmount,
+    };
+  }, [quotes, quoteLines.length, buckets.readyToImport]);
 
   async function handleCreateQuote() {
     if (!quoteDraft.vendorName.trim()) return;
@@ -410,7 +424,7 @@ export function QuotesPage({
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(17rem,20rem)_1fr]">
       <aside className="space-y-4">
-        <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+        <section className="ui-fo-card p-5">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Upload or paste quote</p>
           <h2 className="mt-1 text-lg font-semibold text-slate-950">Add a vendor quote</h2>
           <p className="mt-2 text-[13px] leading-relaxed text-slate-600">Attach a file or drop rows on the right — then review, include lines, and send them to the estimate.</p>
@@ -435,7 +449,7 @@ export function QuotesPage({
               <span className="font-medium text-slate-700">Notes</span>
               <textarea className="ui-input min-h-24" value={quoteDraft.notes} onChange={(event) => setQuoteDraft((prev) => ({ ...prev, notes: event.target.value }))} placeholder="Optional scope notes for your team" />
             </label>
-            <button type="button" onClick={() => void handleCreateQuote()} className="ui-btn-cta w-full disabled:opacity-60" disabled={!quoteDraft.vendorName.trim() || fileUploading}>
+            <button type="button" onClick={() => void handleCreateQuote()} className="ui-fo-btn-primary w-full disabled:opacity-60" disabled={!quoteDraft.vendorName.trim() || fileUploading}>
               {fileUploading ? 'Uploading…' : 'Create quote'}
             </button>
           </div>
@@ -459,7 +473,7 @@ export function QuotesPage({
                   type="button"
                   onClick={() => setActiveQuoteId(quote.id)}
                   className={`w-full rounded-xl border px-3 py-3 text-left transition ${
-                    active ? 'border-blue-300 bg-blue-50/90 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                    active ? 'border-orange-400 bg-orange-50/90 shadow-sm ring-1 ring-orange-200' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -480,11 +494,15 @@ export function QuotesPage({
       <section className="min-w-0 space-y-5">
         {activeQuote ? (
           <>
-            <div className="rounded-2xl border border-slate-200/90 bg-slate-50/80 px-4 py-3 text-[13px] text-slate-700">
-              <span className="font-semibold text-slate-900">Flow:</span> Upload / paste → Review rows → Include lines → Import to estimate → Estimate tab
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <FieldOpsKpiCard label="Vendors" value={String(cockpitKpis.vendors)} />
+              <FieldOpsKpiCard label="Quotes" value={String(cockpitKpis.quotes)} />
+              <FieldOpsKpiCard label="Total lines" value={String(cockpitKpis.totalLines)} />
+              <FieldOpsKpiCard label="Ready to import" value={String(cockpitKpis.readyToImport)} emphasize={cockpitKpis.readyToImport > 0} />
+              <FieldOpsKpiCard label="Est. amount" value={formatCurrencySafe(cockpitKpis.estAmount)} hint="Included material rows" />
             </div>
 
-            <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+            <div className="ui-fo-card p-5">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div className="min-w-0 flex-1 space-y-3">
                   <input
@@ -524,8 +542,8 @@ export function QuotesPage({
                   </label>
                 </div>
                 <div className="flex shrink-0 flex-col gap-2 sm:flex-row xl:flex-col">
-                  <button type="button" onClick={() => void onImportSelected(activeQuote.id)} className="ui-btn-cta h-10 px-5">
-                    Import {selectedCount > 0 ? `${selectedCount} lines` : 'included lines'} to estimate
+                  <button type="button" onClick={() => void onImportSelected(activeQuote.id)} className="ui-fo-btn-primary h-10 px-5">
+                    Import ready rows{selectedCount > 0 ? ` (${selectedCount})` : ''}
                   </button>
                   {activeQuote.sourceFileId ? (
                     <button type="button" onClick={() => void onExtractSourceFile(activeQuote.id, quoteLines.length > 0)} className="ui-btn-secondary h-10 px-4 text-[13px] font-semibold">
@@ -542,11 +560,11 @@ export function QuotesPage({
               </p>
             </div>
 
-            <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+            <div className="ui-fo-card p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <p className="text-[13px] font-semibold text-slate-900">Paste or upload rows</p>
-                  <p className="mt-0.5 text-[12px] text-slate-600">Paste CSV/TSV or load a small spreadsheet — rows are added to this quote.</p>
+                  <p className="text-[13px] font-semibold text-slate-900">Paste quote or upload</p>
+                  <p className="mt-0.5 text-[12px] text-slate-600">Paste vendor tables or upload CSV/TSV — rows are added to this quote for review.</p>
                 </div>
                 <label className="ui-btn-secondary h-9 cursor-pointer px-3 text-[12px] font-semibold">
                   Upload CSV / TSV
@@ -576,8 +594,13 @@ export function QuotesPage({
                 <button type="button" onClick={() => void handleBulkImportText()} className="ui-btn-secondary h-9 px-3 text-[12px] font-semibold" disabled={!activeQuoteId || bulkPreviewCount === 0}>
                   Add {bulkPreviewCount > 0 ? `${bulkPreviewCount} ` : ''}row{bulkPreviewCount === 1 ? '' : 's'}
                 </button>
-                <span className="text-[12px] text-slate-500">{bulkPreviewCount > 0 ? `${bulkPreviewCount} rows detected` : 'No rows detected yet'}</span>
+                <span className="text-[12px] text-slate-500">
+                  {bulkPreviewCount > 0 ? `${bulkPreviewCount} rows detected · looks good` : 'No rows detected yet'}
+                </span>
               </div>
+              <p className="mt-3 rounded-lg border border-sky-200 bg-sky-50/80 px-3 py-2 text-[12px] text-sky-950">
+                <span className="font-semibold">Tip:</span> Best results come from clean tables or selectable PDF text copied row-for-row.
+              </p>
             </div>
 
             <div className="rounded-2xl border border-slate-200/90 bg-slate-50/60 p-4">
@@ -639,8 +662,8 @@ export function QuotesPage({
                     },
                   )}
                   {renderSection(
-                    'Ready to import',
-                    'Included lines copy to the Estimate tab when you click Import.',
+                    'Ready to Import',
+                    'Material and accessory rows marked Include — selected for estimate import.',
                     buckets.readyToImport,
                     {
                       mode: 'default',
@@ -657,8 +680,8 @@ export function QuotesPage({
                     },
                   )}
                   {renderSection(
-                    'Excluded',
-                    'Excluded rows stay on file but will not import.',
+                    'Excluded / Other',
+                    'Sales tax, quote totals, headers, and ignored lines — never imported as material.',
                     buckets.excluded,
                     {
                       mode: 'excluded',
@@ -666,8 +689,8 @@ export function QuotesPage({
                     },
                   )}
                   {renderSection(
-                    'Terms, freight & notes',
-                    'Reference-only lines — not added as bid lines in the estimate.',
+                    'Terms / Fees',
+                    'Freight, minimum order, and payment terms — not auto-selected. If manually included, freight becomes add-in with no automatic labor fallback.',
                     buckets.terms,
                     {
                       mode: 'terms',

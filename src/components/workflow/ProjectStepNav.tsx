@@ -29,23 +29,21 @@ export function ProjectStepNav({ projectId, items, trailing }: ProjectStepNavPro
   const ordered = [...secondary, ...primary];
 
   return (
-    <div className="z-10 mb-4 flex flex-wrap items-center gap-2 border-b border-slate-200/80 bg-transparent pb-3">
-      <nav className="flex min-w-0 flex-1 flex-wrap items-center gap-2 overflow-x-auto" aria-label="Project workspace">
+    <div className="z-10 mb-4 flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-1 pb-0 pt-1">
+      <nav className="flex min-w-0 flex-1 flex-wrap items-center gap-1 overflow-x-auto" aria-label="Project workspace">
         {ordered.map((item) => (
           <NavLink
             key={item.id}
             to={projectWorkspacePath(projectId, item.id)}
             className={({ isActive }) =>
-              `rounded-full border px-3 py-1.5 text-xs font-semibold tracking-wide transition ${
-                isActive
-                  ? 'border-blue-300 bg-blue-50 text-blue-950'
-                  : 'border-slate-200 bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              `ui-fo-tab rounded-t-lg border-b-2 px-4 py-2 text-[13px] ${
+                isActive ? 'ui-fo-tab-active border-orange-500 bg-orange-50/50' : 'border-transparent hover:bg-slate-50'
               }`
             }
           >
             <span>{item.label}</span>
             {item.badge != null && item.badge > 0 ? (
-              <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-amber-100 px-1 text-[9px] font-bold tabular-nums text-amber-900">
+              <span className="ml-1.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-orange-100 px-1 text-[9px] font-bold tabular-nums text-orange-900">
                 {item.badge}
               </span>
             ) : null}
