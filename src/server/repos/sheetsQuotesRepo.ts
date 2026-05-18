@@ -25,6 +25,7 @@ import { getProjectFromSheets } from './sheetsProjectsRepo.ts';
 import { getSettingsFromSheets } from './sheetsSettingsRepo.ts';
 import { normalizeProjectJobConditions } from '../../shared/utils/jobConditions.ts';
 import { resolveQuoteLineForEstimate } from '../services/quoteImportResolutionService.ts';
+import { warmInstallIntelligenceWorkbook } from '../services/div10InstallIntelligenceService.ts';
 
 const NON_CATALOG_ROW_TYPES = new Set(['freight', 'installation', 'service', 'note', 'ignore']);
 
@@ -430,6 +431,7 @@ export async function importSelectedQuoteLinesToEstimateInSheets(sourceQuoteId: 
   );
 
   const catalogItems = await listCatalogItemsFromSheets();
+  await warmInstallIntelligenceWorkbook();
   const created: TakeoffLineRecord[] = [];
   for (const row of quoteRows) {
     const sourceLineId = String(row.SourceQuoteLineID || '').trim();
@@ -465,6 +467,7 @@ export async function importSelectedQuoteLinesToEstimateInSheets(sourceQuoteId: 
       projectSetup: {
         defaultProposalVisibility: jobConditions.defaultProposalVisibility,
         suppressAutoLaborForInstallServiceRows: jobConditions.suppressAutoLaborForInstallServiceRows,
+        wallSubstrate: project.wallSubstrate,
       },
     });
 

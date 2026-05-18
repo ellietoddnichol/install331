@@ -9,6 +9,7 @@ import { createRoom, listRooms } from './roomsRepo.ts';
 import { createTakeoffLine, deleteTakeoffLine, listTakeoffLines } from './takeoffRepo.ts';
 import { listCatalogItemsForApi } from './catalogRepo.ts';
 import { resolveQuoteLineForEstimate } from '../services/quoteImportResolutionService.ts';
+import { warmInstallIntelligenceWorkbook } from '../services/div10InstallIntelligenceService.ts';
 
 function mapSourceQuoteRow(row: any): SourceQuoteRecord {
   return {
@@ -461,6 +462,7 @@ export async function importSelectedQuoteLinesToEstimate(sourceQuoteId: string):
   const pending = selected.filter((line) => !existingSourceRefs.has(line.id));
 
   const catalogItems = await listCatalogItemsForApi(false);
+  await warmInstallIntelligenceWorkbook();
   const created: TakeoffLineRecord[] = [];
   try {
     for (const line of pending) {
@@ -473,6 +475,7 @@ export async function importSelectedQuoteLinesToEstimate(sourceQuoteId: string):
         projectSetup: {
           defaultProposalVisibility: jobConditions.defaultProposalVisibility,
           suppressAutoLaborForInstallServiceRows: jobConditions.suppressAutoLaborForInstallServiceRows,
+          wallSubstrate: project.wallSubstrate,
         },
       });
       const next = await createTakeoffLine(resolved.createInput);

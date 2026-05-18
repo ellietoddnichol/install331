@@ -3,7 +3,11 @@ import type { SourceQuoteLineRecord, SourceQuoteRecord, SourceQuoteRowType, Take
 import { classifyQuoteRow } from '../../shared/utils/quoteStagingParser.ts';
 import { prepareCatalogMatch } from './intakeCatalogMatching.ts';
 import { evaluateInstallability } from './intake/installabilityRules.ts';
-import { getInstallLaborFamily } from './intake/installLaborFamilies.ts';
+import {
+  getActiveInstallIntelligenceWorkbook,
+  inferCategoryKey,
+  resolveInstallIntelligenceFromWorkbook,
+} from './div10InstallIntelligenceService.ts';
 
 export interface QuoteImportResolvedLine {
   createInput: Partial<TakeoffLineRecord> & {
@@ -14,17 +18,6 @@ export interface QuoteImportResolvedLine {
   flags: string[];
 }
 
-const LABOR_MATCH_RULES: Array<{ pattern: RegExp; familyKey: string }> = [
-  { pattern: /\block\b|\blatch\b|\bhinge\b|\bhardware\b/, familyKey: 'partition_hardware' },
-  { pattern: /\btrim\b|\bbase\s*trim\b|\bfiller\s*panel\b/, familyKey: 'locker' },
-  { pattern: /\blocker\b|\bcubbie\b/, familyKey: 'locker' },
-  { pattern: /\bgrab\s*bar\b/, familyKey: 'grab_bar' },
-  { pattern: /\bmirror\b/, familyKey: 'mirror' },
-  { pattern: /\bpartition\b|\bstall\b|\burinal\s*screen\b|\bpilaster\b/, familyKey: 'partition_compartment' },
-  { pattern: /\bsoap\b|\btowel\b|\bdryer\b|\bdispenser\b|\btissue\b|\bnapkin\b/, familyKey: 'accessory_generic' },
-  { pattern: /\bwall\s*protection\b|\bcrash\s*rail\b|\bcorner\s*guard\b/, familyKey: 'wall_protection' },
-];
-
 function normalizeCode(value: unknown): string {
   return String(value ?? '')
     .trim()
@@ -32,23 +25,12 @@ function normalizeCode(value: unknown): string {
     .replace(/[^A-Z0-9]/g, '');
 }
 
-function categoryFallbackFamilyKey(category: string, description: string): string | null {
-  const hay = `${category} ${description}`.toLowerCase();
-  if (/grab\s*bar/.test(hay)) return 'grab_bar';
-  if (/mirror/.test(hay)) return 'mirror';
-  if (/partition|stall|urinal\s*screen|pilaster/.test(hay)) return 'partition_compartment';
-  if (/soap|towel|dryer|tissue|napkin|dispenser|toilet\s*accessor/.test(hay)) return 'accessory_generic';
-  if (/locker/.test(hay)) return 'locker';
-  if (/wall\s*protection|crash\s*rail|chair\s*rail|corner\s*guard/.test(hay)) return 'wall_protection';
-  return null;
-}
-
-function laborFamilyRuleMatch(description: string): string | null {
-  const hay = String(description || '').toLowerCase();
-  for (const rule of LABOR_MATCH_RULES) {
-    if (rule.pattern.test(hay)) return rule.familyKey;
-  }
-  return null;
+function normalizeWallSubstrate(value: string | null | undefined): string | undefined {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return undefined;
+  if (raw.includes('tile')) return 'tile';
+  if (raw.includes('gypsum') || raw.includes('drywall')) return 'gypsum';
+  return raw;
 }
 
 function findExactCatalogMatch(line: SourceQuoteLineRecord, catalog: CatalogItem[]): CatalogItem | null {
@@ -102,6 +84,7 @@ export function resolveQuoteLineForEstimate(input: {
   projectSetup?: {
     defaultProposalVisibility?: TakeoffLineRecord['proposalVisibility'];
     suppressAutoLaborForInstallServiceRows?: boolean;
+    wallSubstrate?: string | null;
   };
 }): QuoteImportResolvedLine {
   const normalizedDescription = String(input.line.normalizedDescription || input.line.rawDescription || '').trim();
@@ -142,47 +125,73 @@ export function resolveQuoteLineForEstimate(input: {
     unit: input.line.unit,
   });
 
-  const laborFamilyRuleKey = laborFamilyRuleMatch(normalizedDescription);
-  const categoryFallbackKey = categoryFallbackFamilyKey(category || '', normalizedDescription);
-  const installFamilyKey =
-    matchedCatalogItem?.installLaborFamily
-      || getInstallLaborFamily(installability.installScopeType)?.key
-      || getInstallLaborFamily(laborFamilyRuleKey)?.key
-      || getInstallLaborFamily(categoryFallbackKey)?.key
-      || null;
+  const workbook = getActiveInstallIntelligenceWorkbook();
+  const categoryKey = inferCategoryKey({
+    description: normalizedDescription,
+    category,
+    workbook,
+  });
 
-  const installFamily = getInstallLaborFamily(installFamilyKey);
-  const vendorServiceRow = rowType === 'installation' || rowType === 'service';
-  const catalogLaborEligible = rowType === 'material' || rowType === 'accessory';
+  const intelligence = resolveInstallIntelligenceFromWorkbook(workbook, {
+    lineFacts: {
+      description: normalizedDescription,
+      category,
+      categoryKey,
+      laborFamily: matchedCatalogItem?.installLaborFamily || null,
+      unit: input.line.unit || 'EA',
+      qty: input.line.qty,
+      vendorName: input.quote.vendorName,
+      sku: input.line.skuModel || matchedCatalogItem?.sku || null,
+      rowType,
+      sourceType: 'vendor_quote',
+      catalogLaborMinutes: Number(matchedCatalogItem?.baseLaborMinutes || 0),
+      assumptions: {},
+    },
+    projectAssumptions: {
+      wallSubstrate: normalizeWallSubstrate(input.projectSetup?.wallSubstrate),
+    },
+    suppressBrightenLaborForVendorService: input.projectSetup?.suppressAutoLaborForInstallServiceRows ?? true,
+  });
 
-  const catalogLaborMinutes = Number(matchedCatalogItem?.baseLaborMinutes || 0);
-  const fallbackMinutes = Number(installFamily?.defaultInstallMinutes || 0);
-
-  let laborMinutes = 0;
-  let generatedLaborMinutes: number | null = null;
-  let laborOrigin: TakeoffLineRecord['laborOrigin'] = null;
+  const installFamilyKey = intelligence.laborFamily || matchedCatalogItem?.installLaborFamily || null;
+  let laborMinutes = intelligence.laborMinutes;
+  let generatedLaborMinutes = intelligence.generatedLaborMinutes;
+  let laborOrigin = intelligence.laborOrigin;
 
   if (rowType === 'freight') {
-    laborMinutes = 0;
-    laborOrigin = 'source';
     flags.push('Freight row — cost add-in only; internal install labor suppressed.');
-  } else if (vendorServiceRow) {
-    laborMinutes = 0;
-    laborOrigin = 'source';
+  } else if (rowType === 'installation' || rowType === 'service') {
     flags.push('Vendor installation/service row — Brighten labor fallback suppressed.');
-  } else if (catalogLaborEligible && catalogLaborMinutes > 0) {
-    laborMinutes = catalogLaborMinutes;
-    laborOrigin = 'catalog';
+  } else if (laborOrigin === 'catalog') {
     flags.push('Labor baseline from catalog match.');
-  } else if (catalogLaborEligible && fallbackMinutes > 0) {
-    laborMinutes = fallbackMinutes;
-    generatedLaborMinutes = fallbackMinutes;
-    laborOrigin = 'install_family';
-    flags.push(`Install labor generated from labor family ${installFamily?.label || installFamilyKey}.`);
-  } else {
-    laborMinutes = 0;
-    laborOrigin = null;
+  } else if (laborOrigin === 'install_family') {
+    flags.push(`Install labor generated from labor family ${installFamilyKey}.`);
+  } else if (!laborMinutes) {
     flags.push('Manual labor assignment required (no catalog or labor-family baseline).');
+  }
+
+  if (intelligence.vendorCanonical && intelligence.vendorCanonical !== input.quote.vendorName) {
+    flags.push(`Vendor normalized: ${intelligence.vendorCanonical}`);
+  }
+  if (intelligence.vendorParserProfileKey) {
+    flags.push(`Vendor parser profile: ${intelligence.vendorParserProfileKey}`);
+  }
+  if (intelligence.needsReview) {
+    flags.push('Needs Review — install intelligence high-risk fields incomplete.');
+  }
+  if (intelligence.blockAutoPriceLabor) {
+    flags.push('Auto-price labor blocked pending install assumptions.');
+  }
+  for (const flag of intelligence.reviewFlags) {
+    flags.push(`Install review: ${flag}`);
+  }
+  for (const q of intelligence.requiredQuestions) {
+    if (q.required) flags.push(`Install question required: ${q.prompt}`);
+  }
+  for (const clause of intelligence.proposalClauses) {
+    if (!clause.internalOnly && clause.clientText) {
+      flags.push(`Proposal clause: ${clause.clauseKey}`);
+    }
   }
 
   if (exactMatch) {
@@ -192,12 +201,8 @@ export function resolveQuoteLineForEstimate(input: {
   } else if (preparedMatch) {
     flags.push('Catalog match: fuzzy description fallback.');
   }
-
-  if (!matchedCatalogItem && laborFamilyRuleKey) {
-    flags.push(`Labor family matched by deterministic rule (${laborFamilyRuleKey}).`);
-  }
-  if (!matchedCatalogItem && !laborFamilyRuleKey && categoryFallbackKey) {
-    flags.push(`Labor family matched by category fallback (${categoryFallbackKey}).`);
+  if (!matchedCatalogItem && installFamilyKey) {
+    flags.push(`Labor family from install intelligence (${installFamilyKey}).`);
   }
 
   const unitMaterial =
@@ -207,11 +212,17 @@ export function resolveQuoteLineForEstimate(input: {
       ? Number(input.line.totalCost || 0) / Number(input.line.qty || 1)
       : 0);
 
-  const manualLaborFlag = flags.find((f) => f.toLowerCase().includes('manual labor assignment required'));
   const mergedNotes = [
     input.line.notes,
     `Source row type: ${rowType}`,
-    manualLaborFlag,
+    ...intelligence.internalNotes,
+    intelligence.requiredQuestions.length
+      ? `Install questions: ${intelligence.requiredQuestions.map((q) => q.prompt).join('; ')}`
+      : null,
+    ...intelligence.proposalClauses
+      .filter((c) => !c.internalOnly && c.clientText)
+      .map((c) => `Proposal clause: ${c.clientText}`),
+    intelligence.needsReview ? 'Needs Review' : null,
   ]
     .filter(Boolean)
     .join(' | ')

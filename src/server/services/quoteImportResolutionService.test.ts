@@ -78,7 +78,7 @@ test('resolveQuoteLineForEstimate suppresses Brighten labor fallback on vendor s
   assert.match(resolved.flags.join(' '), /installation\/service/i);
 });
 
-test('resolveQuoteLineForEstimate allows labor fallback on material grab bar rows', () => {
+test('resolveQuoteLineForEstimate blocks grab bar labor until blocking is known', () => {
   const resolved = resolveQuoteLineForEstimate({
     quote,
     line: line({
@@ -91,5 +91,6 @@ test('resolveQuoteLineForEstimate allows labor fallback on material grab bar row
     roomId: 'room-1',
     catalogItems: [],
   });
-  assert.ok(Number(resolved.createInput.laborMinutes || 0) > 0 || resolved.flags.some((f) => /labor family/i.test(f)));
+  assert.equal(resolved.createInput.laborMinutes, 0);
+  assert.ok(resolved.flags.some((f) => /Needs Review|blocking|Install question/i.test(f)));
 });
