@@ -91,6 +91,11 @@ import { PartitionLayoutBuilderModal } from '../components/workspace/PartitionLa
 import { ProjectOverviewMvpPage } from './project/ProjectOverviewMvpPage';
 import { ProjectSetupPage } from './project/ProjectSetupPage';
 import { QuotesPage } from './project/QuotesPage';
+import { QuoteImportResultModal } from '../components/quotes/QuoteImportResultModal';
+import {
+  buildQuoteImportResultSummary,
+  type QuoteImportResultSummary,
+} from '../shared/utils/quoteImportResultSummary';
 import { HandoffSummary } from '../components/workflow/HandoffSummary';
 import { ActionFeedbackBanner } from '../components/feedback/ActionFeedbackBanner';
 import { formatCurrencySafe, formatLaborDurationMinutes, formatNumberSafe } from '../utils/numberFormat';
@@ -211,6 +216,8 @@ export function ProjectWorkspace() {
   const [estimateSourceFilter, setEstimateSourceFilter] = useState<'all' | 'manual' | 'catalog' | 'vendor_quote'>('all');
 
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [quoteImportResultOpen, setQuoteImportResultOpen] = useState(false);
+  const [quoteImportResult, setQuoteImportResult] = useState<QuoteImportResultSummary | null>(null);
   const [bundleModalOpen, setBundleModalOpen] = useState(false);
   const [partitionBuilderOpen, setPartitionBuilderOpen] = useState(false);
   const [modifiersModalOpen, setModifiersModalOpen] = useState(false);
@@ -2338,6 +2345,7 @@ export function ProjectWorkspace() {
   async function importSelectedQuoteLines(quoteId: string) {
     if (!project) return;
     try {
+      const quote = sourceQuotes.find((entry) => entry.id === quoteId);
       const created = await api.importV1SelectedQuoteLines(quoteId);
       if (created.length === 0) {
         setActionFeedback({ tone: 'warning', message: 'No selected quote lines were imported.' });
@@ -2347,10 +2355,38 @@ export function ProjectWorkspace() {
         refreshTakeoff(project.id),
         refreshSourceQuotes(project.id, quoteId),
       ]);
-      setActionFeedback({ tone: 'success', message: `Imported ${created.length} quote line${created.length === 1 ? '' : 's'} into the estimate.` });
-      goToTab('estimate');
+      if (quote) {
+        const quoteLinesForSummary = await api.getV1SourceQuoteLines(quoteId);
+        setSourceQuoteLines(quoteLinesForSummary);
+        const summary = buildQuoteImportResultSummary({
+          quote,
+          quoteLines: quoteLinesForSummary,
+          createdEstimateLines: created,
+          pricingMode: project.pricingMode,
+          project,
+        });
+        setQuoteImportResult(summary);
+        setQuoteImportResultOpen(true);
+      }
+      setActionFeedback({
+        tone: 'success',
+        message: `Imported ${created.length} quote line${created.length === 1 ? '' : 's'} into the estimate.`,
+      });
     } catch (error) {
       window.alert(getErrorMessage(error, 'Could not import selected quote lines.'));
+    }
+  }
+
+  function closeQuoteImportResultModal() {
+    setQuoteImportResultOpen(false);
+  }
+
+  function goToEstimateFromImportResult(selectPausedLine = false) {
+    closeQuoteImportResultModal();
+    goToTab('estimate');
+    if (selectPausedLine && quoteImportResult?.laborPaused[0]) {
+      setSelectedLineId(quoteImportResult.laborPaused[0].id);
+      setHealthStripFocus('labor');
     }
   }
 
@@ -3350,6 +3386,22 @@ export function ProjectWorkspace() {
         onCategory={setCatalogCategory}
         onAddItems={addDraftItems}
         onApplyBundle={applyBundle}
+      />
+
+      <QuoteImportResultModal
+        open={quoteImportResultOpen}
+        summary={quoteImportResult}
+        onClose={closeQuoteImportResultModal}
+        onGoToEstimate={() => goToEstimateFromImportResult(false)}
+        onReviewInstallAssumptions={() => goToEstimateFromImportResult(true)}
+        onBackToQuotes={() => {
+          closeQuoteImportResultModal();
+          goToTab('quotes');
+        }}
+        onImportAnotherQuote={() => {
+          closeQuoteImportResultModal();
+          goToTab('quotes');
+        }}
       />
 
       <BundlePickerModal
