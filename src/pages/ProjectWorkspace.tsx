@@ -77,9 +77,12 @@ import { ProposalSettingsRail } from '../components/workflow/ProposalSettingsRai
 import { ProposalPreview } from '../components/workflow/ProposalPreview';
 import { EstimateGrid } from '../components/workspace/EstimateGrid';
 import { EstimateHealthStrip } from '../components/workspace/EstimateHealthStrip';
-import { EstimateCostDriversBanner } from '../components/workspace/EstimateCostDriversBanner';
 import { LaborPlanPanel } from '../components/workspace/LaborPlanPanel';
 import { EstimateWorkspaceFooter } from '../components/workspace/EstimateWorkspaceFooter';
+import { EstimateCockpitHeader } from '../components/workspace/estimate/EstimateCockpitHeader';
+import { EstimateCockpitSummaryBar } from '../components/workspace/estimate/EstimateCockpitSummaryBar';
+import { EstimateCockpitTable } from '../components/workspace/estimate/EstimateCockpitTable';
+import { EstimateCockpitLinePanel } from '../components/workspace/estimate/EstimateCockpitLinePanel';
 import { ItemPicker } from '../components/workspace/ItemPicker';
 import { ModifierPanel } from '../components/workspace/ModifierPanel';
 import { BundlePickerModal } from '../components/workspace/BundlePickerModal';
@@ -195,7 +198,6 @@ export function ProjectWorkspace() {
   const [pricingOrganizeMode, setPricingOrganizeMode] = useState<'rooms' | 'categories'>('rooms');
   const [pricingCategoryFilter, setPricingCategoryFilter] = useState<string>(PRICING_ALL_CATEGORIES);
 
-  const [estimateEditorOpen, setEstimateEditorOpen] = useState(false);
   const [workspaceScopeMode, setWorkspaceScopeMode] = useState<'all' | 'active_room'>('all');
   const [takeoffSearch, setTakeoffSearch] = useState('');
   const [takeoffMatchStatus, setTakeoffMatchStatus] = useState<'all' | 'matched' | 'unmatched'>('all');
@@ -712,12 +714,6 @@ export function ProjectWorkspace() {
     if (!selectedLineId) return 0;
     return (lineModifiersByLineId[selectedLineId] || lineModifiers).length;
   }, [lineModifiers, lineModifiersByLineId, selectedLineId]);
-
-  useEffect(() => {
-    if (!selectedLineId) {
-      setEstimateEditorOpen(false);
-    }
-  }, [selectedLineId]);
 
   const scopedWorkspaceLines = useMemo(
     () => (workspaceScopeMode === 'all' ? lines : activeRoomLines),
@@ -2005,9 +2001,8 @@ export function ProjectWorkspace() {
     }
   }
 
-  function openLineEditor(lineId: string) {
+  function selectEstimateLine(lineId: string) {
     setSelectedLineId(lineId);
-    setEstimateEditorOpen(true);
   }
 
   async function applyModifier(modifierId: string) {
@@ -2515,6 +2510,12 @@ export function ProjectWorkspace() {
     [lines],
   );
 
+  const importedQuoteLineIds = useMemo(
+    () =>
+      new Set(lines.filter((l) => l.sourceType === 'vendor_quote' && l.sourceRef).map((l) => String(l.sourceRef))),
+    [lines],
+  );
+
   const alternatesCount = useMemo(
     () => lines.filter((l) => l.intakeScopeBucket === 'deduction_alternate').length,
     [lines],
@@ -2627,6 +2628,7 @@ export function ProjectWorkspace() {
             activeQuoteId={activeQuoteId}
             setActiveQuoteId={setActiveQuoteId}
             quoteLines={sourceQuoteLines}
+            importedQuoteLineIds={importedQuoteLineIds}
             projectFiles={projectFiles}
             fileUploading={fileUploading}
             onCreateQuote={(draft) => createSourceQuote(draft)}
@@ -2651,10 +2653,8 @@ export function ProjectWorkspace() {
 
         {activeTab === 'estimate' && (() => {
           /**
-           * Line detail (Properties Context + Modifier add-ins) now lives in the
-           * modifiersModalOpen popup only. The previous persistent right-rail was
-           * removed per estimator feedback — it crowded the grid; clicking a row
-           * opens the same editor as a modal on demand.
+           * Pricing view uses the Estimate cockpit (table + side panel). Detailed catalog /
+           * “line + add-ins” tools remain in the modifiers drawer opened from the toolbar or panel.
            */
           const estimateGridClass = 'isolate grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4';
           const takeoffBulkSelectEnabled = takeoffRoomFilter !== TAKEOFF_ALL_ROOMS;
@@ -2814,7 +2814,7 @@ export function ProjectWorkspace() {
                     takeoffShowRoom={takeoffRoomFilter === TAKEOFF_ALL_ROOMS}
                     laborMultiplier={summary?.conditionLaborMultiplier || 1}
                     selectedLineId={selectedLineId}
-                    onSelectLine={openLineEditor}
+                    onSelectLine={selectEstimateLine}
                     onPersistLine={(lineId, updates) => void persistLine(lineId, updates)}
                     onDeleteLine={(lineId) => void deleteLine(lineId)}
                     onDuplicateLine={(lineId) => void duplicateLine(lineId)}
@@ -2827,34 +2827,22 @@ export function ProjectWorkspace() {
                 </div>
               ) : (
               <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-              {summary ? (
-                <>
-                  <LaborPlanPanel
-                    installerCount={jobConditions.installerCount}
-                    productiveCrewHoursPerDay={summary.productiveCrewHoursPerDay ?? jobConditions.installerCount * 8}
-                    totalLaborHours={summary.totalLaborHours}
-                    durationDays={summary.durationDays}
-                    baseLaborRatePerHour={baseLaborRatePerHour}
-                    effectiveLaborCostPerHour={effectiveLaborCostPerHour}
-                    laborCostMultiplier={laborCostMultiplier}
-                    laborHoursMultiplier={laborHoursMultiplier}
-                    deliveryDifficulty={jobConditions.deliveryDifficulty}
-                  />
-                  <EstimateCostDriversBanner
-                    pricingMode={pricingMode}
-                    baseLaborRatePerHour={baseLaborRatePerHour}
-                    effectiveLaborCostPerHour={effectiveLaborCostPerHour}
-                    laborCostMultiplier={laborCostMultiplier}
-                    laborHoursMultiplier={laborHoursMultiplier}
-                    installerCount={jobConditions.installerCount}
-                    productiveCrewHoursPerDay={summary.productiveCrewHoursPerDay ?? jobConditions.installerCount * 8}
-                    totalLaborHours={summary.totalLaborHours}
-                    durationDays={summary.durationDays}
-                    materialLoadedOrSubtotal={summary.materialLoadedSubtotal ?? summary.materialSubtotal}
-                    laborLoadedOrSubtotal={summary.laborLoadedSubtotal ?? summary.adjustedLaborSubtotal ?? summary.laborSubtotal}
-                    baseBidTotal={summary.baseBidTotal}
-                  />
-                </>
+              {project ? (
+                <EstimateCockpitHeader
+                  projectName={project.projectName}
+                  pricingMode={pricingMode}
+                  projectStatus={project.status}
+                  runningTotal={pricingChipSubtotal}
+                  scopeHint={[
+                    roomNamesById[activeRoomId] ? `Room · ${roomNamesById[activeRoomId]}` : null,
+                    pricingOrganizeMode === 'categories' && pricingCategoryFilter !== PRICING_ALL_CATEGORIES
+                      ? `Category · ${pricingCategoryFilter}`
+                      : null,
+                    estimateSourceFilter !== 'all' ? `Source · ${estimateSourceFilter.replace('_', ' ')}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                />
               ) : null}
               <div className="ui-panel space-y-2 p-2 sm:p-2.5">
                 <div>
@@ -3072,43 +3060,70 @@ export function ProjectWorkspace() {
 
               {estimateBulkActionBar}
 
-              <div className="min-h-0 min-w-0 flex-1">
-              <EstimateGrid
-                lines={sortedPricingGridLines}
-                rooms={rooms}
-                categories={categories}
-                roomNamesById={roomNamesById}
-                pricingMode={pricingMode}
-                viewMode="estimate"
-                organizeBy="room"
-                laborMultiplier={summary?.conditionLaborMultiplier || 1}
-                selectedLineId={selectedLineId}
-                onSelectLine={openLineEditor}
-                onOpenLineDetail={openLineEditor}
-                onPersistLine={(lineId, updates) => void persistLine(lineId, updates)}
-                onDeleteLine={(lineId) => void deleteLine(lineId)}
-                onDuplicateLine={(lineId) => void duplicateLine(lineId)}
-                multiSelectEnabled
-                bulkSelectedLineIds={bulkSelectedLineIds}
-                onBulkToggleLine={toggleBulkLine}
-                onBulkHeaderApplyVisibleToggle={applyBulkHeaderVisible}
-                workspaceFrame
-                categoryGroupHeaders={pricingOrganizeMode === 'categories' && pricingCategoryFilter === PRICING_ALL_CATEGORIES}
-                healthHighlightLineIds={healthHighlightLineIds}
-              />
+              <div className="flex min-h-[min(70vh,560px)] min-h-0 min-w-0 flex-1 flex-col gap-3 pb-20 lg:flex-row">
+                {sortedPricingGridLines.length === 0 ? (
+                  <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-app-line bg-app-surface-soft/40 px-6 py-16 text-center">
+                    <p className="max-w-md text-sm leading-relaxed text-app-muted">
+                      Import included quote rows or add a manual estimate line to start pricing this project.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <EstimateCockpitTable
+                      lines={sortedPricingGridLines}
+                      pricingMode={pricingMode}
+                      laborMultiplier={summary?.conditionLaborMultiplier || 1}
+                      selectedLineId={selectedLineId}
+                      healthHighlightLineIds={healthHighlightLineIds}
+                      onSelectLine={selectEstimateLine}
+                      onToggleInclude={(lineId, nextIncluded) =>
+                        void persistLine(lineId, {
+                          proposalVisibility: nextIncluded ? 'customer_visible' : 'internal_only',
+                        })
+                      }
+                    />
+                    <EstimateCockpitLinePanel
+                      line={
+                        selectedLine && sortedPricingGridLines.some((l) => l.id === selectedLine.id)
+                          ? selectedLine
+                          : null
+                      }
+                      rooms={rooms}
+                      categories={categories}
+                      pricingMode={pricingMode}
+                      jobConditions={jobConditions}
+                      catalogModifiers={modifiers}
+                      lineModifiers={lineModifiers}
+                      showMaterial={showMaterial}
+                      showLabor={showLabor}
+                      projectLaborMultiplier={summary?.conditionLaborMultiplier || 1}
+                      onSave={async (lineId, updates) => {
+                        await persistLine(lineId, updates);
+                      }}
+                      onClearSelection={() => setSelectedLineId(null)}
+                      onApplyModifier={(modifierId) => void applyModifier(modifierId)}
+                      onRemoveModifier={(id) => void removeModifier(id)}
+                      onOpenAdvancedTools={() => setModifiersModalOpen(true)}
+                    />
+                  </>
+                )}
               </div>
               </div>
               )}
             </div>
           </div>
-          <EstimateWorkspaceFooter
-            estimateView={estimateView}
-            lineStats={estimateProjectLineStats}
-            baseBidTotal={summary?.baseBidTotal}
-            pricingMode={pricingMode}
-            materialLoadedSubtotal={summary?.materialLoadedSubtotal ?? summary?.materialSubtotal}
-            laborLoadedSubtotal={summary?.laborLoadedSubtotal ?? summary?.adjustedLaborSubtotal ?? summary?.laborSubtotal}
-          />
+          {estimateView === 'quantities' ? (
+            <EstimateWorkspaceFooter
+              estimateView={estimateView}
+              lineStats={estimateProjectLineStats}
+              baseBidTotal={summary?.baseBidTotal}
+              pricingMode={pricingMode}
+              materialLoadedSubtotal={summary?.materialLoadedSubtotal ?? summary?.materialSubtotal}
+              laborLoadedSubtotal={summary?.laborLoadedSubtotal ?? summary?.adjustedLaborSubtotal ?? summary?.laborSubtotal}
+            />
+          ) : (
+            <EstimateCockpitSummaryBar summary={summary} jobConditions={jobConditions} />
+          )}
           </div>
           </>
           );
