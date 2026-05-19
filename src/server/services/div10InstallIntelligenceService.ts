@@ -254,8 +254,26 @@ export async function loadInstallIntelligenceWorkbook(force = false): Promise<In
       engineFlow,
     };
 
+    const hasUsableLaborFamilies = wb.laborFamilies.some(
+      (family) => family.active && Number(family.baseMinutesEach) > 0,
+    );
     if (wb.categoryProfiles.length === 0 && wb.laborFamilies.length === 0) {
       cachedWorkbook = buildFallbackInstallIntelligenceWorkbook();
+    } else if (!hasUsableLaborFamilies) {
+      const fallback = buildFallbackInstallIntelligenceWorkbook();
+      console.warn(
+        '[install-intelligence] LaborFamilies tab missing usable rows; merging bundled labor families.',
+      );
+      cachedWorkbook = {
+        ...wb,
+        laborFamilies: fallback.laborFamilies,
+        categoryProfiles: wb.categoryProfiles.length > 0 ? wb.categoryProfiles : fallback.categoryProfiles,
+        reviewRules: wb.reviewRules.length > 0 ? wb.reviewRules : fallback.reviewRules,
+        categoryQuestions:
+          wb.categoryQuestions.length > 0 ? wb.categoryQuestions : fallback.categoryQuestions,
+        defaultAssumptions:
+          wb.defaultAssumptions.length > 0 ? wb.defaultAssumptions : fallback.defaultAssumptions,
+      };
     } else {
       cachedWorkbook = wb;
     }
@@ -291,7 +309,7 @@ export function inferCategoryKey(input: {
     const keys = tokenList(profile.matchKeywords);
     if (keys.some((k) => hay.includes(k))) return profile.categoryKey;
   }
-  if (/grab\s*bar/.test(hay)) return 'grab_bar';
+  if (/grab\s*bar/.test(hay) || /\bb-?6806\b/.test(hay)) return 'grab_bar';
   if (/baby changing|changing station/.test(hay)) return 'baby_changing';
   if (/partition|stall|compartment/.test(hay)) return 'partition';
   if (/locker/.test(hay)) return 'locker';

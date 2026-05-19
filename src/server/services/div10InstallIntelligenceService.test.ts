@@ -5,6 +5,7 @@ import {
   applyInstallModifiers,
   getProposalClauses,
   getQuestionsForLine,
+  inferCategoryKey,
   resolveInstallIntelligenceFromWorkbook,
   resolveVendorAlias,
   runReviewRules,
@@ -34,6 +35,10 @@ function lineFacts(partial: Partial<LineFacts> & Pick<LineFacts, 'description'>)
     assumptions: partial.assumptions ?? {},
   };
 }
+
+test('inferCategoryKey recognizes Bobrick B-6806 grab bar SKU', () => {
+  assert.equal(inferCategoryKey({ description: 'B-6806 x 2 EA', workbook: wb }), 'grab_bar');
+});
 
 test('grab bar requires blocking question', () => {
   const questions = getQuestionsForLine('grab_bar', null, wb);

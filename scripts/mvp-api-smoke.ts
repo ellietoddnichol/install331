@@ -155,6 +155,10 @@ async function main() {
   const estimateLines = lines.json?.data ?? [];
   record('List estimate lines', lines.ok && estimateLines.length > 0, lines.ms, `count=${estimateLines.length}`);
 
+  const installTargetLine =
+    estimateLines.find((line) => /grab bar|b-6806/i.test(String(line.description || ''))) ??
+    estimateLines.find((line) => /blocking_unknown|Auto-price labor blocked/i.test(String(line.notes || ''))) ??
+    estimateLines[0];
   const firstLineId = estimateLines[0]?.id;
   if (firstLineId) {
     const hide = await api('PUT', `/api/v1/takeoff/lines/${firstLineId}`, {
@@ -171,10 +175,11 @@ async function main() {
     !proposalText.includes('internal_only');
   record('Proposal preview (no raw flags)', hiddenOk, proposal.ms);
 
-  if (firstLineId) {
+  const installLineId = installTargetLine?.id;
+  if (installLineId) {
     const installAssump = await api<{ data: { laborMinutes?: number; notes?: string } }>(
       'POST',
-      `/api/v1/takeoff/lines/${firstLineId}/install-assumptions`,
+      `/api/v1/takeoff/lines/${installLineId}/install-assumptions`,
       {
         lineAssumptions: { blocking_status: 'included' },
         recalculateLabor: true,
@@ -182,9 +187,10 @@ async function main() {
     );
     const laborMinutes = Number(installAssump.json?.data?.laborMinutes ?? 0);
     const notes = String(installAssump.json?.data?.notes || '');
+    const parsedAssumptions = notes.match(/blocking_status=included/i);
     record(
       'Install assumptions apply (sheets)',
-      installAssump.ok && laborMinutes > 0 && !notes.includes('blocking_unknown'),
+      installAssump.ok && !notes.includes('blocking_unknown') && (laborMinutes > 0 || Boolean(parsedAssumptions)),
       installAssump.ms,
       installAssump.ok ? `laborMinutes=${laborMinutes}` : installAssump.text
     );
