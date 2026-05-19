@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronDown, FileDown, MoreHorizontal, Printer, Save, Eye, Send } from 'lucide-react';
+import { ChevronLeft, ChevronDown, FileDown, MoreHorizontal, Printer, Save, Eye, Send, Trash2 } from 'lucide-react';
 import type { ProjectRecord } from '../../shared/types/estimator';
 import {
   projectDisplaySubtitle,
@@ -176,20 +176,26 @@ export function WorkspaceProjectHeader({
                 {menuOpen ? (
                   <div
                     role="menu"
-                    className="absolute left-0 z-20 mt-1 min-w-[11rem] rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+                    className="absolute left-0 z-20 mt-1 min-w-[12rem] rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
                   >
                     {onRequestDelete ? (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="block w-full px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50"
-                        onClick={() => {
-                          setMenuOpen(false);
-                          onRequestDelete();
-                        }}
-                      >
-                        Delete project
-                      </button>
+                      <>
+                        <p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                          Danger zone
+                        </p>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="flex w-full items-center px-3 py-2 text-left text-sm font-medium text-rose-700 hover:bg-rose-50"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            onRequestDelete();
+                          }}
+                        >
+                          <Trash2 className="mr-2 inline h-4 w-4" aria-hidden />
+                          Delete project…
+                        </button>
+                      </>
                     ) : null}
                   </div>
                 ) : null}

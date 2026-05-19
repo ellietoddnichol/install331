@@ -5,11 +5,13 @@ import { api } from '../services/api';
 import type { PricingMode } from '../shared/types/estimator';
 import { projectWorkspacePath } from '../shared/utils/projectWorkspaceRoutes.ts';
 
+import { ProjectWorkflowGuide } from '../components/projects/ProjectWorkflowGuide';
+
 const WORKFLOW_STEPS = [
-  { step: 1, title: 'Setup project', detail: 'Customer, site, labor defaults, and install assumptions.' },
-  { step: 2, title: 'Add vendor quotes', detail: 'Import or enter quote lines, then import selected scope.' },
-  { step: 3, title: 'Review estimate', detail: 'Price labor, adjust visibility, and confirm install assumptions.' },
-  { step: 4, title: 'Generate proposal', detail: 'Preview and print a customer-facing proposal.' },
+  { step: 1, title: 'Setup', detail: 'Customer, site, labor defaults, and install assumptions.' },
+  { step: 2, title: 'Quotes', detail: 'Import or enter quote lines, then import selected scope.' },
+  { step: 3, title: 'Estimate', detail: 'Price labor, adjust visibility, and confirm install assumptions.' },
+  { step: 4, title: 'Proposal', detail: 'Preview and print a customer-facing proposal.' },
 ] as const;
 
 export function ProjectCreate() {
@@ -50,9 +52,10 @@ export function ProjectCreate() {
     <div className="ui-page max-w-5xl space-y-6 pb-10">
       <section>
         <p className="ui-mono-kicker">Create project</p>
-        <h1 className="mt-1 text-[28px] font-semibold tracking-tight text-slate-950">Create project</h1>
+        <ProjectWorkflowGuide className="mt-2" />
+        <h1 className="mt-3 text-[28px] font-semibold tracking-tight text-slate-950">Create project</h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
-          Start with the basics. You can add quotes, assumptions, estimate details, and proposal options next.
+          Start with the basics. You will move through setup, quotes, estimate review, and proposal next.
         </p>
       </section>
 

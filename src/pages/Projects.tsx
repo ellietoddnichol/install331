@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowUpDown, Archive, Filter, Plus, Search } from 'lucide-react';
+import { ArrowUpDown, Archive, Filter, MoreHorizontal, Plus, Search } from 'lucide-react';
+import { DeleteProjectModal } from '../components/projects/DeleteProjectModal';
+import { projectDisplayTitle } from '../shared/utils/projectDisplay';
 import { format } from 'date-fns';
 import { ResumeProjectBanner } from '../components/ResumeProjectBanner';
 import { api } from '../services/api';
@@ -76,6 +78,8 @@ export function Projects() {
   const [search, setSearch] = useState(initialSearch);
   const [status, setStatus] = useState<ProjectFilterValue>(initialFilter);
   const [sort, setSort] = useState<SortValue>(initialSort);
+  const [openMenuProjectId, setOpenMenuProjectId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     const next = new URLSearchParams();
@@ -84,6 +88,18 @@ export function Projects() {
     if (sort !== 'newest') next.set('sort', sort);
     setSearchParams(next, { replace: true });
   }, [search, status, sort, setSearchParams]);
+
+  useEffect(() => {
+    if (!openMenuProjectId) return;
+    function onPointerDown(event: MouseEvent) {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest('[data-project-row-menu]')) {
+        setOpenMenuProjectId(null);
+      }
+    }
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [openMenuProjectId]);
 
   const filtered = useMemo(() => {
     const bySearch = projects.filter((project) => {
@@ -121,12 +137,12 @@ export function Projects() {
   const archivedCount = projects.filter((project) => project.status === 'Archived').length;
   const activeFilterLabel = resolveFilterLabel(status);
 
-  async function deleteProject(projectId: string, projectName: string) {
-    const confirmed = window.confirm(`Delete project "${projectName}" permanently?`);
-    if (!confirmed) return;
-
+  async function confirmDeleteProject() {
+    if (!deleteTarget) return;
     try {
-      await deleteMutation.mutateAsync(projectId);
+      await deleteMutation.mutateAsync(deleteTarget.id);
+      setDeleteTarget(null);
+      setOpenMenuProjectId(null);
     } catch (err) {
       console.error('Unable to delete project', err);
       window.alert('Unable to delete this project right now.');
@@ -241,7 +257,9 @@ export function Projects() {
                 <th className="ui-table-th px-5 py-3">Client</th>
                 <th className="ui-table-th px-5 py-3">Status</th>
                 <th className="ui-table-th px-5 py-3">Created</th>
-                <th className="ui-table-th-end px-5 py-3">Action</th>
+                <th className="ui-table-th-end w-16 px-5 py-3">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[color-mix(in_srgb,var(--line)_55%,white)]">
@@ -270,7 +288,7 @@ export function Projects() {
                           <span>· IDREF <span className="text-slate-600">{project.projectNumber}</span></span>
                         ) : null}
                       </div>
-                      <p className="text-sm font-semibold text-slate-900">{project.projectName}</p>
+                      <p className="text-sm font-semibold text-slate-900">{projectDisplayTitle(project.projectName)}</p>
                       <p className="text-xs text-slate-500">{project.address || 'No address'}</p>
                     </td>
                     <td className="px-5 py-3.5 text-sm text-slate-700">{project.clientName || 'No client'}</td>
@@ -283,16 +301,43 @@ export function Projects() {
                         : 'N/A'}
                     </td>
                     <td className="px-5 py-3.5 text-right" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void deleteProject(project.id, project.projectName);
-                        }}
-                        className="h-8 rounded-md border border-red-200 px-3 font-mono text-[10px] font-semibold uppercase tracking-[0.06em] text-red-700 outline-none hover:bg-red-50 focus-visible:ring-2 focus-visible:ring-red-400/40"
-                      >
-                        Delete
-                      </button>
+                      <div className="relative inline-block" data-project-row-menu>
+                        <button
+                          type="button"
+                          aria-label={`More actions for ${projectDisplayTitle(project.projectName)}`}
+                          aria-expanded={openMenuProjectId === project.id}
+                          aria-haspopup="menu"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenMenuProjectId((current) => (current === project.id ? null : project.id));
+                          }}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 outline-none hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-400/40"
+                        >
+                          <MoreHorizontal className="h-4 w-4" aria-hidden />
+                        </button>
+                        {openMenuProjectId === project.id ? (
+                          <div
+                            role="menu"
+                            className="absolute right-0 z-20 mt-1 min-w-[12rem] rounded-lg border border-slate-200 bg-white py-1 text-left shadow-lg"
+                          >
+                            <p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                              Danger zone
+                            </p>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="block w-full px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenMenuProjectId(null);
+                                setDeleteTarget({ id: project.id, name: project.projectName });
+                              }}
+                            >
+                              Delete project…
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -306,6 +351,14 @@ export function Projects() {
         <Archive className="w-4 h-4" />
         Archived projects: {archivedCount}
       </div>
+
+      <DeleteProjectModal
+        open={Boolean(deleteTarget)}
+        projectName={deleteTarget?.name}
+        busy={deleteMutation.isPending}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => void confirmDeleteProject()}
+      />
     </div>
   );
 }

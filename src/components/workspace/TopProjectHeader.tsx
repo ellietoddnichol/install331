@@ -1,6 +1,7 @@
-import React from 'react';
-import { ChevronLeft, FileDown, Save, Send, Trash2 } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronLeft, FileDown, MoreHorizontal, Save, Send } from 'lucide-react';
 import { ProjectRecord } from '../../shared/types/estimator';
+import { projectDisplayTitle } from '../../shared/utils/projectDisplay';
 import { formatCurrencySafe, formatNumberSafe } from '../../utils/numberFormat';
 
 interface Props {
@@ -21,7 +22,8 @@ interface Props {
   onSave: () => Promise<void> | void;
   onExport: () => void;
   onSubmitBid: () => Promise<void> | void;
-  onDeleteProject: () => Promise<void> | void;
+  /** Opens typed delete confirmation — not shown on the main toolbar. */
+  onRequestDelete?: () => void;
   statusActionLabel: string;
 }
 
@@ -31,7 +33,7 @@ interface Props {
  * Layout (top → bottom):
  *   1. LIVE breadcrumb strip: pulsing dot + "BRIGHTEN BUILDERS / ESTIMATOR STATION"
  *   2. Title row: sans project name + mono-italic subtitle, plus READY / SYNC /
- *      EXPORT DOCUMENT / SAVE / SUBMIT / DELETE controls on the right.
+ *      EXPORT DOCUMENT / SAVE / SUBMIT controls on the right.
  *   3. Stat strip: ESTIMATED VALUATION, LABOR COMMITMENT (+ WITHIN LIMIT chip),
  *      ACTIVE SCOPE ITEMS, ENTRIES.
  *
@@ -51,9 +53,11 @@ export function TopProjectHeader({
   onSave,
   onExport,
   onSubmitBid,
-  onDeleteProject,
+  onRequestDelete,
   statusActionLabel,
 }: Props) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const readyChipClass =
     syncState === 'error'
       ? 'ui-mono-chip ui-mono-chip--danger'
@@ -73,6 +77,18 @@ export function TopProjectHeader({
 
   const subtitle = project.clientName || 'No client assigned';
   const subtitleSuffix = project.generalContractor ? ` · GC ${project.generalContractor}` : '';
+  const title = projectDisplayTitle(project.projectName);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onPointerDown(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [menuOpen]);
 
   return (
     <header
@@ -94,11 +110,10 @@ export function TopProjectHeader({
         </button>
       </div>
 
-      {/* Row 2 — title + controls */}
       <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-[22px] font-semibold leading-tight tracking-tight text-slate-950 md:text-[26px]">
-            {project.projectName}
+            {title}
             {project.projectNumber ? (
               <span className="ml-2 align-middle font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-slate-400">
                 #{project.projectNumber}
@@ -129,12 +144,7 @@ export function TopProjectHeader({
               <Save className="h-3.5 w-3.5" /> Save
             </button>
           </div>
-          <button
-            type="button"
-            onClick={onExport}
-            className="ui-btn-cta"
-            title="Downloads an HTML file you can open in a browser. Use Print → Save as PDF for a PDF."
-          >
+          <button type="button" onClick={onExport} className="ui-btn-cta" title="Export document">
             <FileDown className="mr-1.5 h-3.5 w-3.5" />
             Export Document
           </button>
@@ -146,18 +156,45 @@ export function TopProjectHeader({
           >
             <Send className="mr-1.5 h-3.5 w-3.5" /> {statusActionLabel}
           </button>
-          <button
-            type="button"
-            onClick={() => onDeleteProject()}
-            className="ui-btn-secondary inline-flex h-10 items-center gap-1 px-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-rose-700"
-            title="Delete project"
-          >
-            <Trash2 className="h-3.5 w-3.5" /> Delete
-          </button>
+          {onRequestDelete ? (
+            <div className="relative" ref={menuRef}>
+              <button
+                type="button"
+                onClick={() => setMenuOpen((open) => !open)}
+                className="inline-flex h-10 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-700 hover:bg-slate-50"
+                aria-expanded={menuOpen}
+                aria-haspopup="menu"
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" aria-hidden />
+                More
+                <ChevronDown className={`h-3.5 w-3.5 transition ${menuOpen ? 'rotate-180' : ''}`} aria-hidden />
+              </button>
+              {menuOpen ? (
+                <div
+                  role="menu"
+                  className="absolute right-0 z-20 mt-1 min-w-[12rem] rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+                >
+                  <p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    Danger zone
+                  </p>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="block w-full px-3 py-2 text-left text-sm font-medium text-rose-700 hover:bg-rose-50"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onRequestDelete();
+                    }}
+                  >
+                    Delete project…
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
 
-      {/* Row 3 — stat strip */}
       <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 border-t border-slate-200 pt-2.5 md:grid-cols-4">
         <StatCell label="Estimated Valuation" value={formatCurrencySafe(baseBidTotal)} />
         <StatCell

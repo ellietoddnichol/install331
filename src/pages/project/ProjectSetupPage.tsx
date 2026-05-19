@@ -8,7 +8,8 @@ import {
   ProjectSetupReadinessPanel,
   readProjectBlockingStatus,
 } from '../../components/project/ProjectSetupReadiness';
-import { projectDisplaySubtitle, projectDisplayTitle } from '../../shared/utils/projectDisplay';
+import { ProjectWorkflowGuide } from '../../components/projects/ProjectWorkflowGuide';
+import { projectDisplaySubtitle, projectDisplayTitle, proposalModeChipLabel } from '../../shared/utils/projectDisplay';
 import { formatNumberSafe } from '../../utils/numberFormat';
 
 interface ProjectSetupPageProps {
@@ -147,12 +148,19 @@ export function ProjectSetupPage({ project, settings, setProject, patchJobCondit
     <div className="pb-24">
       <section className="ui-fo-card mb-5 p-5">
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Project setup</p>
-        <h1 className="mt-1 text-xl font-semibold text-slate-950">{projectDisplayTitle(project.projectName)}</h1>
+        <ProjectWorkflowGuide className="mt-2" />
+        <h1 className="mt-3 text-xl font-semibold text-slate-950">{projectDisplayTitle(project.projectName)}</h1>
         {projectDisplaySubtitle(project) ? (
           <p className="mt-1 text-sm text-slate-600">{projectDisplaySubtitle(project)}</p>
         ) : (
-          <p className="mt-1 text-sm text-slate-500">Add project details to continue.</p>
+          <p className="mt-1 text-sm text-slate-500">Add customer and site details to continue.</p>
         )}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-800 ring-1 ring-slate-200/80">
+            {proposalModeChipLabel(project.pricingMode)}
+          </span>
+          <span className="text-[11px] text-slate-500">Proposal mode</span>
+        </div>
       </section>
 
       <FieldOpsPageHeader
