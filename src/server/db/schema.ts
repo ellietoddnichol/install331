@@ -539,6 +539,12 @@ export function initEstimatorSchema(db: Database) {
   if (projectFilesColumns.length > 0 && !projectFilesColumns.some((c) => c.name === 'storage_object_key')) {
     db.exec('ALTER TABLE project_files_v1 ADD COLUMN storage_object_key TEXT');
   }
+  if (projectFilesColumns.length > 0 && !projectFilesColumns.some((c) => c.name === 'gcs_bucket')) {
+    db.exec('ALTER TABLE project_files_v1 ADD COLUMN gcs_bucket TEXT');
+  }
+  if (projectFilesColumns.length > 0 && !projectFilesColumns.some((c) => c.name === 'gcs_object')) {
+    db.exec('ALTER TABLE project_files_v1 ADD COLUMN gcs_object TEXT');
+  }
 
   const sourceQuoteColumns = db.prepare('PRAGMA table_info(source_quotes_v1)').all() as Array<{ name: string }>;
   if (sourceQuoteColumns.length > 0 && !sourceQuoteColumns.some((c) => c.name === 'delivery_date')) {

@@ -6,7 +6,10 @@ export type Div10BrainLocals = { div10BrainEnv: Div10BrainEnv };
 export const requireDiv10BrainAdmin: RequestHandler = (_req, res, next) => {
   const env = readDiv10BrainEnv();
   if (!env) {
-    res.status(503).json({ error: 'Div 10 Brain is not configured (Supabase + OpenAI env missing).' });
+    res.status(503).json({
+      error:
+        'Div 10 Brain is not available. Set DIV10_BRAIN_ENABLED=1 with SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and OPENAI_API_KEY, or leave DIV10_BRAIN_ENABLED=0 for Sheets-first MVP.',
+    });
     return;
   }
   if (!env.div10BrainAdminSecret) {

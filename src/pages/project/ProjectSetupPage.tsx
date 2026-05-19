@@ -8,6 +8,7 @@ import {
   ProjectSetupReadinessPanel,
   readProjectBlockingStatus,
 } from '../../components/project/ProjectSetupReadiness';
+import { projectDisplaySubtitle, projectDisplayTitle } from '../../shared/utils/projectDisplay';
 import { formatNumberSafe } from '../../utils/numberFormat';
 
 interface ProjectSetupPageProps {
@@ -144,9 +145,19 @@ export function ProjectSetupPage({ project, settings, setProject, patchJobCondit
 
   return (
     <div className="pb-24">
+      <section className="ui-fo-card mb-5 p-5">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Project setup</p>
+        <h1 className="mt-1 text-xl font-semibold text-slate-950">{projectDisplayTitle(project.projectName)}</h1>
+        {projectDisplaySubtitle(project) ? (
+          <p className="mt-1 text-sm text-slate-600">{projectDisplaySubtitle(project)}</p>
+        ) : (
+          <p className="mt-1 text-sm text-slate-500">Add project details to continue.</p>
+        )}
+      </section>
+
       <FieldOpsPageHeader
-        kicker="Project setup"
-        title="Estimate readiness"
+        kicker="Estimate readiness"
+        title="Setup checklist"
         subtitle="Configure customer, site, labor, and install assumptions before quote import and estimate review."
       />
 

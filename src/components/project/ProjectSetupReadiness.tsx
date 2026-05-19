@@ -5,6 +5,7 @@ import {
   PROJECT_BLOCKING_RULE_ID,
   readBlockingStatusFromStructuredAssumptions,
 } from '../../shared/utils/projectBlockingAssumptions.ts';
+import { projectDisplayTitle } from '../../shared/utils/projectDisplay';
 import { formatNumberSafe } from '../../utils/numberFormat';
 
 export type SetupReadinessStatus = 'complete' | 'incomplete' | 'attention';
@@ -158,7 +159,7 @@ export function ProjectSetupReadinessPanel(props: {
         <dl className="mt-3 space-y-2 text-[12px]">
           <div className="flex justify-between gap-2">
             <dt className="text-slate-500">Project</dt>
-            <dd className="max-w-[58%] text-right font-medium text-slate-900">{project.projectName || '—'}</dd>
+            <dd className="max-w-[58%] text-right font-medium text-slate-900">{projectDisplayTitle(project.projectName)}</dd>
           </div>
           <div className="flex justify-between gap-2">
             <dt className="text-slate-500">Customer</dt>

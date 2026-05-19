@@ -60,6 +60,7 @@ import { toggleBulkSelectionForVisibleConcrete } from '../shared/utils/estimateB
 import { deriveEstimateLineHealth, type EstimateHealthFocus } from '../shared/utils/estimateLineHealth';
 import { PRICING_ALL_CATEGORIES, TAKEOFF_ALL_ROOMS } from '../shared/constants/workspaceUi';
 import { WorkspaceProjectHeader } from '../components/workflow/WorkspaceProjectHeader';
+import { DeleteProjectModal } from '../components/projects/DeleteProjectModal';
 import { ProjectWorkflowReadinessBar } from '../components/workflow/ProjectWorkflowReadinessBar';
 import {
   EstimateTabSummaryCard,
@@ -287,6 +288,8 @@ export function ProjectWorkspace() {
   );
   const [proposalPrintBusy, setProposalPrintBusy] = useState(false);
   const [quoteImportBusy, setQuoteImportBusy] = useState(false);
+  const [deleteProjectModalOpen, setDeleteProjectModalOpen] = useState(false);
+  const [deleteProjectBusy, setDeleteProjectBusy] = useState(false);
 
   /** When true, Proposal tab reads `v_estimate_lines_customer` + `v_estimate_summary` via `/api/v1/pipeline/...`. */
   const [pipelineNativeEnabled, setPipelineNativeEnabled] = useState(false);
@@ -1290,17 +1293,22 @@ export function ProjectWorkspace() {
     };
   }, [loading]);
 
-  async function deleteProjectPermanently() {
-    if (!project) return;
-    const confirmed = window.confirm(`Delete project "${project.projectName}" permanently? This removes rooms, takeoff lines, and attached files.`);
-    if (!confirmed) return;
+  function openDeleteProjectModal() {
+    setDeleteProjectModalOpen(true);
+  }
 
+  async function confirmDeleteProject() {
+    if (!project) return;
+    setDeleteProjectBusy(true);
     try {
       await api.deleteV1Project(project.id);
+      setDeleteProjectModalOpen(false);
       navigate('/projects');
     } catch (error) {
       console.error('Failed to delete project', error);
       window.alert('Unable to delete this project right now.');
+    } finally {
+      setDeleteProjectBusy(false);
     }
   }
 
@@ -2896,7 +2904,8 @@ export function ProjectWorkspace() {
           onPrint={openProposalOutputOptions}
           onStatusAction={submitBid}
           statusActionLabel={statusActionLabel}
-          onDeleteProject={deleteProjectPermanently}
+          onContinueSetup={() => goToTab('setup')}
+          onRequestDelete={openDeleteProjectModal}
           estimateLineCount={lines.length}
         />
         {actionFeedback ? (
@@ -3737,6 +3746,14 @@ export function ProjectWorkspace() {
           closeQuoteImportResultModal();
           goToTab('quotes');
         }}
+      />
+
+      <DeleteProjectModal
+        open={deleteProjectModalOpen}
+        projectName={project?.projectName}
+        busy={deleteProjectBusy}
+        onCancel={() => setDeleteProjectModalOpen(false)}
+        onConfirm={() => void confirmDeleteProject()}
       />
 
       <ProposalOutputOptions

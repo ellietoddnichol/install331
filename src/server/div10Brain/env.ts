@@ -14,7 +14,13 @@ export type Div10BrainEnv = {
   div10BrainAdminSecret: string;
 };
 
+function isDiv10BrainExplicitlyDisabled(): boolean {
+  const raw = String(process.env.DIV10_BRAIN_ENABLED ?? '').trim().toLowerCase();
+  return raw === '0' || raw === 'false' || raw === 'no' || raw === 'off';
+}
+
 export function readDiv10BrainEnv(): Div10BrainEnv | null {
+  if (isDiv10BrainExplicitlyDisabled()) return null;
   const supabaseUrl = String(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim();
   const supabaseServiceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
   const openaiApiKey = String(process.env.OPENAI_API_KEY || '').trim();

@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import type { EstimateSummary, ProjectRecord, SettingsRecord, SourceQuoteRecord } from '../../shared/types/estimator';
 import type { WorkspaceTab } from '../../shared/types/projectWorkflow';
 import type { NextBestAction } from '../../shared/utils/projectWorkspaceReadiness';
+import { projectDisplayTitle, proposalModeChipLabel as modeLabel } from '../../shared/utils/projectDisplay';
 import { formatCurrencySafe } from '../../utils/numberFormat';
 import { overviewTotalsFromSummary } from '../../components/workflow/ProjectWorkspaceTabSummaries';
 
@@ -27,17 +28,6 @@ export interface ProjectOverviewMvpPageProps {
   clarificationsCount: number;
   exclusionsCount: number;
   onGoToTab: (tab: WorkspaceTab) => void;
-}
-
-function pricingModeLabel(mode: ProjectRecord['pricingMode']): string {
-  switch (mode) {
-    case 'labor_only':
-      return 'Install only';
-    case 'material_only':
-      return 'Material only';
-    default:
-      return 'Full';
-  }
 }
 
 export function ProjectOverviewMvpPage({
@@ -80,11 +70,11 @@ export function ProjectOverviewMvpPage({
 
       <div className="grid gap-4 lg:grid-cols-2">
         <OverviewCard title="Project setup">
-          <OverviewRow label="Project" value={project.projectName?.trim() || '—'} />
-          <OverviewRow label="Customer" value={project.clientName?.trim() || '—'} />
-          <OverviewRow label="Address" value={project.address?.trim() || '—'} />
+          <OverviewRow label="Project" value={projectDisplayTitle(project.projectName)} />
+          <OverviewRow label="Customer" value={project.clientName?.trim() || 'Add customer'} />
+          <OverviewRow label="Address" value={project.address?.trim() || 'Add address'} />
           <OverviewRow label="Tax location" value={taxLocation} />
-          <OverviewRow label="Proposal mode" value={pricingModeLabel(project.pricingMode)} />
+          <OverviewRow label="Proposal mode" value={modeLabel(project.pricingMode)} />
           <OverviewRow
             label="Labor rate"
             value={effectiveLaborRatePerHour > 0 ? `${formatCurrencySafe(effectiveLaborRatePerHour)}/hr` : '—'}
