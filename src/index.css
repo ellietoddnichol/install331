@@ -1002,4 +1002,126 @@
     color: inherit !important;
     text-decoration: none !important;
   }
+
+  body.proposal-print-active * {
+    visibility: hidden !important;
+  }
+  body.proposal-print-active #proposal-print-mount,
+  body.proposal-print-active #proposal-print-mount * {
+    visibility: visible !important;
+  }
+  body.proposal-print-active #proposal-print-mount {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    pointer-events: auto !important;
+    z-index: 99999 !important;
+  }
+}
+
+#proposal-print-mount {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 8.5in;
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Branded customer proposal print layout */
+.proposal-print-document {
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #0f172a;
+}
+
+.proposal-print-meta table {
+  border: 1px solid #cbd5e1;
+  border-radius: 2px;
+  background: #f8fafc;
+}
+
+.proposal-print-meta th,
+.proposal-print-meta td {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+.proposal-print-line-table .proposal-print-col-num {
+  width: 5.5rem;
+  white-space: nowrap;
+}
+
+.proposal-print-sig-line {
+  min-height: 2.5rem;
+}
+
+@media print {
+  .proposal-print-document {
+    font-size: 11pt !important;
+    color: #000 !important;
+    -webkit-print-color-adjust: economy;
+    print-color-adjust: economy;
+  }
+
+  .proposal-print-document .proposal-print-logo img {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .proposal-print-letterhead,
+  .proposal-print-meta,
+  .proposal-print-pricing,
+  .proposal-print-pricing-box,
+  .proposal-print-total-row,
+  .proposal-print-line-group-head,
+  .proposal-print-scope-card,
+  .proposal-print-signature,
+  .proposal-print-signature-grid > div {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .proposal-print-line-table thead {
+    display: table-header-group;
+  }
+
+  .proposal-print-line-table tr.proposal-line-item {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .proposal-print-line-group .proposal-print-line-table tbody tr:first-child {
+    break-before: avoid;
+    page-break-before: avoid;
+  }
+
+  .proposal-print-line-group-head {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .proposal-print-meta table {
+    background: #fff !important;
+    border-color: #000 !important;
+  }
+
+  .proposal-print-pricing-box {
+    background: #fff !important;
+    border-color: #000 !important;
+  }
+
+  .proposal-print-scope-card {
+    border-color: #94a3b8 !important;
+  }
+
+  .proposal-print-total-row {
+    border-top-color: #000 !important;
+  }
+
+  .proposal-print-sig-line {
+    border-bottom-color: #000 !important;
+  }
 }

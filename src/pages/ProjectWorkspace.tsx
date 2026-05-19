@@ -73,8 +73,16 @@ import { RoomManager } from '../components/workspace/RoomManager';
 import { ProposalSectionEditor } from '../components/workflow/ProposalSectionEditor';
 import { ProposalSettingsRail } from '../components/workflow/ProposalSettingsRail';
 import { ProposalPreview } from '../components/workflow/ProposalPreview';
+import { ProposalOutputOptions } from '../components/proposal/ProposalOutputOptions';
+import { ProposalPrintDocument } from '../components/proposal/ProposalPrintDocument';
+import {
+  buildProposalPrintModel,
+  DEFAULT_PROPOSAL_OUTPUT_OPTIONS,
+  type ProposalOutputOptions as ProposalOutputOptionsState,
+} from '../shared/utils/proposalPrintModel';
 import { buildProposalReadinessItems, ProposalReadinessRail } from '../components/workflow/ProposalReadinessRail';
 import { FieldOpsPageHeader } from '../components/fieldops/FieldOpsPrimitives';
+import { RouteFallback } from '../components/RouteFallback';
 import { EstimateGrid } from '../components/workspace/EstimateGrid';
 import { EstimateHealthStrip } from '../components/workspace/EstimateHealthStrip';
 import { LaborPlanPanel } from '../components/workspace/LaborPlanPanel';
@@ -273,6 +281,11 @@ export function ProjectWorkspace() {
   const [installReviewGenerating, setInstallReviewGenerating] = useState(false);
   const [distanceCalculating, setDistanceCalculating] = useState(false);
   const [distanceError, setDistanceError] = useState<string | null>(null);
+  const [proposalOutputOpen, setProposalOutputOpen] = useState(false);
+  const [proposalOutputOptions, setProposalOutputOptions] = useState<ProposalOutputOptionsState>(
+    DEFAULT_PROPOSAL_OUTPUT_OPTIONS
+  );
+  const [proposalPrintBusy, setProposalPrintBusy] = useState(false);
 
   /** When true, Proposal tab reads `v_estimate_lines_customer` + `v_estimate_summary` via `/api/v1/pipeline/...`. */
   const [pipelineNativeEnabled, setPipelineNativeEnabled] = useState(false);
@@ -1128,6 +1141,18 @@ export function ProjectWorkspace() {
     return m;
   }, [referencedCatalogItems]);
 
+  const proposalPrintModel = useMemo(() => {
+    if (!project || !proposalScheduleSummary) return null;
+    return buildProposalPrintModel({
+      project,
+      settings,
+      lines: proposalScheduleLines,
+      summary: proposalScheduleSummary,
+      options: proposalOutputOptions,
+      catalogImageById,
+    });
+  }, [catalogImageById, project, proposalOutputOptions, proposalScheduleLines, proposalScheduleSummary, settings]);
+
   function resolveLocalLinePricing(line: TakeoffLineRecord): TakeoffLineRecord {
     const pricingSource = line.pricingSource === 'manual' ? 'manual' : 'auto';
     const calculatedUnitSell = Number((line.materialCost + line.laborCost).toFixed(2));
@@ -1342,6 +1367,8 @@ export function ProjectWorkspace() {
       .proposal-document header { display: block !important; }
       .proposal-document img { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .workspace-top-header { display: none !important; }
+      .print-hidden { display: none !important; }
+      .proposal-print-document { box-shadow: none !important; }
     `);
 
     return cssChunks.join('\n');
@@ -1353,7 +1380,15 @@ export function ProjectWorkspace() {
   }
 
   function getProposalContainer(): HTMLElement | null {
+    const printRoot = document.querySelector(
+      '#proposal-print-mount [data-proposal-print-document="true"]'
+    ) as HTMLElement | null;
+    if (printRoot) return printRoot;
     return document.querySelector('[data-proposal-document="true"]') as HTMLElement | null;
+  }
+
+  function openProposalOutputOptions() {
+    setProposalOutputOpen(true);
   }
 
   async function ensureProposalIsFresh(): Promise<void> {
@@ -1367,12 +1402,14 @@ export function ProjectWorkspace() {
 
   async function printProposalDocument() {
     if (!project) return;
-    await ensureProposalIsFresh();
-    const container = getProposalContainer();
-    if (!container) return;
+    setProposalPrintBusy(true);
+    try {
+      await ensureProposalIsFresh();
+      const container = getProposalContainer();
+      if (!container) return;
 
-    const title = `proposal-${project.projectNumber || project.id.slice(0, 8)}`;
-    const html = buildProposalHtml(container, title);
+      const title = `proposal-${project.projectNumber || project.id.slice(0, 8)}`;
+      const html = buildProposalHtml(container, title);
 
     const triggerPrintInWindow = (win: Window) => {
       const go = () => {
@@ -1418,6 +1455,9 @@ export function ProjectWorkspace() {
     iwin.addEventListener('afterprint', removeIframe, { once: true });
     setTimeout(removeIframe, 120_000);
     triggerPrintInWindow(iwin);
+    } finally {
+      setProposalPrintBusy(false);
+    }
   }
 
   async function exportProposal() {
@@ -2791,7 +2831,7 @@ export function ProjectWorkspace() {
   }, [settings]);
 
   if (loading) {
-    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspace?</div>;
+    return <RouteFallback label="Loading" />;
   }
 
   if (workspaceLoadError) {
@@ -2815,7 +2855,7 @@ export function ProjectWorkspace() {
   }
 
   if (!project) {
-    return <div className="flex min-h-[40vh] items-center justify-center p-8 text-sm text-slate-500">Loading workspace?</div>;
+    return <RouteFallback label="Loading" />;
   }
 
   const lastUpdatedLabel = project.updatedAt
@@ -2837,8 +2877,8 @@ export function ProjectWorkspace() {
           onBackToProjects={() => navigate('/projects')}
           onSave={saveProject}
           onPreviewProposal={() => goToTab('proposal')}
-          onExportPdf={exportProposal}
-          onPrint={printProposalDocument}
+          onExportPdf={openProposalOutputOptions}
+          onPrint={openProposalOutputOptions}
           onStatusAction={submitBid}
           statusActionLabel={statusActionLabel}
           onDeleteProject={deleteProjectPermanently}
@@ -3427,13 +3467,9 @@ export function ProjectWorkspace() {
                   <button type="button" onClick={() => void saveProposalWording()} className="ui-fo-btn-secondary h-10 px-4">
                     Save edits
                   </button>
-                  <button type="button" onClick={() => void printProposalDocument()} className="ui-fo-btn-secondary h-10 px-4">
-                    Print
-                  </button>
                   <button
                     type="button"
-                    onClick={exportProposal}
-                    title="Downloads HTML. Open in a browser, then Print to Save as PDF."
+                    onClick={openProposalOutputOptions}
                     className="ui-fo-btn-primary inline-flex items-center gap-1.5"
                   >
                     <Download className="h-4 w-4" />
@@ -3686,6 +3722,22 @@ export function ProjectWorkspace() {
           goToTab('quotes');
         }}
       />
+
+      <ProposalOutputOptions
+        open={proposalOutputOpen}
+        model={proposalPrintModel}
+        options={proposalOutputOptions}
+        onOptionsChange={setProposalOutputOptions}
+        onClose={() => setProposalOutputOpen(false)}
+        onPrint={() => void printProposalDocument()}
+        printBusy={proposalPrintBusy}
+      />
+
+      {proposalPrintModel ? (
+        <div id="proposal-print-mount" className="proposal-print-mount" aria-hidden>
+          <ProposalPrintDocument model={proposalPrintModel} />
+        </div>
+      ) : null}
 
       <BundlePickerModal
         open={bundleModalOpen}
