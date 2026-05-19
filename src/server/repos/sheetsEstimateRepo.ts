@@ -109,6 +109,12 @@ function mapLineFromSheet(row: Record<string, string>): TakeoffLineRecord {
   };
 }
 
+export async function getEstimateLineFromSheets(lineId: string): Promise<TakeoffLineRecord | null> {
+  const rows = await readRowsWithLegacyTab(estimateLinesTab(), SHEETS_TABS.ESTIMATE_LINES, projectsWorkbookId());
+  const row = rows.find((r) => String(r.EstimateLineID || '').trim() === lineId);
+  return row ? mapLineFromSheet(row) : null;
+}
+
 export async function listEstimateLinesFromSheets(projectId: string, roomId?: string): Promise<TakeoffLineRecord[]> {
   const rows = await readRowsWithLegacyTab(estimateLinesTab(), SHEETS_TABS.ESTIMATE_LINES, projectsWorkbookId());
   return rows

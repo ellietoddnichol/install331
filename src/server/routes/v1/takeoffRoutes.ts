@@ -96,25 +96,34 @@ takeoffRouter.put('/lines/:lineId', async (req, res) => {
 });
 
 takeoffRouter.post('/lines/:lineId/install-assumptions', async (req, res) => {
-  if (isSheetsDataBackend()) {
-    return res.status(503).json({ error: 'Install assumption apply is not yet supported in sheets mode.' });
-  }
   const lineAssumptions =
     req.body?.lineAssumptions && typeof req.body.lineAssumptions === 'object'
       ? (req.body.lineAssumptions as Record<string, string>)
       : undefined;
   const recalculateLabor = req.body?.recalculateLabor !== false;
   const replaceLineAssumptions = req.body?.replaceLineAssumptions === true;
-  const updated = await applyTakeoffInstallAssumptions({
-    lineId: req.params.lineId,
-    lineAssumptions,
-    replaceLineAssumptions,
-    recalculateLabor,
-  });
-  if (!updated) {
-    return res.status(404).json({ error: 'Takeoff line not found' });
+  try {
+    const updated = await applyTakeoffInstallAssumptions({
+      lineId: req.params.lineId,
+      lineAssumptions,
+      replaceLineAssumptions,
+      recalculateLabor,
+    });
+    if (!updated) {
+      return res.status(404).json({ error: 'Takeoff line not found' });
+    }
+    return res.json({ data: updated });
+  } catch (err) {
+    if (tryRespondSheetsPermissionDenied(res, err, '[takeoff/install-assumptions]')) return;
+    if (tryRespondSheetsNotFound(res, err, '[takeoff/install-assumptions]')) return;
+    if (isGoogleSheetsTabMissingError(err)) {
+      return res.status(503).json({
+        error: 'Estimate lines tab not found in the project workbook.',
+        hint: 'Set GOOGLE_SHEETS_TAB_ESTIMATE_LINES=EstimateLines on PROJECT_SETUP_ESTIMATE_PROPOSAL_SPREADSHEET_ID.',
+      });
+    }
+    throw err;
   }
-  return res.json({ data: updated });
 });
 
 takeoffRouter.delete('/lines/:lineId', async (req, res) => {
