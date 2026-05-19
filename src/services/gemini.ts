@@ -1,4 +1,7 @@
-
+/**
+ * Legacy takeoff parser — not imported by the SPA. Gemini runs server-side only
+ * (`src/server/services/geminiIntakeExtraction.ts`). Do not call from browser code.
+ */
 import { GoogleGenAI, Type } from "@google/genai";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
