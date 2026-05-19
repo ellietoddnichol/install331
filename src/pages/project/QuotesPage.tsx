@@ -42,6 +42,7 @@ interface QuotesPageProps {
   onUpdateQuoteLine: (quoteId: string, lineId: string, updates: Partial<SourceQuoteLineRecord>) => Promise<void>;
   onDeleteQuoteLine: (quoteId: string, lineId: string) => Promise<void>;
   onImportSelected: (quoteId: string) => Promise<void>;
+  importBusy?: boolean;
   onExtractSourceFile: (quoteId: string, replaceExisting: boolean) => Promise<void>;
   onPromoteToCatalogCandidates: (quoteId: string, selectedLineIds: string[], includeNonCatalogTypes?: boolean) => Promise<{ promotedCount: number; skippedCount: number }>;
   /** Opens confirm modal before excluding a staged quote row from estimate import. */
@@ -147,6 +148,7 @@ export function QuotesPage({
   onUpdateQuoteLine,
   onDeleteQuoteLine,
   onImportSelected,
+  importBusy = false,
   onExtractSourceFile,
   onPromoteToCatalogCandidates,
   onRequestExcludeQuoteLine,
@@ -551,8 +553,13 @@ export function QuotesPage({
                   </label>
                 </div>
                 <div className="flex shrink-0 flex-col gap-2 sm:flex-row xl:flex-col">
-                  <button type="button" onClick={() => void onImportSelected(activeQuote.id)} className="ui-fo-btn-primary h-10 px-5">
-                    Import ready rows{selectedCount > 0 ? ` (${selectedCount})` : ''}
+                  <button
+                    type="button"
+                    disabled={importBusy}
+                    onClick={() => void onImportSelected(activeQuote.id)}
+                    className="ui-fo-btn-primary h-10 px-5 disabled:opacity-60"
+                  >
+                    {importBusy ? 'Importing…' : `Import ready rows${selectedCount > 0 ? ` (${selectedCount})` : ''}`}
                   </button>
                   {activeQuote.sourceFileId ? (
                     <button type="button" onClick={() => void onExtractSourceFile(activeQuote.id, quoteLines.length > 0)} className="ui-btn-secondary h-10 px-4 text-[13px] font-semibold">

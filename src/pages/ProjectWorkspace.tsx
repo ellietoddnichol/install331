@@ -286,6 +286,7 @@ export function ProjectWorkspace() {
     DEFAULT_PROPOSAL_OUTPUT_OPTIONS
   );
   const [proposalPrintBusy, setProposalPrintBusy] = useState(false);
+  const [quoteImportBusy, setQuoteImportBusy] = useState(false);
 
   /** When true, Proposal tab reads `v_estimate_lines_customer` + `v_estimate_summary` via `/api/v1/pipeline/...`. */
   const [pipelineNativeEnabled, setPipelineNativeEnabled] = useState(false);
@@ -1380,11 +1381,9 @@ export function ProjectWorkspace() {
   }
 
   function getProposalContainer(): HTMLElement | null {
-    const printRoot = document.querySelector(
+    return document.querySelector(
       '#proposal-print-mount [data-proposal-print-document="true"]'
     ) as HTMLElement | null;
-    if (printRoot) return printRoot;
-    return document.querySelector('[data-proposal-document="true"]') as HTMLElement | null;
   }
 
   function openProposalOutputOptions() {
@@ -1406,7 +1405,10 @@ export function ProjectWorkspace() {
     try {
       await ensureProposalIsFresh();
       const container = getProposalContainer();
-      if (!container) return;
+      if (!container) {
+        window.alert('Unable to prepare the proposal for printing. Close and reopen Print / PDF options, then try again.');
+        return;
+      }
 
       const title = `proposal-${project.projectNumber || project.id.slice(0, 8)}`;
       const html = buildProposalHtml(container, title);
@@ -2103,6 +2105,7 @@ export function ProjectWorkspace() {
   }, [activeTab, goToTab]);
 
   const openLineDetailDrawer = useCallback((lineId: string) => {
+    setInstallAssumptionsDrawerOpen(false);
     setSelectedLineId(lineId);
     setLineDetailDrawerOpen(true);
     if (activeTab !== 'estimate') goToTab('estimate');
@@ -2455,7 +2458,8 @@ export function ProjectWorkspace() {
   }
 
   async function importSelectedQuoteLines(quoteId: string) {
-    if (!project) return;
+    if (!project || quoteImportBusy) return;
+    setQuoteImportBusy(true);
     try {
       const quote = sourceQuotes.find((entry) => entry.id === quoteId);
       const created = await api.importV1SelectedQuoteLines(quoteId);
@@ -2486,6 +2490,8 @@ export function ProjectWorkspace() {
       });
     } catch (error) {
       window.alert(getErrorMessage(error, 'Could not import selected quote lines.'));
+    } finally {
+      setQuoteImportBusy(false);
     }
   }
 
@@ -2537,6 +2543,7 @@ export function ProjectWorkspace() {
   function requestHideFromProposal(lineId: string) {
     const line = lines.find((l) => l.id === lineId);
     if (!line) return;
+    setProposalOutputOpen(false);
     confirmExcludePendingRef.current = { kind: 'estimate', lineId };
     setConfirmExcludeMode('hide_from_proposal');
     setConfirmExcludeTarget(buildConfirmExcludeTargetFromEstimateLine(line));
@@ -2563,7 +2570,11 @@ export function ProjectWorkspace() {
     try {
       if (pending.kind === 'estimate') {
         const line = lines.find((l) => l.id === pending.lineId);
-        if (!line) return;
+        if (!line) {
+          window.alert('That estimate line is no longer available. Refresh and try again.');
+          closeConfirmExcludeModal();
+          return;
+        }
         await persistLine(pending.lineId, {
           proposalVisibility: 'internal_only',
           notes: appendScopeExclusionNote(line.notes, {
@@ -2579,7 +2590,11 @@ export function ProjectWorkspace() {
       } else {
         const quoteLine = allQuoteLines.find((l) => l.id === pending.lineId)
           ?? sourceQuoteLines.find((l) => l.id === pending.lineId);
-        if (!quoteLine) return;
+        if (!quoteLine) {
+          window.alert('That quote row is no longer available. Refresh and try again.');
+          closeConfirmExcludeModal();
+          return;
+        }
         const nextNotes = appendScopeExclusionNote(quoteLine.notes, {
           action: 'exclude_from_estimate',
           reason: result.reason,
@@ -2953,6 +2968,7 @@ export function ProjectWorkspace() {
             onUpdateQuoteLine={(quoteId, lineId, updates) => updateSourceQuoteLine(quoteId, lineId, updates)}
             onDeleteQuoteLine={(quoteId, lineId) => deleteSourceQuoteLine(quoteId, lineId)}
             onImportSelected={(quoteId) => importSelectedQuoteLines(quoteId)}
+            importBusy={quoteImportBusy}
             onExtractSourceFile={(quoteId, replaceExisting) => {
               const fromSetup = project.jobConditions.sourceQuoteExtractMode === 'replace_existing';
               const effectiveReplace = fromSetup ? (sourceQuoteLines.length > 0 || replaceExisting) : false;

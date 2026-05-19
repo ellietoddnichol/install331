@@ -8,6 +8,7 @@ import {
   splitProposalTextLines,
   type ProposalScheduleItem,
 } from './proposalDocument';
+import { calculateEstimateSummary } from './estimateSummary';
 import {
   DEFAULT_PROPOSAL_ACCEPTANCE_LABEL,
   DEFAULT_PROPOSAL_CLARIFICATIONS,
@@ -187,6 +188,7 @@ export function buildProposalPrintModel(input: BuildProposalPrintModelInput): Pr
   const laborMultiplier = summary.conditionLaborHoursMultiplier || 1;
 
   const clientLines = filterLinesForClientProposal(lines);
+  const clientSummary = calculateEstimateSummary(project, clientLines);
   const scheduleSections = buildProposalScheduleSections(
     clientLines,
     showMaterial,
@@ -251,8 +253,8 @@ export function buildProposalPrintModel(input: BuildProposalPrintModelInput): Pr
     sections,
     scopeRollups,
     alternates,
-    investmentRows: buildClientFacingInvestmentBreakdownRows(summary, pricingMode),
-    durationLabel: formatDurationLabel(summary.durationDays, summary.totalLaborHours),
+    investmentRows: buildClientFacingInvestmentBreakdownRows(clientSummary, pricingMode),
+    durationLabel: formatDurationLabel(clientSummary.durationDays, clientSummary.totalLaborHours),
     terms: options.showTerms
       ? splitProposalTextLines(proposalSettings.proposalTerms || DEFAULT_PROPOSAL_TERMS)
       : [],

@@ -6,6 +6,8 @@ import {
   DEFAULT_PROPOSAL_OUTPUT_OPTIONS,
   filterAlternateLinesForClientProposal,
 } from './proposalPrintModel.ts';
+import { calculateEstimateSummary } from './estimateSummary.ts';
+import { createDefaultProjectJobConditions } from './jobConditions.ts';
 
 function minimalLine(over: Partial<TakeoffLineRecord>): TakeoffLineRecord {
   const now = new Date().toISOString();
@@ -100,6 +102,39 @@ test('buildProposalPrintModel excludes internal_only and ignore rows', () => {
   assert.ok(model.sections.some((s) => s.lines.some((l) => l.description.includes('Grab Bar'))));
   assert.doesNotMatch(serialized, /internal_only|blocking_unknown|Install review|ignore|Excluded freight/i);
   assert.doesNotMatch(serialized, /Internal note line/i);
+});
+
+test('buildProposalPrintModel investment totals exclude internal_only lines', () => {
+  const project = minimalProject({
+    overheadPercent: 0,
+    profitPercent: 0,
+    taxPercent: 0,
+    jobConditions: createDefaultProjectJobConditions(),
+  });
+  const visible = minimalLine({ id: 'visible', materialCost: 100, laborCost: 50, qty: 1 });
+  const hidden = minimalLine({
+    id: 'hidden',
+    proposalVisibility: 'internal_only',
+    materialCost: 9000,
+    laborCost: 9000,
+    qty: 1,
+  });
+  const clientSummary = calculateEstimateSummary(project, [visible]);
+  const inflatedSummary = minimalSummary({
+    baseBidTotal: 999_999,
+    materialLoadedSubtotal: 999_999,
+    laborLoadedSubtotal: 999_999,
+  });
+  const model = buildProposalPrintModel({
+    project,
+    settings: null,
+    lines: [visible, hidden],
+    summary: inflatedSummary,
+    options: DEFAULT_PROPOSAL_OUTPUT_OPTIONS,
+  });
+  const totalRow = model.investmentRows.find((row) => row.isTotal);
+  assert.equal(totalRow?.amount, clientSummary.baseBidTotal);
+  assert.notEqual(totalRow?.amount, inflatedSummary.baseBidTotal);
 });
 
 test('buildProposalPrintModel summary format omits line detail', () => {

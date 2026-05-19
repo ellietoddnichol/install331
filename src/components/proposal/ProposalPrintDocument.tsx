@@ -39,9 +39,7 @@ export function ProposalPrintDocument({ model }: Props) {
                   </div>
                 ) : null}
                 <div className="min-w-0">
-                  <p className="m-0 text-[9px] font-bold uppercase tracking-[0.28em] text-slate-600">
-                    Brighten Builders
-                  </p>
+                  <p className="m-0 text-[9px] font-bold uppercase tracking-[0.28em] text-slate-600">Division 10</p>
                   <h1 className="proposal-print-company-name m-0 mt-1 text-[22px] font-bold leading-tight tracking-tight text-slate-950">
                     {model.companyName}
                   </h1>

@@ -5,6 +5,7 @@ import {
   lineOverrideRows,
   projectAssumptionRows,
 } from '../../shared/utils/estimateLineDetailModel';
+import { stripInstallIntelligenceMarkersFromNotes } from '../../shared/utils/lineInstallAssumptions';
 import { WorkflowRightDrawer } from '../workflow/WorkflowRightDrawer';
 import { formatCurrencySafe, formatLaborDurationMinutes, formatNumberSafe } from '../../utils/numberFormat';
 
@@ -76,36 +77,49 @@ export function EstimateLineDetailDrawer({
   const [taxable, setTaxable] = useState(true);
   const [visibility, setVisibility] = useState<ProposalVisibility>('customer_visible');
 
+  const baselineNotes = useMemo(
+    () => (line ? stripInstallIntelligenceMarkersFromNotes(line.notes) || '' : ''),
+    [line?.notes, line?.id],
+  );
+
   useEffect(() => {
     if (!open || !line || !model) return;
     setMaterialCost(String(line.materialCost ?? ''));
     setLaborMinutes(String(line.laborMinutes ?? ''));
-    setNotes(line.notes || '');
+    setNotes(baselineNotes);
     setTaxable(line.taxable !== false);
     setVisibility(line.proposalVisibility || 'customer_visible');
-  }, [open, line?.id, line?.updatedAt, model?.lineId]);
+  }, [open, line?.id, line?.updatedAt, model?.lineId, baselineNotes]);
 
   const dirty = useMemo(() => {
     if (!line) return false;
     return (
       Number(materialCost) !== Number(line.materialCost)
       || Number(laborMinutes) !== Number(line.laborMinutes)
-      || notes !== (line.notes || '')
+      || notes !== baselineNotes
       || taxable !== (line.taxable !== false)
       || visibility !== (line.proposalVisibility || 'customer_visible')
     );
-  }, [line, materialCost, laborMinutes, notes, taxable, visibility]);
+  }, [line, materialCost, laborMinutes, notes, baselineNotes, taxable, visibility]);
+
+  function handleClose() {
+    if (dirty && !window.confirm('Discard unsaved changes to this line?')) return;
+    onClose();
+  }
 
   if (!open || !model || !line) return null;
 
   async function handleSave() {
-    await onSave(line!.id, {
+    const updates: Partial<TakeoffLineRecord> = {
       materialCost: Number(materialCost) || 0,
       laborMinutes: Number(laborMinutes) || 0,
-      notes: notes.trim() || null,
       taxable,
       proposalVisibility: visibility,
-    });
+    };
+    if (notes !== baselineNotes) {
+      updates.notes = notes.trim() || null;
+    }
+    await onSave(line!.id, updates);
   }
 
   const projectRows = projectAssumptionRows(model.assumptions);
@@ -117,7 +131,7 @@ export function EstimateLineDetailDrawer({
       title="Estimate line detail"
       subtitle="Full story for this scope row — source, pricing, labor, and proposal."
       widthClassName="max-w-[min(100vw-1rem,32rem)]"
-      onClose={onClose}
+      onClose={handleClose}
       footer={
         <div className="flex flex-wrap gap-2">
           <button type="button" className="ui-fo-btn-primary h-10 flex-1 px-3" disabled={busy || !dirty} onClick={() => void handleSave()}>
@@ -134,7 +148,7 @@ export function EstimateLineDetailDrawer({
           >
             Save and recalculate
           </button>
-          <button type="button" className="ui-btn-secondary h-10 px-3 text-[12px] font-semibold" disabled={busy} onClick={onClose}>
+          <button type="button" className="ui-btn-secondary h-10 px-3 text-[12px] font-semibold" disabled={busy} onClick={handleClose}>
             Close
           </button>
         </div>
@@ -219,7 +233,9 @@ export function EstimateLineDetailDrawer({
                 <ReadRow label="Row type" value={model.sourceQuote.rowTypeLabel} />
               ) : null}
               {model.sourceQuote.notes ? (
-                <p className="mt-1 text-[11px] text-slate-600">{model.sourceQuote.notes}</p>
+                <p className="mt-1 text-[11px] text-slate-600">
+                  {stripInstallIntelligenceMarkersFromNotes(model.sourceQuote.notes)}
+                </p>
               ) : null}
               {model.sourceQuote.quoteId && onGoToQuote ? (
                 <button
