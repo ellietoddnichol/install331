@@ -18,6 +18,7 @@ export const TAB_SETTINGS_DEFAULT = 'Settings';
 
 /** `VENDOR_INTAKE_BACKEND_SPREADSHEET_ID` */
 export const TAB_SOURCE_QUOTES_DEFAULT = 'SourceQuotes';
+export const TAB_PROJECT_FILES_DEFAULT = 'ProjectFiles';
 export const TAB_STAGED_QUOTE_ROWS_DEFAULT = 'StagedQuoteRows';
 export const TAB_QUOTE_ADJUSTMENTS_DEFAULT = 'QuoteAdjustments';
 export const TAB_QUOTE_TERMS_DEFAULT = 'QuoteTerms';

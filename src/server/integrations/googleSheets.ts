@@ -375,6 +375,40 @@ export async function upsertRowById(
   return 'inserted';
 }
 
+/** Create a worksheet tab when missing and optionally write row-1 headers (Sheets-first bootstrap). */
+export async function ensureGoogleSheetTab(
+  tabName: string,
+  headers: string[],
+  spreadsheetId?: string
+): Promise<void> {
+  const sheets = getSheetClient();
+  const resolvedSpreadsheetId = resolveSpreadsheetId(spreadsheetId);
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId: resolvedSpreadsheetId,
+    fields: 'sheets.properties.title',
+  });
+  const titles = new Set(
+    (meta.data.sheets || []).map((sheet) => String(sheet.properties?.title || '').trim()).filter(Boolean)
+  );
+  if (titles.has(tabName)) return;
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: resolvedSpreadsheetId,
+    requestBody: {
+      requests: [{ addSheet: { properties: { title: tabName } } }],
+    },
+  });
+
+  if (headers.length === 0) return;
+  const endCol = toA1Column(headers.length - 1);
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: resolvedSpreadsheetId,
+    range: tabDataRange(tabName, `A1:${endCol}1`),
+    valueInputOption: 'RAW',
+    requestBody: { values: [headers] },
+  });
+}
+
 export async function bulkUpsertRows(
   tabName: string,
   idColumn: string,

@@ -136,6 +136,10 @@ export function vendorIntakeTabSourceQuotes(): string {
   return String(process.env.GOOGLE_SHEETS_TAB_SOURCE_QUOTES || 'SourceQuotes').trim() || 'SourceQuotes';
 }
 
+export function vendorIntakeTabProjectFiles(): string {
+  return String(process.env.GOOGLE_SHEETS_TAB_PROJECT_FILES || 'ProjectFiles').trim() || 'ProjectFiles';
+}
+
 export function vendorIntakeTabStagedQuoteRows(): string {
   return String(process.env.GOOGLE_SHEETS_TAB_STAGED_QUOTE_ROWS || TAB_STAGED_QUOTE_ROWS_DEFAULT).trim() || TAB_STAGED_QUOTE_ROWS_DEFAULT;
 }

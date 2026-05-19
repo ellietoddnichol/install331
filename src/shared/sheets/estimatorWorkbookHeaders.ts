@@ -70,6 +70,25 @@ export const SOURCE_QUOTES_SHEET_HEADERS: string[] = [
   'UpdatedAt',
 ];
 
+/** Row 1 headers for the `ProjectFiles` tab (vendor intake workbook; GCS blob metadata). */
+export const PROJECT_FILES_SHEET_HEADERS: string[] = [
+  'FileID',
+  'ProjectID',
+  'SourceQuoteID',
+  'Filename',
+  'MimeType',
+  'SizeBytes',
+  'StorageProvider',
+  'GcsBucket',
+  'GcsObject',
+  'UploadedAt',
+  'UploadedBy',
+  'FileType',
+  'Notes',
+  'Status',
+  'DeletedAt',
+];
+
 /** Row 1 headers for the `StagedQuoteRows` tab. */
 export const STAGED_QUOTE_ROWS_SHEET_HEADERS: string[] = [
   'StagedRowID',

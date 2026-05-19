@@ -13,6 +13,14 @@ import {
   isGcsProjectFilesEnabled,
   uploadProjectFileToGcs,
 } from '../services/gcsProjectFilesStorage.ts';
+import { isSheetsDataBackend } from './dataBackend.ts';
+import {
+  getProjectFileFromSheets,
+  listGcsBackedProjectFilesFromSheets,
+  listProjectFilesFromSheets,
+  softDeleteProjectFileInSheets,
+  upsertProjectFileMetadataInSheets,
+} from './sheetsProjectFilesRepo.ts';
 
 export type ProjectFileStoredRow = ProjectFileRecord & {
   dataBase64: string;
@@ -53,6 +61,11 @@ function useSupabaseForProjectFiles(): boolean {
   return isPgDriver() && isSupabaseStorageConfigured();
 }
 
+/** Sheets-first: metadata in Google Sheets; blobs in GCS when configured. */
+export function useSheetsForProjectFileMetadata(): boolean {
+  return isSheetsDataBackend();
+}
+
 function projectFilesDiskRoot(): string {
   const raw = String(process.env.PROJECT_FILES_DIR || path.join('data', 'project-files')).trim();
   return path.isAbsolute(raw) ? raw : path.join(process.cwd(), raw);
@@ -83,6 +96,9 @@ function mapProjectFileRow(row: ProjectFileDbRow): ProjectFileRecord {
 }
 
 export async function listProjectFiles(projectId: string): Promise<ProjectFileRecord[]> {
+  if (useSheetsForProjectFileMetadata()) {
+    return listProjectFilesFromSheets(projectId);
+  }
   const rows = await dbAll(
     'SELECT id, project_id, file_name, mime_type, size_bytes, created_at FROM project_files_v1 WHERE project_id = ? ORDER BY created_at DESC',
     [projectId]
@@ -106,6 +122,29 @@ export async function createProjectFile(input: {
     createdAt: new Date().toISOString(),
   };
 
+  if (useSheetsForProjectFileMetadata()) {
+    if (!useGcsForProjectFiles()) {
+      throw new Error(
+        'Sheets-first mode requires PROJECT_FILES_STORAGE=gcs with GCS_PROJECT_FILES_BUCKET and Google service account credentials.'
+      );
+    }
+    const bucket = getGcsProjectFilesBucketName() as string;
+    const objectName = buildProjectFileObjectName(input.projectId, record.id, input.fileName);
+    const bytes = Buffer.from(input.dataBase64, 'base64');
+    await uploadProjectFileToGcs({
+      bucket,
+      objectName,
+      buffer: bytes,
+      contentType: input.mimeType,
+    });
+    try {
+      return await upsertProjectFileMetadataInSheets({ record, bucket, objectName });
+    } catch (err) {
+      await deleteProjectFileFromGcs(bucket, objectName);
+      throw err;
+    }
+  }
+
   if (useLocalDiskForProjectFiles()) {
     const root = projectFilesDiskRoot();
     const dir = path.join(root, input.projectId);
@@ -118,7 +157,7 @@ export async function createProjectFile(input: {
     await dbRun(
       `INSERT INTO project_files_v1 (id, project_id, file_name, mime_type, size_bytes, data_base64, storage_object_key, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [record.id, record.projectId, record.fileName, record.mimeType, record.sizeBytes, null, storageKey, record.createdAt]
+      [record.id, record.projectId, record.fileName, record.mimeType, record.sizeBytes, '', storageKey, record.createdAt]
     );
   } else if (useGcsForProjectFiles()) {
     const bucket = getGcsProjectFilesBucketName() as string;
@@ -130,22 +169,27 @@ export async function createProjectFile(input: {
       buffer: bytes,
       contentType: input.mimeType,
     });
-    await dbRun(
-      `INSERT INTO project_files_v1 (id, project_id, file_name, mime_type, size_bytes, data_base64, storage_object_key, gcs_bucket, gcs_object, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        record.id,
-        record.projectId,
-        record.fileName,
-        record.mimeType,
-        record.sizeBytes,
-        null,
-        `${GCS_STORAGE_PREFIX}${objectName}`,
-        bucket,
-        objectName,
-        record.createdAt,
-      ]
-    );
+    try {
+      await dbRun(
+        `INSERT INTO project_files_v1 (id, project_id, file_name, mime_type, size_bytes, data_base64, storage_object_key, gcs_bucket, gcs_object, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          record.id,
+          record.projectId,
+          record.fileName,
+          record.mimeType,
+          record.sizeBytes,
+          '',
+          `${GCS_STORAGE_PREFIX}${objectName}`,
+          bucket,
+          objectName,
+          record.createdAt,
+        ]
+      );
+    } catch (err) {
+      await deleteProjectFileFromGcs(bucket, objectName);
+      throw err;
+    }
   } else if (useSupabaseForProjectFiles()) {
     const bucket = getProjectFilesBucket();
     const objectKey = `${input.projectId}/${record.id}`;
@@ -161,7 +205,7 @@ export async function createProjectFile(input: {
     await dbRun(
       `INSERT INTO project_files_v1 (id, project_id, file_name, mime_type, size_bytes, data_base64, storage_object_key, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [record.id, record.projectId, record.fileName, record.mimeType, record.sizeBytes, null, objectKey, record.createdAt]
+      [record.id, record.projectId, record.fileName, record.mimeType, record.sizeBytes, '', objectKey, record.createdAt]
     );
   } else {
     await dbRun(
@@ -178,6 +222,24 @@ export async function getProjectFile(
   projectId: string,
   fileId: string
 ): Promise<(ProjectFileRecord & { dataBase64: string }) | null> {
+  if (useSheetsForProjectFileMetadata()) {
+    const stored = await getProjectFileFromSheets(projectId, fileId);
+    if (!stored) return null;
+    if (!stored.gcsBucket || !stored.gcsObject) {
+      throw new Error(`Project file ${fileId} is missing GCS location metadata in Sheets.`);
+    }
+    const buf = await downloadProjectFileFromGcs(stored.gcsBucket, stored.gcsObject);
+    return {
+      id: stored.id,
+      projectId: stored.projectId,
+      fileName: stored.fileName,
+      mimeType: stored.mimeType,
+      sizeBytes: stored.sizeBytes,
+      createdAt: stored.createdAt,
+      dataBase64: buf.toString('base64'),
+    };
+  }
+
   const row = (await dbGet(
     `SELECT id, project_id, file_name, mime_type, size_bytes, data_base64, storage_object_key, gcs_bucket, gcs_object, created_at
        FROM project_files_v1
@@ -228,6 +290,15 @@ export async function getProjectFile(
 }
 
 export async function deleteProjectFile(projectId: string, fileId: string): Promise<boolean> {
+  if (useSheetsForProjectFileMetadata()) {
+    const stored = await getProjectFileFromSheets(projectId, fileId);
+    if (!stored) return false;
+    if (stored.gcsBucket && stored.gcsObject) {
+      await deleteProjectFileFromGcs(stored.gcsBucket, stored.gcsObject);
+    }
+    return softDeleteProjectFileInSheets(projectId, fileId);
+  }
+
   const row = (await dbGet(
     'SELECT storage_object_key, gcs_bucket, gcs_object FROM project_files_v1 WHERE project_id = ? AND id = ?',
     [projectId, fileId]
@@ -259,6 +330,12 @@ export async function deleteProjectFile(projectId: string, fileId: string): Prom
 
 /** Remove GCS objects for all files attached to a project (call before deleting the project row). */
 export async function purgeProjectFilesFromGcs(projectId: string): Promise<void> {
+  if (useSheetsForProjectFileMetadata()) {
+    const rows = await listGcsBackedProjectFilesFromSheets(projectId);
+    await Promise.all(rows.map((r) => deleteProjectFileFromGcs(r.gcsBucket, r.gcsObject)));
+    return;
+  }
+
   const rows = (await dbAll('SELECT gcs_bucket, gcs_object FROM project_files_v1 WHERE project_id = ?', [projectId])) as Array<{
     gcs_bucket: string | null;
     gcs_object: string | null;

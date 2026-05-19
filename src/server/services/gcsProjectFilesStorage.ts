@@ -78,7 +78,20 @@ export function buildProjectFileObjectName(projectId: string, fileId: string, fi
   return `project-files/${projectId}/${fileId}/${safe}`;
 }
 
-export async function uploadProjectFileToGcs(params: {
+type GcsProjectFilesIo = {
+  upload: (params: { bucket: string; objectName: string; buffer: Buffer; contentType: string }) => Promise<void>;
+  download: (bucket: string, objectName: string) => Promise<Buffer>;
+  delete: (bucket: string, objectName: string) => Promise<void>;
+};
+
+let gcsProjectFilesIoOverride: GcsProjectFilesIo | null = null;
+
+/** Test hook: stub GCS upload/download/delete without touching a real bucket. */
+export function __setGcsProjectFilesIoForTests(io: GcsProjectFilesIo | null): void {
+  gcsProjectFilesIoOverride = io;
+}
+
+async function uploadProjectFileToGcsImpl(params: {
   bucket: string;
   objectName: string;
   buffer: Buffer;
@@ -93,16 +106,36 @@ export async function uploadProjectFileToGcs(params: {
   });
 }
 
-export async function downloadProjectFileFromGcs(bucket: string, objectName: string): Promise<Buffer> {
+async function downloadProjectFileFromGcsImpl(bucket: string, objectName: string): Promise<Buffer> {
   const storage = getStorage();
   const [data] = await storage.bucket(bucket).file(objectName).download();
   return data;
 }
 
-export async function deleteProjectFileFromGcs(bucket: string, objectName: string): Promise<void> {
+async function deleteProjectFileFromGcsImpl(bucket: string, objectName: string): Promise<void> {
   try {
     await getStorage().bucket(bucket).file(objectName).delete({ ignoreNotFound: true });
   } catch {
     // Best-effort cleanup; row removal still proceeds.
   }
+}
+
+export async function uploadProjectFileToGcs(params: {
+  bucket: string;
+  objectName: string;
+  buffer: Buffer;
+  contentType: string;
+}): Promise<void> {
+  if (gcsProjectFilesIoOverride) return gcsProjectFilesIoOverride.upload(params);
+  return uploadProjectFileToGcsImpl(params);
+}
+
+export async function downloadProjectFileFromGcs(bucket: string, objectName: string): Promise<Buffer> {
+  if (gcsProjectFilesIoOverride) return gcsProjectFilesIoOverride.download(bucket, objectName);
+  return downloadProjectFileFromGcsImpl(bucket, objectName);
+}
+
+export async function deleteProjectFileFromGcs(bucket: string, objectName: string): Promise<void> {
+  if (gcsProjectFilesIoOverride) return gcsProjectFilesIoOverride.delete(bucket, objectName);
+  return deleteProjectFileFromGcsImpl(bucket, objectName);
 }

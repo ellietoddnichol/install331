@@ -9,6 +9,7 @@ import {
   peekSpreadsheetIdForDiv10Workbook,
   primarySpreadsheetEnvVarForWorkbook,
   vendorIntakeTabParserProfiles,
+  vendorIntakeTabProjectFiles,
   vendorIntakeTabQuoteAdjustments,
   vendorIntakeTabQuoteTerms,
   vendorIntakeTabSourceQuotes,
@@ -53,6 +54,7 @@ export type Div10SheetsHealthResult = {
 function resolveVendorIntakeTabValidationRows(): { tabName: string; requiredHeaders: readonly string[] }[] {
   const tabNames = [
     vendorIntakeTabSourceQuotes(),
+    vendorIntakeTabProjectFiles(),
     vendorIntakeTabStagedQuoteRows(),
     vendorIntakeTabQuoteAdjustments(),
     vendorIntakeTabQuoteTerms(),

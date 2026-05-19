@@ -16,6 +16,7 @@ export type Div10WorkbookTabValidationSpec = {
 /** Vendor intake workbook: required headers per tab, in the same order as `resolveVendorIntakeTabValidationSpecs()`. */
 export const DIV10_VENDOR_INTAKE_VALIDATION_HEADER_ROWS: readonly { requiredHeaders: readonly string[] }[] = [
   { requiredHeaders: hdr.SOURCE_QUOTES_SHEET_HEADERS },
+  { requiredHeaders: hdr.PROJECT_FILES_SHEET_HEADERS },
   { requiredHeaders: hdr.STAGED_QUOTE_ROWS_SHEET_HEADERS },
   { requiredHeaders: hdr.QUOTE_ADJUSTMENTS_SHEET_HEADERS },
   { requiredHeaders: hdr.QUOTE_TERMS_SHEET_HEADERS },
