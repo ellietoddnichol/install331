@@ -11,6 +11,7 @@ import { isCatalogSheetsWorkbookPushEnabled } from './catalogSheetsSyncPolicy.ts
 import { isPgDriver } from '../db/driver.ts';
 import { isSheetsDataBackend } from '../repos/dataBackend.ts';
 import { peekResolvedCatalogItemsSheetTab } from '../repos/sheetsCatalogRepo.ts';
+import { isDocumentAiConfigured, resolveUploadPdfProvider } from './intake/documentAiConfig.ts';
 
 /**
  * Non-secret integration readiness flags for Settings / diagnostics.
@@ -69,10 +70,8 @@ export function getIntegrationHealthSnapshot(): IntegrationHealthSnapshot {
     catalogSheetsSyncEnabled: isCatalogSheetsWorkbookPushEnabled(),
     supabaseAnon: Boolean(String(process.env.SUPABASE_URL || '').trim() && String(process.env.SUPABASE_ANON_KEY || '').trim()),
     supabaseServiceRole: Boolean(String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()),
-    pdfProvider: String(process.env.UPLOAD_PDF_PROVIDER || 'fallback-text').trim() || 'fallback-text',
-    googleDocumentAi: Boolean(
-      String(process.env.GOOGLE_CLOUD_PROJECT_ID || '').trim() && String(process.env.DOCUMENT_AI_PROCESSOR_ID || '').trim()
-    ),
+    pdfProvider: resolveUploadPdfProvider(),
+    googleDocumentAi: isDocumentAiConfigured(),
     passwordLogin: Boolean(String(process.env.AUTH_LOGIN_PASSWORD || '').trim()),
     authRequired: ['1', 'true', 'yes'].includes(String(process.env.AUTH_REQUIRED || '').trim().toLowerCase()),
     div10BrainAdmin: Boolean(String(process.env.DIV10_BRAIN_ADMIN_SECRET || '').trim()),

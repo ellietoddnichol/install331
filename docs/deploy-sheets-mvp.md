@@ -59,10 +59,29 @@ Create secrets in project `gen-lang-client-0568373820` (names can match env var 
 
 | Secret ID | Maps to env | Required |
 |-----------|-------------|----------|
-| `GOOGLE_PRIVATE_KEY` | Service account PEM (`\n` newlines OK) | **Yes** |
+| **`GOOGLE_SERVICE_ACCOUNT`** | **Entire** service-account `.json` file (recommended) | **Yes** |
+| `GOOGLE_PRIVATE_KEY` | PEM only — error-prone in Secret Manager; use only if not using JSON secret | Optional |
 | `AUTH_SESSION_SECRET` | Long random string for cookies | **Yes** if `AUTH_REQUIRED=1` |
 | `GEMINI_API_KEY` | AI PDF intake | Optional |
 | `AUTH_LOGIN_PASSWORD` | Password gate | Optional |
+
+### Recommended: one JSON secret
+
+1. IAM → Service accounts → `labor-catalog@...` → **Keys** → **Add key** → **JSON** → download `*.json`.
+2. Secret Manager → **Create secret** → name **`GOOGLE_SERVICE_ACCOUNT`**.
+3. Secret value = paste the **whole file** (starts with `{"type":"service_account",` … ends with `}`). No markdown fences, no extra quotes.
+4. Cloud Run / Cloud Build maps `GOOGLE_SERVICE_ACCOUNT=GOOGLE_SERVICE_ACCOUNT:latest` (already in `cloudbuild.yaml`).
+5. Redeploy. You can remove the `GOOGLE_PRIVATE_KEY` secret binding from the revision.
+
+`GOOGLE_SERVICE_ACCOUNT_EMAIL` in env is optional when the JSON secret is set (email comes from `client_email` in the file).
+
+### If you see `DECODER routines::unsupported` on `GOOGLE_PRIVATE_KEY`
+
+The PEM in Secret Manager is corrupted (truncated, wrong newlines, or JSON pasted into the PEM secret). **Do not** paste only the middle of `private_key`. Either:
+
+- Switch to **`GOOGLE_SERVICE_ACCOUNT`** full JSON (above), or
+- Locally run: `npx tsx scripts/extract-service-account-pem.ts path\to\your-key.json`
+- Create a **new version** of `GOOGLE_PRIVATE_KEY` with that PEM output (real line breaks, include `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----`).
 
 Grant **Secret Accessor** to:
 
@@ -71,14 +90,9 @@ Grant **Secret Accessor** to:
 
 Do **not** put `GOOGLE_PRIVATE_KEY` in `_CLOUDRUN_ENV_VARS` or Vite `VITE_*`.
 
-**Both** are required for split-key auth:
+**Split-key auth** (legacy): `GOOGLE_PRIVATE_KEY` secret + `GOOGLE_SERVICE_ACCOUNT_EMAIL` env. Prefer **full JSON** secret instead.
 
-| Variable | Where | Value |
-|----------|--------|--------|
-| `GOOGLE_PRIVATE_KEY` | Secret Manager → Cloud Run secret | PEM from service account JSON |
-| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | Plain env on Cloud Run (in `_CLOUDRUN_ENV_VARS`) | `labor-catalog@gen-lang-client-0568373820.iam.gserviceaccount.com` |
-
-If you see `GOOGLE_PRIVATE_KEY=set` but `GOOGLE_SERVICE_ACCOUNT_EMAIL=missing`, the revision has the secret but not the email env var. Fix immediately:
+If you see `GOOGLE_PRIVATE_KEY=set` but `GOOGLE_SERVICE_ACCOUNT_EMAIL=missing`, add the email env var:
 
 ```powershell
 gcloud run services update install58 `
@@ -97,7 +111,7 @@ The repo default substitutions target the **Sheets MVP** profile (see `cloudbuil
 
 ### Non-sensitive env (`_CLOUDRUN_ENV_VARS`)
 
-Already includes: `DATA_BACKEND=sheets`, `DB_DRIVER=sqlite`, `PROJECT_FILES_STORAGE=gcs`, workbook IDs, GCS bucket names, `DIV10_BRAIN_ENABLED=0`.
+Already includes: `DATA_BACKEND=sheets`, `DB_DRIVER=sqlite`, `PROJECT_FILES_STORAGE=gcs`, workbook IDs, GCS bucket names, `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `DIV10_BRAIN_ENABLED=0`.
 
 Override in the **Cloud Build trigger** if your bucket or spreadsheet IDs differ:
 
@@ -114,7 +128,7 @@ _CATALOG_LABOR_SPREADSHEET_ID=...
 Set on the trigger when secrets exist (comma-separated, no spaces):
 
 ```text
-GOOGLE_PRIVATE_KEY=GOOGLE_PRIVATE_KEY:latest,AUTH_SESSION_SECRET=AUTH_SESSION_SECRET:latest
+GOOGLE_SERVICE_ACCOUNT=GOOGLE_SERVICE_ACCOUNT:latest,AUTH_SESSION_SECRET=AUTH_SESSION_SECRET:latest
 ```
 
 ### First deploy off Supabase/pg
@@ -149,7 +163,7 @@ Push to the branch wired to Cloud Build. Confirm the trigger uses the substituti
 cd c:\Users\ellie\install331
 $sha = git rev-parse HEAD
 gcloud builds submit --project=gen-lang-client-0568373820 `
-  --substitutions=COMMIT_SHA=$sha,_CLOUDRUN_SECRETS="GOOGLE_PRIVATE_KEY=GOOGLE_PRIVATE_KEY:latest,AUTH_SESSION_SECRET=AUTH_SESSION_SECRET:latest"
+  --substitutions=COMMIT_SHA=$sha,_CLOUDRUN_SECRETS="GOOGLE_SERVICE_ACCOUNT=GOOGLE_SERVICE_ACCOUNT:latest,AUTH_SESSION_SECRET=AUTH_SESSION_SECRET:latest"
 ```
 
 ### Option C — Deploy image only (env already set)
@@ -220,6 +234,60 @@ Update [`mvp-smoke-checklist-results.md`](./mvp-smoke-checklist-results.md) with
 $env:SMOKE_HTTP_BASE = "https://YOUR-SERVICE-URL"
 npx tsx scripts/mvp-api-smoke.ts
 ```
+
+---
+
+## 7b. Sheets read quota (429 / “Read requests per minute”)
+
+Google limits **~60 spreadsheet read requests per minute per GCP project**. Opening **Settings** (Div 10 workbook validation reads every catalog tab), **Catalog**, and **Projects** at once can exceed that and fail on a tab such as `BundleItems`.
+
+**Immediate:** wait ~60 seconds and retry; avoid hammering refresh.
+
+**Cloud Run (no redeploy):** slow reads globally:
+
+```powershell
+gcloud run services update install58 --region=europe-west1 --project=gen-lang-client-0568373820 `
+  --update-env-vars=GOOGLE_SHEETS_READ_MIN_INTERVAL_MS=2000
+```
+
+`cloudbuild.yaml` sets `1500` on deploy. Values are milliseconds between queued reads (default `1100`).
+
+---
+
+## 7c. Document AI (vendor PDF intake)
+
+Vendor **Create from Document** PDFs call Google Document AI `processDocument` when these env vars are set (processor `7d47225afa5fabe8`, location `us`):
+
+| Variable | Example |
+|----------|---------|
+| `GOOGLE_CLOUD_PROJECT_ID` | `gen-lang-client-0568373820` (GCP **project ID** string, not the numeric `353363250924` quota id) |
+| `DOCUMENT_AI_PROCESSOR_ID` | `7d47225afa5fabe8` |
+| `DOCUMENT_AI_LOCATION` | `us` |
+| `UPLOAD_PDF_PROVIDER` | `google-document-ai` (optional — auto-enabled when project + processor are set) |
+
+Uses the same `GOOGLE_SERVICE_ACCOUNT` secret as Sheets. One-time GCP setup:
+
+```powershell
+$PROJECT = "gen-lang-client-0568373820"
+$SA = "labor-catalog@gen-lang-client-0568373820.iam.gserviceaccount.com"
+
+gcloud services enable documentai.googleapis.com --project=$PROJECT
+
+gcloud projects add-iam-policy-binding $PROJECT `
+  --member="serviceAccount:$SA" `
+  --role="roles/documentai.apiUser"
+```
+
+**Cloud Run (no redeploy)** — add Document AI env to the running service:
+
+```powershell
+gcloud run services update install58 --region=europe-west1 --project=gen-lang-client-0568373820 `
+  --update-env-vars="UPLOAD_PDF_PROVIDER=google-document-ai,GOOGLE_CLOUD_PROJECT_ID=gen-lang-client-0568373820,DOCUMENT_AI_PROCESSOR_ID=7d47225afa5fabe8,DOCUMENT_AI_LOCATION=us"
+```
+
+**Local `.env.local`** — add the same four variables (plus existing `GOOGLE_SERVICE_ACCOUNT` / Sheets vars). Optional: `GEMINI_API_KEY` for richer line extraction after OCR.
+
+After deploy, **Settings → Integration health** should show `googleDocumentAi: true` and `pdfProvider: google-document-ai`.
 
 ---
 

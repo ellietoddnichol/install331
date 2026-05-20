@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import type { sheets_v4 } from 'googleapis';
+import { spreadsheetsValuesGetWithRetry } from '../../integrations/sheetsReadQueue.ts';
 import { buildGoogleServiceAccountJwt } from '../googleSheetsCatalogSync.ts';
 
 /** Normalize header for fuzzy column resolution (never use raw column index as the API contract). */
@@ -126,8 +127,12 @@ export async function getSheetsClient(): Promise<sheets_v4.Sheets> {
 export async function fetchTabValues(spreadsheetId: string, tabName: string): Promise<string[][]> {
   const sheets = await getSheetsClient();
   const range = `${escapeSheetTabForRange(tabName)}!A:ZZ`;
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range });
-  return (res.data.values as string[][]) || [];
+  return spreadsheetsValuesGetWithRetry({
+    sheets,
+    spreadsheetId,
+    range,
+    logLabel: tabName,
+  });
 }
 
 export async function appendRowsToTab(spreadsheetId: string, tabName: string, rows: string[][]): Promise<void> {

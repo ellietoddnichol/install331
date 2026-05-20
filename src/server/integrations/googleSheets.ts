@@ -2,7 +2,10 @@ import { google } from 'googleapis';
 import type { sheets_v4 } from 'googleapis';
 import { escapeSheetTabForRange, findHeaderRowIndex } from '../services/sheets/headerGridIo.ts';
 import { getGaxiosLikeHttpStatus } from '../http/jsonErrors.ts';
+import { spreadsheetsValuesGetWithRetry } from './sheetsReadQueue.ts';
 import { buildGoogleServiceAccountJwt } from '../services/googleSheetsCatalogSync.ts';
+
+export { isGoogleSheetsRateLimitedError, runSheetsValuesRead, sheetsReadMinIntervalMs } from './sheetsReadQueue.ts';
 
 export const SHEETS_TABS = {
   PROJECTS: 'PROJECTS',
@@ -60,43 +63,6 @@ export function isGoogleSheetsTabMissingError(err: unknown): boolean {
   if (status !== 400 && status !== 404) return false;
   const message = err instanceof Error ? err.message : String(err);
   return /unable to parse range|not found|requested entity was not found/i.test(message);
-}
-
-export function isGoogleSheetsRateLimitedError(err: unknown): boolean {
-  return getGaxiosLikeHttpStatus(err) === 429;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Minimum delay between Sheets values reads to reduce 429 bursts (0 = off). */
-function sheetsReadMinIntervalMs(): number {
-  const raw = String(process.env.GOOGLE_SHEETS_READ_MIN_INTERVAL_MS ?? '1100').trim();
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : 1100;
-}
-
-let lastSheetsValuesReadAt = 0;
-/** Serial tail so concurrent reads wait in line and respect min spacing (reduces 429 bursts). */
-let sheetsReadTail: Promise<unknown> = Promise.resolve();
-
-async function runSheetsValuesRead<T>(op: () => Promise<T>): Promise<T> {
-  const run = sheetsReadTail.then(async () => {
-    const minGap = sheetsReadMinIntervalMs();
-    if (minGap > 0) {
-      const now = Date.now();
-      const wait = Math.max(0, minGap - (now - lastSheetsValuesReadAt));
-      if (wait > 0) await sleep(wait);
-    }
-    lastSheetsValuesReadAt = Date.now();
-    return op();
-  });
-  sheetsReadTail = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run as Promise<T>;
 }
 
 export async function readRowsWithLegacyTab(
@@ -168,32 +134,13 @@ async function readRawMatrix(tabName: string, spreadsheetId?: string): Promise<s
   const sheets = getSheetClient();
   const resolvedSpreadsheetId = resolveSpreadsheetId(spreadsheetId);
   const range = tabDataRange(tabName, 'A:ZZ');
-  const maxAttempts = 5;
-
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      const response = await runSheetsValuesRead(() =>
-        sheets.spreadsheets.values.get({
-          spreadsheetId: resolvedSpreadsheetId,
-          range,
-        }),
-      );
-      const values = response.data.values || [];
-      return values.map((row) => row.map((cell) => normalizeCell(cell)));
-    } catch (err) {
-      if (isGoogleSheetsRateLimitedError(err) && attempt < maxAttempts - 1) {
-        const backoffMs = 2500 * 2 ** attempt + Math.floor(Math.random() * 400);
-        console.warn(
-          `[googleSheets] read rate limited (429), backing off ${backoffMs}ms (attempt ${attempt + 1}/${maxAttempts}) tab=${tabName}`,
-        );
-        await sleep(backoffMs);
-        continue;
-      }
-      throw err;
-    }
-  }
-
-  throw new Error(`readRawMatrix: exhausted retries for tab ${tabName}`);
+  const values = await spreadsheetsValuesGetWithRetry({
+    sheets,
+    spreadsheetId: resolvedSpreadsheetId,
+    range,
+    logLabel: tabName,
+  });
+  return values.map((row) => row.map((cell) => normalizeCell(cell)));
 }
 
 async function getHeaders(tabName: string, spreadsheetId?: string): Promise<string[]> {

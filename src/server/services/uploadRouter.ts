@@ -17,12 +17,14 @@ import { buildParseConfidenceSummary } from './intake/confidence.ts';
 import { candidateToIntakeCatalogMatch, enrichItemsWithCatalogMatches } from './intake/catalogMatcher.ts';
 import { parseExcelUpload } from './intake/excelParser.ts';
 import { normalizePdfChunks, normalizeSpreadsheetRows } from './intake/normalizer.ts';
+import { resolveUploadPdfProvider } from './intake/documentAiConfig.ts';
 import { parsePdfUpload } from './intake/pdfParser.ts';
 import { validateNormalizedItems } from './intake/validator.ts';
 import { buildIntakeDiagnostics } from './intakeDiagnosticsService.ts';
 import { buildRoomCandidates, toReviewLines } from './matchPreparationService.ts';
 import { mergeResolvedMetadata } from './metadataExtractorService.ts';
 import { buildProposalAssist, extractAssumptionsFromText } from './proposalAssistService.ts';
+import { isPlausibleIntakeLineDescription } from '../../shared/utils/intakeTextGuards.ts';
 import { parseIntakeRequest } from './intakePipeline.ts';
 import { buildIntakeEstimateDraft } from './intakeMatcherService.ts';
 
@@ -247,7 +249,7 @@ async function parseWithHybridUploadRouter(input: IntakeParseRequest): Promise<{
         fileName: input.fileName,
         mimeType: input.mimeType,
         fileType,
-        parserStrategy: `pdf-${String(process.env.UPLOAD_PDF_PROVIDER || 'fallback-text')}`,
+        parserStrategy: `pdf-${resolveUploadPdfProvider()}`,
         fileSize,
         items,
         warnings: [...pdf.warnings, ...pdf.document.extractionWarnings],
@@ -278,6 +280,22 @@ async function parseWithHybridUploadRouter(input: IntakeParseRequest): Promise<{
   };
 }
 
+function hybridExtractLooksLikeGarbage(upload: UploadParseResult): boolean {
+  const items = upload.extractedItems || [];
+  if (items.length < 3) return false;
+  const bad = items.filter((row) => !isPlausibleIntakeLineDescription(String(row.description || ''))).length;
+  return bad / items.length >= 0.65;
+}
+
+function shouldFallbackToLegacyIntakePipeline(explicitType: IntakeSourceType, upload: UploadParseResult): boolean {
+  if (upload.fileType === 'unknown') return true;
+  if (upload.extractedItems.length === 0 && (explicitType === 'document' || explicitType === 'pdf')) {
+    return true;
+  }
+  if (explicitType === 'pdf' && hybridExtractLooksLikeGarbage(upload)) return true;
+  return false;
+}
+
 export async function parseUploadedWithRouter(input: IntakeParseRequest): Promise<IntakeParseResult> {
   const explicitType = classifyIntakeSourceType(input.fileName, input.mimeType, input.sourceType);
   if (explicitType === 'document' && !input.fileName.toLowerCase().endsWith('.pdf')) {
@@ -285,8 +303,18 @@ export async function parseUploadedWithRouter(input: IntakeParseRequest): Promis
   }
 
   const { upload, metadata } = await parseWithHybridUploadRouter(input);
-  if (upload.fileType === 'unknown' || (upload.extractedItems.length === 0 && explicitType === 'document')) {
-    return parseIntakeRequest(input);
+  if (shouldFallbackToLegacyIntakePipeline(explicitType, upload)) {
+    const legacy = await parseIntakeRequest(input);
+    if (legacy.reviewLines.length > 0 || upload.extractedItems.length === 0) {
+      return legacy;
+    }
+    const warnings = Array.from(
+      new Set([
+        ...legacy.warnings,
+        'Hybrid PDF parse produced low-quality lines; Gemini/text pipeline also found no usable scope rows.',
+      ]),
+    );
+    return { ...legacy, warnings };
   }
   return await toLegacyIntakeResult({ request: input, upload, extractedMetadata: metadata });
 }

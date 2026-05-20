@@ -1,8 +1,17 @@
 import { DocumentProcessorServiceClient, protos } from '@google-cloud/documentai';
-import type { ExtractedPdfBlock, ExtractedPdfDocument, PdfExtractionProvider } from '../../../shared/types/intake.ts';
+import type {
+  ExtractedPdfBlock,
+  ExtractedPdfDocument,
+  PdfExtractionOptions,
+  PdfExtractionProvider,
+} from '../../../shared/types/intake.ts';
 import { stripIntakeControlCharacters } from '../../../shared/utils/intakeTextGuards.ts';
-
-const DOCUMENT_AI_LOCATION = 'us';
+import { buildGoogleServiceAccountJwt } from '../googleSheetsCatalogSync.ts';
+import {
+  documentAiLocation,
+  resolveDocumentAiProcessorName,
+  resolveDocumentMimeType,
+} from './documentAiConfig.ts';
 
 type TextAnchor = protos.google.cloud.documentai.v1.Document.ITextAnchor | null | undefined;
 type Page = protos.google.cloud.documentai.v1.Document.IPage;
@@ -68,29 +77,37 @@ function pageTextFromLayout(fullText: string, page: Page): string {
   return '';
 }
 
+function getDocumentAiClient(): DocumentProcessorServiceClient {
+  const location = documentAiLocation();
+  const jwt = buildGoogleServiceAccountJwt(['https://www.googleapis.com/auth/cloud-platform']);
+  const clientEmail = String(jwt.email || '').trim();
+  const privateKey = String(jwt.key || '').trim();
+  if (!clientEmail || !privateKey) {
+    throw new Error('Document AI: service account email/private_key missing from GOOGLE_SERVICE_ACCOUNT credentials.');
+  }
+  return new DocumentProcessorServiceClient({
+    apiEndpoint: `${location}-documentai.googleapis.com`,
+    credentials: {
+      client_email: clientEmail,
+      private_key: privateKey,
+    },
+  });
+}
+
+/**
+ * Calls Document AI `processDocument` (same API as the Python process_document_sample).
+ */
 export class GoogleDocumentAiProvider implements PdfExtractionProvider {
-  async extract(file: Buffer): Promise<ExtractedPdfDocument> {
-    const projectId = String(process.env.GOOGLE_CLOUD_PROJECT_ID || '').trim();
-    const processorId = String(process.env.DOCUMENT_AI_PROCESSOR_ID || '').trim();
-    if (!projectId || !processorId) {
-      throw new Error(
-        'Google Document AI requires GOOGLE_CLOUD_PROJECT_ID and DOCUMENT_AI_PROCESSOR_ID. Use Application Default Credentials (e.g. GOOGLE_APPLICATION_CREDENTIALS).'
-      );
-    }
+  async extract(file: Buffer, options?: PdfExtractionOptions): Promise<ExtractedPdfDocument> {
+    const { processorName } = resolveDocumentAiProcessorName();
+    const mimeType = resolveDocumentMimeType(options?.fileName || '', options?.mimeType);
 
-    const name = processorId.includes('/processors/')
-      ? processorId
-      : `projects/${projectId}/locations/${DOCUMENT_AI_LOCATION}/processors/${processorId}`;
-
-    const client = new DocumentProcessorServiceClient({
-      apiEndpoint: `${DOCUMENT_AI_LOCATION}-documentai.googleapis.com`,
-    });
-
+    const client = getDocumentAiClient();
     const [result] = await client.processDocument({
-      name,
+      name: processorName,
       rawDocument: {
         content: file,
-        mimeType: 'application/pdf',
+        mimeType,
       },
     });
 
@@ -100,7 +117,7 @@ export class GoogleDocumentAiProvider implements PdfExtractionProvider {
     const extractionWarnings: string[] = [];
 
     if (!documentText) {
-      extractionWarnings.push('Document AI returned no document text for this PDF.');
+      extractionWarnings.push('Document AI returned no document text for this file.');
     }
 
     const pagesIn = doc?.pages || [];

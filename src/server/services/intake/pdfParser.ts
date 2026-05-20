@@ -1,6 +1,13 @@
 // Import implementation directly — package `index.js` runs a debug harness when `module.parent` is unset under ESM.
 import pdfParse from 'pdf-parse/lib/pdf-parse.js';
-import type { ExtractedPdfBlock, ExtractedPdfDocument, IntakeProjectMetadata, PdfExtractionProvider } from '../../../shared/types/intake.ts';
+import type {
+  ExtractedPdfBlock,
+  ExtractedPdfDocument,
+  IntakeProjectMetadata,
+  PdfExtractionOptions,
+  PdfExtractionProvider,
+} from '../../../shared/types/intake.ts';
+import { resolveUploadPdfProvider } from './documentAiConfig.ts';
 import {
   extractMetadataFromText,
   mergeMetadataHint,
@@ -70,6 +77,20 @@ function classifyBlock(line: string): ExtractedPdfBlock {
   return { type: 'line', text: trimmed, confidence: 0.66 };
 }
 
+/** Word/Acrobat-exported PDFs: decode real text streams via pdf-parse (shared by intake pipeline). */
+export async function extractPdfTextFromBuffer(
+  buffer: Buffer,
+  options?: PdfExtractionOptions,
+): Promise<string> {
+  const provider = getPdfExtractionProvider();
+  const doc = await provider.extract(buffer, options);
+  if (doc.documentText.trim().length >= 12) return doc.documentText;
+  const parsed = await tryExtractWithPdfParse(buffer);
+  if (parsed?.documentText?.trim()) return parsed.documentText;
+  const raw = extractPrintableTextFromPdf(buffer);
+  return stripIntakeControlCharacters(raw).trim();
+}
+
 /** Word/Acrobat-exported PDFs: decode real text streams via pdf.js (pdf-parse). */
 async function tryExtractWithPdfParse(buffer: Buffer): Promise<ExtractedPdfDocument | null> {
   try {
@@ -101,7 +122,7 @@ async function tryExtractWithPdfParse(buffer: Buffer): Promise<ExtractedPdfDocum
 }
 
 export class FallbackPdfExtractionProvider implements PdfExtractionProvider {
-  async extract(file: Buffer): Promise<ExtractedPdfDocument> {
+  async extract(file: Buffer, _options?: PdfExtractionOptions): Promise<ExtractedPdfDocument> {
     const parsed = await tryExtractWithPdfParse(file);
     if (parsed) return parsed;
 
@@ -172,17 +193,47 @@ function chunkPdfDocument(document: ExtractedPdfDocument): PdfChunk[] {
   return chunks;
 }
 
-function getPdfExtractionProvider(): PdfExtractionProvider {
-  const provider = String(process.env.UPLOAD_PDF_PROVIDER || 'fallback-text').toLowerCase();
-  if (provider === 'google-document-ai') {
-    return new GoogleDocumentAiProvider();
+class DocumentAiWithFallbackPdfProvider implements PdfExtractionProvider {
+  async extract(file: Buffer, options?: PdfExtractionOptions): Promise<ExtractedPdfDocument> {
+    const docAi = new GoogleDocumentAiProvider();
+    try {
+      const doc = await docAi.extract(file, options);
+      if (doc.documentText.trim().length >= 12) return doc;
+      const warnings = [
+        ...doc.extractionWarnings,
+        'Document AI returned little text; falling back to pdf-parse.',
+      ];
+      const fallback = await new FallbackPdfExtractionProvider().extract(file, options);
+      return {
+        ...fallback,
+        extractionWarnings: [...warnings, ...fallback.extractionWarnings],
+      };
+    } catch (err: unknown) {
+      const detail = err instanceof Error ? err.message : String(err);
+      console.warn('[googleDocumentAi] processDocument failed, using pdf-parse fallback:', detail);
+      const fallback = await new FallbackPdfExtractionProvider().extract(file, options);
+      return {
+        ...fallback,
+        extractionWarnings: [`Document AI failed: ${detail}`, ...fallback.extractionWarnings],
+      };
+    }
+  }
+}
+
+export function getPdfExtractionProvider(): PdfExtractionProvider {
+  if (resolveUploadPdfProvider() === 'google-document-ai') {
+    return new DocumentAiWithFallbackPdfProvider();
   }
   return new FallbackPdfExtractionProvider();
 }
 
 export async function parsePdfUpload(input: { fileName: string; mimeType: string; dataBase64: string }): Promise<PdfParseOutput> {
   const provider = getPdfExtractionProvider();
-  const document = await provider.extract(Buffer.from(input.dataBase64, 'base64'));
+  const buffer = Buffer.from(input.dataBase64, 'base64');
+  const document = await provider.extract(buffer, {
+    mimeType: input.mimeType,
+    fileName: input.fileName,
+  });
   const chunks = chunkPdfDocument(document);
   const warnings = [...document.extractionWarnings];
   if (!chunks.length) warnings.push('No PDF chunks were produced for normalization.');

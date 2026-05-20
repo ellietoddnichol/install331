@@ -103,8 +103,13 @@ export interface ExtractedPdfDocument {
   pdfFileInfo?: Record<string, unknown>;
 }
 
+export type PdfExtractionOptions = {
+  mimeType?: string;
+  fileName?: string;
+};
+
 export interface PdfExtractionProvider {
-  extract(file: Buffer): Promise<ExtractedPdfDocument>;
+  extract(file: Buffer, options?: PdfExtractionOptions): Promise<ExtractedPdfDocument>;
 }
 
 export interface NormalizedIntakeItem {

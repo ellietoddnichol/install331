@@ -7,6 +7,7 @@ import { isPlausibleProjectTitle, looksLikeIntakePricingSummaryOrDisclaimerLine 
 import { normalizeIntakeUnit } from '../../shared/utils/intakeNormalization.ts';
 import { intakeGeminiResponseSchema, INTAKE_GEMINI_MODEL } from './structuredExtractionSchemas.ts';
 import { extractIntakeMetadataHintsFromText, mergeNlpHintsIntoPartialMetadata } from './naturalLanguageService.ts';
+import { isDocxFile } from './intake/docxTextExtract.ts';
 import {
   enrichSiteAddressWithMapsGrounding,
   isMapsGroundingEnabled,
@@ -318,9 +319,11 @@ export async function extractIntakeFromGemini(input: ExtractInput): Promise<Gemi
   const prompt = [
     'You are an estimator intake extraction engine.',
     ...(input.dataBase64 &&
-    (input.sourceType === 'pdf' || String(input.mimeType || '').toLowerCase().includes('pdf'))
+    (input.sourceType === 'pdf' ||
+      String(input.mimeType || '').toLowerCase().includes('pdf') ||
+      isDocxFile(input.fileName, input.mimeType))
       ? [
-          'You are provided with the raw PDF file natively. Prioritize your visual understanding of the tables, matrices, and schedules in the PDF file over any provided text representations.',
+          'You are provided with the raw document file natively (PDF or Word). Prioritize your visual understanding of the tables, matrices, and schedules in the file over any provided text representations.',
         ]
       : []),
     'Extract project metadata and takeoff lines into strict JSON.',
@@ -384,29 +387,34 @@ export async function extractIntakeFromGemini(input: ExtractInput): Promise<Gemi
   let tempFilePath: string | null = null;
   try {
     if (input.dataBase64 && input.mimeType) {
-      if (input.sourceType === 'pdf' && input.mimeType.toLowerCase().includes('pdf')) {
-      const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gemini-intake-'));
-      tempFilePath = path.join(tmpDir, input.fileName || 'upload.pdf');
-      await fs.writeFile(tempFilePath, Buffer.from(input.dataBase64, 'base64'));
+      const nativeMime = input.mimeType.toLowerCase();
+      const useNativeFileUpload =
+        (input.sourceType === 'pdf' && nativeMime.includes('pdf')) || isDocxFile(input.fileName, input.mimeType);
 
-      const uploaded = await withGeminiRetries(() =>
-        ai.files.upload({
-          file: tempFilePath,
-          config: {
-            mimeType: input.mimeType,
-            displayName: input.fileName,
-          },
-        })
-      );
+      if (useNativeFileUpload) {
+        const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gemini-intake-'));
+        const ext = isDocxFile(input.fileName, input.mimeType) ? '.docx' : '.pdf';
+        tempFilePath = path.join(tmpDir, input.fileName || `upload${ext}`);
+        await fs.writeFile(tempFilePath, Buffer.from(input.dataBase64, 'base64'));
 
-      if (uploaded.uri) {
-        parts.push({
-          fileData: {
-            mimeType: input.mimeType,
-            fileUri: uploaded.uri,
-          },
-        });
-      }
+        const uploaded = await withGeminiRetries(() =>
+          ai.files.upload({
+            file: tempFilePath,
+            config: {
+              mimeType: input.mimeType,
+              displayName: input.fileName,
+            },
+          }),
+        );
+
+        if (uploaded.uri) {
+          parts.push({
+            fileData: {
+              mimeType: input.mimeType,
+              fileUri: uploaded.uri,
+            },
+          });
+        }
       } else {
         parts.push({
           inlineData: {

@@ -730,6 +730,40 @@ function readServiceAccountFromFile(filePath: string): Record<string, unknown> {
   }
 }
 
+/**
+ * GOOGLE_PRIVATE_KEY secret often contains JSON or base64 by mistake — extract PEM when possible.
+ */
+function extractPrivateKeyMaterialFromEnv(raw: string): string {
+  let material = String(raw || '').trim();
+  if (!material) return '';
+
+  if (material.startsWith('{') || material.includes('"private_key"')) {
+    try {
+      const parsed = parseServiceAccountEnvJson(material, 'GOOGLE_PRIVATE_KEY');
+      const fromJson = String(parsed.private_key || '').trim();
+      if (fromJson) return fromJson;
+    } catch {
+      /* treat as PEM below */
+    }
+  }
+
+  if (!/BEGIN .*PRIVATE KEY/.test(material) && /^[A-Za-z0-9+/=\s-]+$/.test(material) && material.length > 120) {
+    try {
+      const decoded = Buffer.from(material.replace(/\s/g, ''), 'base64').toString('utf8').trim();
+      if (decoded.startsWith('{')) {
+        const parsed = parseServiceAccountEnvJson(decoded, 'GOOGLE_PRIVATE_KEY (base64)');
+        const fromJson = String(parsed.private_key || '').trim();
+        if (fromJson) return fromJson;
+      }
+      if (/BEGIN .*PRIVATE KEY/.test(decoded)) return decoded;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return material;
+}
+
 /** Fix Cloud Run / env mangling: quoted values, BOM, \\n vs newlines, \\r, zero-width chars. */
 function normalizePrivateKeyPem(raw: string): string {
   let key = String(raw || '').trim();
@@ -815,7 +849,7 @@ function assertPrivateKeyParsesWithNode(pem: string, sourceLabel: string): void 
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(
-      `${sourceLabel}: private_key cannot be loaded by Node/OpenSSL (${msg}). The key material is likely truncated or altered in the secret. Fix: IAM → Service accounts → Keys → Add key → JSON, paste the **entire** file into Secret Manager as a new version, redeploy.`
+      `${sourceLabel}: private_key cannot be loaded by Node/OpenSSL (${msg}). The key material is likely truncated, pasted as partial JSON, or has broken newlines in Secret Manager. Fix (recommended): create secret **GOOGLE_SERVICE_ACCOUNT** with the **entire** service-account .json file and mount it on Cloud Run (see docs/deploy-sheets-mvp.md). Or: IAM → Service accounts → Keys → Add key → JSON, run \`npx tsx scripts/extract-service-account-pem.ts your-key.json\`, paste the PEM output into a new **GOOGLE_PRIVATE_KEY** secret version (multiline, include BEGIN/END lines), redeploy.`
     );
   }
 }
@@ -953,7 +987,7 @@ export function buildGoogleServiceAccountJwt(scopes: string[] = [...DEFAULT_GOOG
   const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL;
   const privateKeyRaw =
     process.env.GOOGLE_PRIVATE_KEY || process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '';
-  const privateKey = normalizePrivateKeyPem(privateKeyRaw);
+  const privateKey = normalizePrivateKeyPem(extractPrivateKeyMaterialFromEnv(privateKeyRaw));
 
   if (!clientEmail || !privateKey) {
     const rawInline = process.env.GOOGLE_SERVICE_ACCOUNT;

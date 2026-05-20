@@ -33,7 +33,10 @@ import {
   coerceSafeProjectName,
   isPlausibleProjectTitle,
   looksLikeIntakePricingSummaryOrDisclaimerLine,
+  looksLikePdfBinaryGarbageText,
 } from '../../shared/utils/intakeTextGuards.ts';
+import { extractDocxTextFromBuffer, isDocxFile } from './intake/docxTextExtract.ts';
+import { extractPdfTextFromBuffer } from './intake/pdfParser.ts';
 import { normalizeIntakeUnit } from '../../shared/utils/intakeNormalization.ts';
 import {
   mergeResolvedMetadata as mergeResolvedMetadataFromService,
@@ -547,22 +550,21 @@ function parseQtyAndText(line: string): { qty: number; text: string } {
   return { qty: parsePositiveNumber(matched[1], 1), text: asText(matched[2]) };
 }
 
-function extractTextFromPdfBuffer(buffer: Buffer): string {
-  const latin = new TextDecoder('latin1').decode(buffer);
-  const matches = latin.match(/\(([^\)]{2,})\)/g) || [];
-  const extracted = matches
-    .map((token) => token.slice(1, -1))
-    .map((token) => token.replace(/\\[rn]/g, ' '))
-    .join('\n');
-  // Never return raw `latin` (entire file as Latin-1) — that becomes mojibake "project names" and fake lines.
-  return extracted.trim();
-}
-
-function decodeDocumentText(dataBase64: string, fileName: string, mimeType: string): string {
+async function decodeDocumentText(dataBase64: string, fileName: string, mimeType: string): Promise<string> {
   const buffer = Buffer.from(dataBase64, 'base64');
   const lowerName = fileName.toLowerCase();
-  if (lowerName.endsWith('.pdf') || mimeType.toLowerCase().includes('pdf')) {
-    return extractTextFromPdfBuffer(buffer);
+  const lowerMime = mimeType.toLowerCase();
+
+  if (lowerName.endsWith('.pdf') || lowerMime.includes('pdf')) {
+    return extractPdfTextFromBuffer(buffer, { mimeType, fileName });
+  }
+
+  if (isDocxFile(fileName, mimeType)) {
+    try {
+      return await extractDocxTextFromBuffer(buffer);
+    } catch {
+      return '';
+    }
   }
 
   return new TextDecoder('utf-8', { fatal: false }).decode(buffer);
@@ -1029,7 +1031,7 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
 
     if (!deterministicRows.length) {
       warnings.push('Spreadsheet structure was weak; falling back to text extraction heuristics.');
-      const fallbackText = flattenedText || decodeDocumentText(input.dataBase64, fileName, mimeType);
+      const fallbackText = flattenedText || (await decodeDocumentText(input.dataBase64, fileName, mimeType));
       const fallbackLines = detectScopeLinesFromText(fallbackText, fileName);
       const metadata = mergeResolvedMetadataFromService(extractMetadataFromTextFromService(fallbackText), structuredMetadata, ['spreadsheet-fallback', 'text-heuristics']);
       const reviewLines = await toReviewLinesFromService(fallbackLines as unknown as NormalizedIntakeLineFromService[], catalog, matchCatalog, bundles);
@@ -1251,7 +1253,14 @@ export async function parseIntakeRequest(input: IntakeParseRequest): Promise<Int
     }
   }
 
-  const extractedText = input.extractedText || (input.dataBase64 ? decodeDocumentText(input.dataBase64, fileName, mimeType) : '');
+  const extractedText =
+    input.extractedText?.trim() ||
+    (input.dataBase64 ? await decodeDocumentText(input.dataBase64, fileName, mimeType) : '');
+  if (extractedText && looksLikePdfBinaryGarbageText(extractedText)) {
+    warnings.push(
+      'Uploaded document text looks like a PDF binary dump (mojibake). If this is a PDF, ensure the server can read it (pdf-parse) or set GEMINI_API_KEY for native PDF extraction.',
+    );
+  }
   const heuristicMetadata = extractMetadataFromTextFromService(extractedText);
   const sourceKind = deriveDocumentSourceKind(fileName, mimeType, extractedText);
   const fallbackLines = detectScopeLinesFromText(extractedText, fileName);

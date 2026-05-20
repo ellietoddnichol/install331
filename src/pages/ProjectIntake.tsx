@@ -787,6 +787,12 @@ function looksLikePdfBuffer(buffer: ArrayBuffer): boolean {
   return b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46;
 }
 
+function isDocxUpload(fileName: string, mime: string): boolean {
+  const lower = fileName.toLowerCase();
+  const m = mime.toLowerCase();
+  return lower.endsWith('.docx') || m.includes('wordprocessingml.document');
+}
+
 /** Plain-text / spreadsheet extraction for takeoff "document" uploads only — never treat PDF bytes as text. */
 async function extractTextFromTakeoffBuffer(fileName: string, buffer: ArrayBuffer): Promise<string> {
   const lower = fileName.toLowerCase();
@@ -2151,8 +2157,14 @@ export function ProjectIntake() {
       if (sourceType !== 'spreadsheet' && looksLikePdfBuffer(buffer)) {
         sourceType = 'pdf';
       }
+      if (sourceType === 'document' && isDocxUpload(fileName, lowerMime)) {
+        sourceType = 'document';
+      }
 
-      const extractedText = sourceType === 'document' ? await extractTextFromTakeoffBuffer(file.name, buffer) : undefined;
+      const extractedText =
+        sourceType === 'document' && !fileName.endsWith('.pdf') && !isDocxUpload(fileName, lowerMime)
+          ? await extractTextFromTakeoffBuffer(file.name, buffer)
+          : undefined;
       const result = await api.parseV1Intake({
         fileName: file.name,
         mimeType: file.type || (sourceType === 'spreadsheet' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : sourceType === 'pdf' ? 'application/pdf' : 'text/plain'),
@@ -2219,22 +2231,30 @@ export function ProjectIntake() {
     const buffer = await file.arrayBuffer();
     const isPdf = lower.endsWith('.pdf') || mime.includes('pdf') || looksLikePdfBuffer(buffer);
 
-    if (isLikelyBinaryBuffer(buffer) && !isPdf) {
+    const isDocx = isDocxUpload(lower, mime);
+
+    if (isLikelyBinaryBuffer(buffer) && !isPdf && !isDocx) {
       setUploadedText('');
       setIntakeWarnings([
-        'Unsupported binary document for text parsing. Upload PDF/TXT for document intake, or use Create from Takeoff for spreadsheets.',
+        'Unsupported binary document. Upload PDF, Word (.docx), or plain text for document intake, or use Create from Takeoff for spreadsheets.',
       ]);
       return;
     }
 
-    const text = isPdf ? '' : new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+    const text = isPdf || isDocx ? '' : new TextDecoder('utf-8', { fatal: false }).decode(buffer);
     setUploadedText(isPdf ? '' : text.trim() ? text : file.name);
 
     const dataBase64 = arrayBufferToBase64(buffer);
     try {
       const result = await api.parseV1Intake({
         fileName: file.name,
-        mimeType: file.type || (isPdf ? 'application/pdf' : 'text/plain'),
+        mimeType:
+          file.type ||
+          (isPdf
+            ? 'application/pdf'
+            : isDocx
+              ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+              : 'text/plain'),
         sourceType: isPdf ? 'pdf' : 'document',
         dataBase64,
         extractedText: isPdf ? undefined : text,

@@ -10,6 +10,7 @@ import {
 } from '../../components/project/ProjectSetupReadiness';
 import { ProjectWorkflowGuide } from '../../components/projects/ProjectWorkflowGuide';
 import { projectDisplaySubtitle, projectDisplayTitle, proposalModeChipLabel } from '../../shared/utils/projectDisplay';
+import { composeAddress, parseAddressParts, type AddressParts } from '../../shared/utils/addressParts.ts';
 import { formatNumberSafe } from '../../utils/numberFormat';
 
 interface ProjectSetupPageProps {
@@ -19,42 +20,6 @@ interface ProjectSetupPageProps {
   patchJobConditions: (patch: Partial<ProjectJobConditions>) => void;
   onSave?: () => void | Promise<void>;
   saveBusy?: boolean;
-}
-
-interface AddressParts {
-  address1: string;
-  address2: string;
-  city: string;
-  state: string;
-  zip: string;
-  county: string;
-}
-
-function parseAddressParts(address: string | null | undefined): AddressParts {
-  const raw = String(address || '').trim();
-  if (!raw) return { address1: '', address2: '', city: '', state: '', zip: '', county: '' };
-  const parts = raw.split(',').map((p) => p.trim()).filter(Boolean);
-  const last = parts[parts.length - 1] || '';
-  const stateZip = last.match(/^([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$/);
-  return {
-    address1: parts[0] || '',
-    address2: parts.length > 3 ? parts[1] : '',
-    city: parts.length > 1 ? parts[parts.length - 2] || '' : '',
-    state: stateZip?.[1] || '',
-    zip: stateZip?.[2] || '',
-    county: '',
-  };
-}
-
-function composeAddress(parts: AddressParts): string | null {
-  const left = [parts.address1, parts.address2].map((v) => v.trim()).filter(Boolean);
-  const city = parts.city.trim();
-  const state = parts.state.trim().toUpperCase();
-  const zip = parts.zip.trim();
-  const stateZip = [state, zip].filter(Boolean).join(' ').trim();
-  const right = [city, stateZip].filter(Boolean);
-  const full = [...left, ...right].join(', ').trim();
-  return full || null;
 }
 
 function mapSourceRowDefault(value: string): 'replace_existing' | 'append' {

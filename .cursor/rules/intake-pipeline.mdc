@@ -6,7 +6,7 @@ alwaysApply: false
 
 # Intake & document extraction
 
-- **PDF text**: `pdfParser.ts` chooses `GoogleDocumentAiProvider` when `UPLOAD_PDF_PROVIDER=google-document-ai` (requires GCP processor + ADC); otherwise `FallbackPdfExtractionProvider` (pdf-parse).
+- **PDF text**: `pdfParser.ts` uses `GoogleDocumentAiProvider` (`processDocument`, location `us`) when `DOCUMENT_AI_PROCESSOR_ID` + `GOOGLE_CLOUD_PROJECT_ID` are set (or `UPLOAD_PDF_PROVIDER=google-document-ai`); falls back to pdf-parse on failure. Auth: `GOOGLE_SERVICE_ACCOUNT` JWT (`roles/documentai.apiUser`).
 - **Gemini**: `extractIntakeFromGemini` / `geminiExtractionService` — keep prompt rules in sync with `rowClassifierService.shouldKeepNormalizedLine` and `intakeTextGuards` (contact/boilerplate, section headers, pricing disclaimers).
 - **Normalization**: Use `normalizeIntakeUnit` from `intakeNormalization.ts` when fixing units from LLM or spreadsheets; extend `UNIT_ALIASES` for new OCR patterns instead of one-off fixes in components.
 - **Validator**: `validateNormalizedItems` drops non-scope lines and canonicalizes units — add new drop rules via shared guards in `intakeTextGuards.ts`, not duplicated regex in the UI.

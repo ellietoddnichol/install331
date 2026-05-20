@@ -362,6 +362,41 @@ export function coerceSafeProjectName(value: string, fallback = 'Imported Projec
   return isPlausibleProjectTitle(t) ? t : fallback;
 }
 
+/** Reject PDF Latin-1 dumps and binary soup used as line descriptions or extracted document text. */
+export function looksLikePdfBinaryGarbageText(text: string): boolean {
+  const t = intakeTrim(stripIntakeControlCharacters(String(text || ''))).replace(/\s+/g, ' ').trim();
+  if (!t || t.length < 24) return false;
+  if (looksLikePdfInternalSyntaxTitle(t)) return true;
+  if (t.includes('\uFFFD')) return true;
+
+  const nonSpace = t.replace(/\s/g, '');
+  if (nonSpace.length < 20) return false;
+
+  let suspicious = 0;
+  for (const ch of nonSpace) {
+    if (/[A-Za-z0-9]/.test(ch)) continue;
+    if ('.,;:\'’"&/@#+\\=()%-–—_'.includes(ch)) continue;
+    if (/[\u00C0-\u024F]/.test(ch)) continue;
+    suspicious += 1;
+  }
+  if (suspicious / nonSpace.length > 0.28) return true;
+
+  const asciiLetters = [...nonSpace].filter((ch) => /[A-Za-z]/.test(ch)).length;
+  if (asciiLetters / nonSpace.length < 0.32 && longestAsciiLetterRun(t) < 6) return true;
+  if (MOJIBAKE_LATIN_SYMBOLS.test(nonSpace) && asciiLetters / nonSpace.length < 0.45) return true;
+
+  return false;
+}
+
+/** Short scope-line descriptions from hybrid PDF parsing should look like real words, not PDF object syntax. */
+export function isPlausibleIntakeLineDescription(text: string): boolean {
+  const t = intakeTrim(stripIntakeControlCharacters(String(text || ''))).replace(/\s+/g, ' ').trim();
+  if (t.length < 4) return false;
+  if (looksLikePdfInternalSyntaxTitle(t)) return false;
+  if (looksLikePdfBinaryGarbageText(t)) return false;
+  return /[A-Za-z]{3,}/.test(t);
+}
+
 /** Use PDF/upload file stem as a title only when it looks like a real job name (not binary garbage). */
 export function plausibleTitleFromFileName(fileName: string): string | null {
   const stem = String(fileName || '')

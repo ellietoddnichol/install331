@@ -16,6 +16,7 @@ import {
   vendorIntakeTabStagedQuoteRows,
   vendorIntakeTabVendorAliases,
 } from '../../config/div10SheetsWorkbooks.ts';
+import { runSheetsValuesRead } from '../../integrations/sheetsReadQueue.ts';
 import { buildGoogleServiceAccountJwt } from '../googleSheetsCatalogSync.ts';
 import { fetchTabValues, findHeaderRowIndex, getSheetsClient } from './headerGridIo.ts';
 import {
@@ -75,10 +76,12 @@ function resolveTabSpecsForWorkbook(key: Div10LogicalWorkbookKey): { tabName: st
 
 async function listSheetTitles(spreadsheetId: string): Promise<string[]> {
   const sheets = await getSheetsClient();
-  const res = await sheets.spreadsheets.get({
-    spreadsheetId,
-    fields: 'sheets.properties.title',
-  });
+  const res = await runSheetsValuesRead(() =>
+    sheets.spreadsheets.get({
+      spreadsheetId,
+      fields: 'sheets.properties.title',
+    }),
+  );
   return (res.data.sheets || [])
     .map((s) => String(s.properties?.title || '').trim())
     .filter(Boolean);
