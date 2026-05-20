@@ -71,6 +71,24 @@ Grant **Secret Accessor** to:
 
 Do **not** put `GOOGLE_PRIVATE_KEY` in `_CLOUDRUN_ENV_VARS` or Vite `VITE_*`.
 
+**Both** are required for split-key auth:
+
+| Variable | Where | Value |
+|----------|--------|--------|
+| `GOOGLE_PRIVATE_KEY` | Secret Manager → Cloud Run secret | PEM from service account JSON |
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | Plain env on Cloud Run (in `_CLOUDRUN_ENV_VARS`) | `labor-catalog@gen-lang-client-0568373820.iam.gserviceaccount.com` |
+
+If you see `GOOGLE_PRIVATE_KEY=set` but `GOOGLE_SERVICE_ACCOUNT_EMAIL=missing`, the revision has the secret but not the email env var. Fix immediately:
+
+```powershell
+gcloud run services update install58 `
+  --project=gen-lang-client-0568373820 `
+  --region=europe-west1 `
+  --update-env-vars="GOOGLE_SERVICE_ACCOUNT_EMAIL=labor-catalog@gen-lang-client-0568373820.iam.gserviceaccount.com"
+```
+
+**Alternative (one secret):** mount the full service account JSON as env `GOOGLE_SERVICE_ACCOUNT` (option 1 in the app error message) instead of split key + email.
+
 ---
 
 ## 5. Cloud Build / `cloudbuild.yaml`
