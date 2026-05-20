@@ -1077,7 +1077,8 @@
   .proposal-print-pricing-box,
   .proposal-print-total-row,
   .proposal-print-line-group-head,
-  .proposal-print-scope-card,
+  .proposal-print-scope-table,
+  .proposal-print-scope-table tr,
   .proposal-print-signature,
   .proposal-print-signature-grid > div {
     break-inside: avoid;
@@ -1113,8 +1114,12 @@
     border-color: #000 !important;
   }
 
-  .proposal-print-scope-card {
-    border-color: #94a3b8 !important;
+  .proposal-print-scope-table {
+    border-color: #000 !important;
+  }
+
+  .proposal-print-scope-table thead {
+    display: table-header-group;
   }
 
   .proposal-print-total-row {

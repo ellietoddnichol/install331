@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import type { ProposalPrintModel } from '../../shared/utils/proposalPrintModel';
+import { ProposalInvestmentSummaryTable } from './ProposalInvestmentSummaryTable';
 import { formatCurrencySafe, formatNumberSafe } from '../../utils/numberFormat';
 
 interface Props {
@@ -21,6 +22,11 @@ export function ProposalPrintDocument({ model }: Props) {
     (model.showTerms && model.terms.length > 0) ||
     (model.showExclusions && model.exclusions.length > 0) ||
     (model.showClarifications && model.clarifications.length > 0);
+
+  const scopeRollupTotal = useMemo(
+    () => model.scopeRollups.reduce((sum, rollup) => sum + rollup.total, 0),
+    [model.scopeRollups],
+  );
 
   return (
     <article
@@ -115,34 +121,6 @@ export function ProposalPrintDocument({ model }: Props) {
           </p>
         </section>
 
-        {/* Pricing summary */}
-        <section className="proposal-print-pricing proposal-section proposal-avoid-break mt-9">
-          <SectionHeading>Pricing summary</SectionHeading>
-          <div className="proposal-print-pricing-box mt-4 border border-slate-300 bg-slate-50/80">
-            <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-4 py-3 text-[12px]">
-              <span className="font-medium text-slate-600">Estimated duration</span>
-              <span className="font-semibold tabular-nums text-slate-900">{model.durationLabel}</span>
-            </div>
-            <div className="px-4 py-2">
-              {model.investmentRows.map((row, idx) => (
-                <div
-                  key={`${row.label}-${idx}`}
-                  className={`flex justify-between gap-6 py-2.5 ${
-                    row.isTotal
-                      ? 'proposal-print-total-row -mx-4 border-t-2 border-slate-900 bg-white px-4 py-3 text-[15px] font-bold text-slate-950'
-                      : row.isSectionBreak
-                        ? 'border-b border-slate-200 text-[12px] font-semibold text-slate-800'
-                        : 'text-[12px] text-slate-600'
-                  }`}
-                >
-                  <span>{row.isTotal ? 'Total investment' : row.label}</span>
-                  <span className="shrink-0 tabular-nums">{formatCurrencySafe(row.amount)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
         {/* Line items / scope summary */}
         <section className="proposal-section mt-10">
           <SectionHeading>{isSummary ? 'Scope summary' : 'Line items'}</SectionHeading>
@@ -153,24 +131,38 @@ export function ProposalPrintDocument({ model }: Props) {
           ) : null}
 
           {isSummary ? (
-            <div className="proposal-print-scope-cards mt-5 space-y-3">
-              {model.scopeRollups.map((rollup) => (
-                <div
-                  key={rollup.section}
-                  className="proposal-print-scope-card proposal-avoid-break flex items-center justify-between gap-4 border border-slate-200 bg-white px-4 py-3.5"
-                >
-                  <div>
-                    <h3 className="m-0 text-[14px] font-semibold text-slate-950">{rollup.section}</h3>
-                    <p className="m-0 mt-0.5 text-[11px] text-slate-500">
-                      {rollup.itemCount} included item{rollup.itemCount === 1 ? '' : 's'}
-                    </p>
-                  </div>
-                  <p className="m-0 shrink-0 text-right text-[14px] font-bold tabular-nums text-slate-950">
-                    {formatCurrencySafe(rollup.total)}
-                  </p>
-                </div>
-              ))}
-            </div>
+            <table className="proposal-print-scope-table proposal-avoid-break mt-5 w-full border-collapse text-[12px]">
+              <thead>
+                <tr className="border-b-2 border-slate-900 text-[9px] font-bold uppercase tracking-[0.16em] text-slate-600">
+                  <th className="py-2 pr-4 text-left">Section</th>
+                  <th className="py-2 pr-4 text-left">Included items</th>
+                  <th className="py-2 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {model.scopeRollups.map((rollup) => (
+                  <tr key={rollup.section} className="border-b border-slate-200">
+                    <td className="py-2.5 pr-4 font-semibold text-slate-950">{rollup.section}</td>
+                    <td className="py-2.5 pr-4 text-slate-600">
+                      {rollup.itemCount} item{rollup.itemCount === 1 ? '' : 's'}
+                    </td>
+                    <td className="py-2.5 text-right font-semibold tabular-nums text-slate-900">
+                      {formatCurrencySafe(rollup.total)}
+                    </td>
+                  </tr>
+                ))}
+                {model.scopeRollups.length > 0 ? (
+                  <tr className="border-t-2 border-slate-900 bg-slate-50">
+                    <td colSpan={2} className="px-0 py-3 font-bold text-slate-950">
+                      Scope subtotal
+                    </td>
+                    <td className="py-3 text-right text-[13px] font-bold tabular-nums text-slate-950">
+                      {formatCurrencySafe(scopeRollupTotal)}
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
           ) : (
             <div className="mt-5 space-y-8">
               {model.sections.map((section) => (
@@ -291,6 +283,19 @@ export function ProposalPrintDocument({ model }: Props) {
             </p>
           </section>
         ) : null}
+
+        <section className="proposal-print-pricing proposal-section proposal-totals proposal-avoid-break mt-10 border-t-2 border-slate-900 pt-8">
+          <SectionHeading>Investment summary</SectionHeading>
+          <p className="m-0 mt-3 max-w-[42rem] text-[12px] leading-relaxed text-slate-600">
+            The following investment reflects the scope described above, including applicable material, labor, taxes, and
+            markups.
+          </p>
+          <ProposalInvestmentSummaryTable
+            className="proposal-print-pricing-box mt-4"
+            durationLabel={model.durationLabel}
+            rows={model.investmentRows}
+          />
+        </section>
 
         {showLegal ? (
           <section className="proposal-section mt-10 border-t border-slate-200 pt-8">

@@ -10,6 +10,12 @@ import {
   updateProjectInSheets,
 } from '../../repos/sheetsProjectsRepo.ts';
 import { isSheetsDataBackend } from '../../repos/dataBackend.ts';
+import {
+  handleRouteError,
+  tryRespondSheetsNotFound,
+  tryRespondSheetsPermissionDenied,
+  tryRespondSheetsRateLimited,
+} from '../../http/jsonErrors.ts';
 import { suggestAddresses } from '../../services/addressSuggestService.ts';
 import { calculateDistanceMiles } from '../../services/distanceService.ts';
 
@@ -39,10 +45,17 @@ projectsRouter.get('/distance', async (req, res) => {
 });
 
 projectsRouter.get('/', async (_req, res) => {
-  if (isSheetsDataBackend()) {
-    return res.json({ data: await listProjectsFromSheets() });
+  try {
+    if (isSheetsDataBackend()) {
+      return res.json({ data: await listProjectsFromSheets() });
+    }
+    return res.json({ data: await listProjects() });
+  } catch (err) {
+    if (tryRespondSheetsRateLimited(res, err, '[v1/projects]')) return;
+    if (tryRespondSheetsPermissionDenied(res, err, '[v1/projects]')) return;
+    if (tryRespondSheetsNotFound(res, err, '[v1/projects]')) return;
+    return handleRouteError(res, err, '[v1/projects]');
   }
-  return res.json({ data: await listProjects() });
 });
 
 projectsRouter.get('/peer-intake-defaults', async (req, res) => {

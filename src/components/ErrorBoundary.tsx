@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { isStaleChunkLoadErrorMessage } from '../utils/lazyRoute.ts';
 
 interface ErrorBoundaryProps {
   children?: ReactNode;
@@ -39,12 +40,15 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   render(): ReactNode {
     if (this.state.hasError) {
+      const staleDeploy = isStaleChunkLoadErrorMessage(this.state.message);
       if (this.variant === 'page') {
         return (
           <div className="rounded-xl border border-red-200 bg-red-50/50 p-5 text-left">
             <h2 className="text-sm font-semibold text-red-800">This view failed to load</h2>
             <p className="mt-1 text-xs text-slate-600">
-              Try another page from the sidebar, or reload. If this continues, copy the message below for support.
+              {staleDeploy
+                ? 'The app was updated while this tab was open. Reload once to fetch the latest JavaScript bundle.'
+                : 'Try another page from the sidebar, or reload. If this continues, copy the message below for support.'}
             </p>
             {this.state.message ? (
               <pre className="mt-2 max-h-32 overflow-auto rounded-md bg-white/80 p-2 text-left font-mono text-[11px] text-slate-800 ring-1 ring-slate-200/80">

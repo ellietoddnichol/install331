@@ -18,7 +18,8 @@ async function handleResponse<T>(res: Response): Promise<T> {
     try {
       const errorData = await res.json();
       const code = errorData.code ? ` (${errorData.code})` : '';
-      errorMessage = (errorData.error || errorData.message || errorMessage) + code;
+      const hint = errorData.hint ? ` — ${errorData.hint}` : '';
+      errorMessage = (errorData.error || errorData.message || errorMessage) + code + hint;
     } catch (e) {
       // If not JSON, try text
       try {

@@ -78,4 +78,5 @@ Disabled when `DIV10_BRAIN_ENABLED=0` or when `SUPABASE_URL` / `SUPABASE_SERVICE
 2. Copy stored quote/project files from Supabase Storage into the GCS bucket (preserve `projectId/fileId` paths if reusing metadata).
 3. Remove Supabase env vars from `.env.local` and Cloud Run.
 4. Run the MVP smoke checklist: `docs/mvp-smoke-checklist.md`.
+5. Deploy to Cloud Run: `docs/deploy-sheets-mvp.md` (env substitutions in `cloudbuild.yaml`).
 

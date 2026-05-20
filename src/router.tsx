@@ -1,25 +1,22 @@
-import React, { lazy } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
 import { ProtectedShell } from './components/routing/ProtectedShell.tsx';
 import { RequireAuthGate } from './components/routing/RequireAuthGate.tsx';
 import { SignInRoute } from './components/routing/SignInRoute.tsx';
 import { NotFound } from './pages/NotFound.tsx';
 import { ProjectCreate } from './pages/ProjectCreate.tsx';
+import { lazyPage } from './utils/lazyRoute.ts';
 
-const Dashboard = lazy(() => import('./pages/Dashboard.tsx').then((m) => ({ default: m.Dashboard })));
-const Projects = lazy(() => import('./pages/Projects.tsx').then((m) => ({ default: m.Projects })));
-const ProjectWorkspace = lazy(() => import('./pages/ProjectWorkspace.tsx').then((m) => ({ default: m.ProjectWorkspace })));
-const Catalog = lazy(() => import('./pages/Catalog.tsx').then((m) => ({ default: m.Catalog })));
-const Help = lazy(() => import('./pages/Help.tsx').then((m) => ({ default: m.Help })));
-const Settings = lazy(() => import('./pages/Settings.tsx').then((m) => ({ default: m.Settings })));
-const Div10BrainAdmin = lazy(() =>
-  import('./pages/admin/Div10BrainAdmin.tsx').then((m) => ({ default: m.Div10BrainAdmin }))
-);
-const AdminHealthPage = lazy(() =>
-  import('./pages/admin/AdminHealthPage.tsx').then((m) => ({ default: m.AdminHealthPage }))
-);
-const ProjectWorkspaceIndexRedirect = lazy(() =>
-  import('./components/routing/ProjectWorkspaceIndexRedirect.tsx').then((m) => ({ default: m.ProjectWorkspaceIndexRedirect }))
+const Dashboard = lazyPage(() => import('./pages/Dashboard.tsx'), 'Dashboard');
+const Projects = lazyPage(() => import('./pages/Projects.tsx'), 'Projects');
+const ProjectWorkspace = lazyPage(() => import('./pages/ProjectWorkspace.tsx'), 'ProjectWorkspace');
+const Catalog = lazyPage(() => import('./pages/Catalog.tsx'), 'Catalog');
+const Help = lazyPage(() => import('./pages/Help.tsx'), 'Help');
+const Settings = lazyPage(() => import('./pages/Settings.tsx'), 'Settings');
+const Div10BrainAdmin = lazyPage(() => import('./pages/admin/Div10BrainAdmin.tsx'), 'Div10BrainAdmin');
+const AdminHealthPage = lazyPage(() => import('./pages/admin/AdminHealthPage.tsx'), 'AdminHealthPage');
+const ProjectWorkspaceIndexRedirect = lazyPage(
+  () => import('./components/routing/ProjectWorkspaceIndexRedirect.tsx'),
+  'ProjectWorkspaceIndexRedirect',
 );
 
 /**

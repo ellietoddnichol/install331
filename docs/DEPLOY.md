@@ -1,5 +1,7 @@
 # Deploy notes
 
+**Sheets + GCS MVP on Cloud Run:** follow [`deploy-sheets-mvp.md`](./deploy-sheets-mvp.md) (checklist, Secret Manager, IAM, smoke on `*.run.app`). Default CI substitutions live in [`cloudbuild.yaml`](../cloudbuild.yaml).
+
 ## SQLite migrations (projects, takeoff, etc.)
 
 On every process start, **`server.ts`** calls `initDb()` then **`initEstimatorSchema()`** from [`src/server/db/schema.ts`](../src/server/db/schema.ts). That function applies idempotent `ALTER TABLE ... ADD COLUMN` migrations when the SQLite schema is older than the code (for example `proposal_include_special_notes` on `projects_v1`).

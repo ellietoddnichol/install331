@@ -49,7 +49,9 @@ export function getIntegrationHealthSnapshot(): IntegrationHealthSnapshot {
   const sheets =
     Boolean(String(process.env.GOOGLE_SERVICE_ACCOUNT || '').trim()) ||
     Boolean(String(process.env.GOOGLE_SERVICE_ACCOUNT_FILE || '').trim()) ||
-    Boolean(String(process.env.GOOGLE_APPLICATION_CREDENTIALS || '').trim());
+    Boolean(String(process.env.GOOGLE_APPLICATION_CREDENTIALS || '').trim()) ||
+    (Boolean(String(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL || '').trim()) &&
+      Boolean(String(process.env.GOOGLE_PRIVATE_KEY || process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '').trim()));
   const pg = isPgDriver();
   const sheetsBackend = isSheetsDataBackend();
   const bundleReads = pg ? getBundlesReadTableNames() : { bundlesTable: '', bundleItemsTable: '' };

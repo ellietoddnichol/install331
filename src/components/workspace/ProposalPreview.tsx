@@ -8,6 +8,7 @@ import {
   splitProposalTextLines,
 } from '../../shared/utils/proposalDocument';
 import { DEFAULT_PROPOSAL_ACCEPTANCE_LABEL, DEFAULT_PROPOSAL_CLARIFICATIONS, DEFAULT_PROPOSAL_EXCLUSIONS, DEFAULT_PROPOSAL_INTRO, DEFAULT_PROPOSAL_TERMS } from '../../shared/utils/proposalDefaults';
+import { ProposalInvestmentSummaryTable } from '../proposal/ProposalInvestmentSummaryTable';
 import { formatCurrencySafe, formatNumberSafe } from '../../utils/numberFormat';
 
 function ProposalLineThumb({ src, compact }: { src: string; compact: boolean }) {
@@ -124,7 +125,7 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
     <article
       data-proposal-document="true"
       data-proposal-format={fmt}
-      className={`print-proposal proposal-document mx-auto min-h-[11in] w-full max-w-[8.4in] rounded-[10px] border border-slate-200/80 bg-white text-slate-900 shadow-[0_22px_56px_rgba(15,23,42,0.06)] ${
+      className={`print-proposal proposal-document mx-auto min-h-[11in] w-full max-w-[8.4in] rounded-sm border border-slate-300 bg-white text-slate-900 shadow-sm ${
         isCondensed ? 'px-8 py-6 text-[12px]' : 'px-[0.55in] py-[0.55in]'
       }`}
     >
@@ -172,37 +173,6 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
           </div>
         </div>
       </header>
-
-      {(showMaterial || showLabor) && summary.baseBidTotal > 0 ? (
-        <div className={`proposal-avoid-break grid gap-3 sm:grid-cols-3 ${isCondensed ? 'mt-4' : 'mt-6'}`}>
-          {showMaterial && summary.materialLoadedSubtotal > 0 ? (
-            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Material</p>
-              <p className="mt-1 text-xl font-semibold tabular-nums text-slate-950">
-                {formatCurrencySafe(summary.materialLoadedSubtotal)}
-              </p>
-            </div>
-          ) : null}
-          {showLabor && summary.laborLoadedSubtotal > 0 ? (
-            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Labor</p>
-              <p className="mt-1 text-xl font-semibold tabular-nums text-slate-950">
-                {formatCurrencySafe(summary.laborLoadedSubtotal)}
-              </p>
-            </div>
-          ) : null}
-          <div
-            className={`rounded-xl border border-orange-200 bg-orange-50/50 p-4 ring-1 ring-orange-100 ${
-              !showMaterial || !showLabor || summary.materialLoadedSubtotal <= 0 || summary.laborLoadedSubtotal <= 0
-                ? 'sm:col-span-3'
-                : ''
-            }`}
-          >
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-orange-800">Total investment</p>
-            <p className="mt-1 text-xl font-semibold tabular-nums text-orange-950">{formatCurrencySafe(summary.baseBidTotal)}</p>
-          </div>
-        </div>
-      ) : null}
 
       <section className={`${secY} proposal-section`}>
         <h2 className={sectionHeadingClass}>Introduction</h2>
@@ -353,34 +323,18 @@ export function ProposalPreview({ project, settings, lines, summary, catalogImag
         </section>
       ) : null}
 
-      <section className={`proposal-totals border-t border-slate-300 proposal-section proposal-avoid-break ${isCondensed ? 'mt-6 pt-5' : 'mt-10 pt-8'}`}>
+      <section className={`proposal-totals border-t-2 border-slate-900 proposal-section proposal-avoid-break ${isCondensed ? 'mt-6 pt-5' : 'mt-10 pt-8'}`}>
         <h2 className={sectionHeadingClass}>Investment summary</h2>
-        <p className="mt-3 max-w-[42rem] text-[12px] leading-relaxed text-slate-500">
-          Your total proposal includes material, labor, taxes, and markups as applicable for this project.
+        <p className={`max-w-[42rem] text-[12px] leading-relaxed text-slate-500 ${isCondensed ? 'mt-3' : 'mt-4'}`}>
+          Pricing below reflects material, labor, taxes, and applicable markups for this scope. Totals are shown once at the
+          end of the proposal.
         </p>
-        <div className="mt-4 flex max-w-md justify-between gap-6 text-[13px] text-slate-600 sm:ml-auto">
-          <span>Estimated duration</span>
-          <span className="tabular-nums font-medium text-slate-900">{formatSchedule(summary.durationDays, summary.totalLaborHours)}</span>
-        </div>
-        <div className="mt-4 max-w-md space-y-0 sm:ml-auto">
-          {investmentRows.map((row, idx) => (
-            <div
-              key={`${row.label}-${idx}`}
-              className={`flex justify-between gap-6 py-2 text-[13px] ${
-                row.isTotal
-                  ? 'mt-1 border-t border-slate-300 pt-3 text-[17px] font-semibold tracking-tight text-slate-950'
-                  : row.isSectionBreak
-                    ? 'border-b border-slate-200 pb-2 font-medium text-slate-800'
-                    : 'text-slate-600'
-              }`}
-            >
-              <span>{row.isTotal ? 'Total investment' : row.label}</span>
-              <span className={`tabular-nums ${row.isTotal ? 'text-slate-950' : 'font-medium text-slate-900'}`}>
-                {formatCurrencySafe(row.amount)}
-              </span>
-            </div>
-          ))}
-        </div>
+        <ProposalInvestmentSummaryTable
+          className={isCondensed ? 'mt-4' : 'mt-6'}
+          compact={isCondensed}
+          durationLabel={formatSchedule(summary.durationDays, summary.totalLaborHours)}
+          rows={investmentRows}
+        />
       </section>
 
       <section className={`border-t border-slate-200 proposal-section ${isCondensed ? 'mt-8 pt-6' : 'mt-12 pt-10'}`}>
