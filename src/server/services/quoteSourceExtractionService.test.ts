@@ -49,6 +49,24 @@ test('extractRowsFromPdfPages parses PO-style rows split across nearby lines and
   assert.ok(rows.every((row) => !/workers compensation|liquidated damages|additional insured/i.test(row.rawDescription)));
 });
 
+test('extractRowsFromPdfPages stitches description lines before qty unit unitCost total tail', () => {
+  const pages = [
+    [
+      '000P42553A',
+      '28 Five-Tier Model E Locker - PLAM Interior 72"H x 12"W x 12"D',
+      '12 EA 1250.00 15000.00',
+      'Filler panel for end conditions',
+      '3 EA 95.00 285.00',
+    ].join('\n'),
+  ];
+
+  const rows = extractRowsFromPdfPages(pages);
+  assert.equal(rows.length, 2);
+  assert.ok(rows.some((row) => /locker/i.test(row.rawDescription)));
+  assert.ok(rows.some((row) => /filler panel/i.test(row.rawDescription)));
+  assert.equal(rows.find((row) => /locker/i.test(row.rawDescription))?.qty, 12);
+});
+
 test('extractRowsFromPdfPages keeps staged rows when later pages are mostly legal narrative', () => {
   const pages = [
     [

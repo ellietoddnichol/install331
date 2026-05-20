@@ -20,9 +20,10 @@ const MAIN_NAV = [
   { path: '/projects', label: 'Projects', icon: FolderOpen },
 ];
 
+/** Work-queue shortcuts — not highlighted until dedicated routes/filters exist. */
 const WORKFLOW_NAV = [
-  { path: '/projects', label: 'Needs Review', icon: ClipboardList, match: 'project' as const },
-  { path: '/projects', label: 'Ready to Import', icon: HardHat, match: 'project' as const },
+  { path: '/projects', label: 'Needs Review', icon: ClipboardList },
+  { path: '/projects', label: 'Ready to Import', icon: HardHat },
 ];
 
 const TOOLS_NAV = [
@@ -101,7 +102,7 @@ export function SidebarNav() {
           return (
             <Link key={item.path} to={item.path} title={item.label} className={linkClass(active, !isSidebarOpen)}>
               {active && isSidebarOpen ? (
-                <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-orange-500" aria-hidden />
+                <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-slate-300" aria-hidden />
               ) : null}
               <item.icon className="h-4 w-4 shrink-0" />
               {isSidebarOpen ? <span>{item.label}</span> : null}
@@ -117,7 +118,7 @@ export function SidebarNav() {
             key={item.label}
             to={item.path}
             title={item.label}
-            className={`${linkClass(location.pathname.startsWith('/project'), !isSidebarOpen)} ${isSidebarOpen ? 'mt-0.5' : 'mt-1'}`}
+            className={`${linkClass(false, !isSidebarOpen)} ${isSidebarOpen ? 'mt-0.5' : 'mt-1'}`}
           >
             <item.icon className="h-4 w-4 shrink-0 opacity-80" />
             {isSidebarOpen ? <span className="text-[13px]">{item.label}</span> : null}

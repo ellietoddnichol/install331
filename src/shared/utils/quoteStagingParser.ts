@@ -25,7 +25,29 @@ export interface QuoteHeaderDraft {
   notes?: string;
 }
 
-const VALID_UNITS = new Set(['EA', 'FRT', 'SRV', 'LF', 'FT', 'SF', 'LS', 'LOT', 'SET', 'HR']);
+const VALID_UNITS = new Set([
+  'EA',
+  'EACH',
+  'PCS',
+  'PC',
+  'PR',
+  'FRT',
+  'SRV',
+  'LF',
+  'FT',
+  'SF',
+  'SY',
+  'LS',
+  'LOT',
+  'SET',
+  'HR',
+  'BOX',
+  'GAL',
+  'QT',
+  'SHT',
+  'ROLL',
+  'PKG',
+]);
 
 const ACCESSORY_HINTS = [
   'lock',
@@ -101,6 +123,7 @@ function normalizeUnit(input: string): string {
   if (token === 'EACH') return 'EA';
   if (token === 'SERVICE') return 'SRV';
   if (token === 'FREIGHT') return 'FRT';
+  if (token === 'SQ' || token === 'SQFT' || token === 'SQFT.') return 'SF';
   return token;
 }
 
@@ -280,7 +303,8 @@ export function parseQuoteRowsFromRecords(records: Array<Record<string, unknown>
 }
 
 function isValidUnitToken(token: string): boolean {
-  return VALID_UNITS.has(normalizeUnit(token));
+  const raw = String(token || '').trim().toUpperCase();
+  return VALID_UNITS.has(normalizeUnit(token)) || VALID_UNITS.has(raw);
 }
 
 function buildStagedRow(input: {
@@ -444,10 +468,14 @@ function looksLikeDelimitedTable(text: string): boolean {
     .filter(Boolean);
   if (lines.length === 0) return false;
   if (lines.some((line) => line.includes('\t'))) return true;
-  const commaRows = lines.filter((line) => (line.match(/,/g) || []).length >= 2);
-  if (commaRows.length >= 2) return true;
   const first = lines[0] || '';
-  return /(^|,)\s*(item|line|description|qty|quantity|unit|uom|cost|total|model|sku)/i.test(first);
+  if (/(^|,)\s*(item|line|description|qty|quantity|unit|uom|cost|total|model|sku)/i.test(first)) {
+    return true;
+  }
+  const commaRows = lines.filter((line) => (line.match(/,/g) || []).length >= 2);
+  if (commaRows.length < 2) return false;
+  const commaCounts = commaRows.map((line) => (line.match(/,/g) || []).length);
+  return commaCounts.every((count) => count === commaCounts[0]);
 }
 
 /**

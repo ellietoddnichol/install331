@@ -2691,7 +2691,13 @@ export function ProjectWorkspace() {
       if (extracted.rowsCreated > 0) {
         setActionFeedback({ tone: 'success', message: `Parsed ${extracted.rowsCreated} staged row${extracted.rowsCreated === 1 ? '' : 's'} from the source file.` });
       } else {
-        setActionFeedback({ tone: 'warning', message: 'No usable priced rows were detected. You can still stage rows manually.' });
+        const hint = extracted.warnings?.length
+          ? extracted.warnings.slice(0, 2).join(' ')
+          : 'No priced table rows matched (qty, unit, unit cost, total).';
+        setActionFeedback({
+          tone: 'warning',
+          message: `${hint} You can still stage rows manually or paste a CSV.`,
+        });
       }
     } catch (error) {
       window.alert(getErrorMessage(error, 'Could not parse attached quote file.'));

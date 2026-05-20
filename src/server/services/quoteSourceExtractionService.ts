@@ -7,6 +7,7 @@ import {
   extractQuoteHeaderFromText,
   isLikelyTermsPage,
   normalizeSkuModel,
+  parseFreeformPricedQuoteLines,
   parseQuoteRowsFromRecords,
   parseQuotePasteText,
   parseTabularQuoteText,
@@ -14,6 +15,7 @@ import {
   type QuoteHeaderDraft,
   type QuoteStagedRowDraft,
 } from '../../shared/utils/quoteStagingParser.ts';
+import { resolveUploadPdfProvider } from './intake/documentAiConfig.ts';
 import { parsePdfUpload } from './intake/pdfParser.ts';
 
 function parseDateLoose(input: string | undefined): string | null {
@@ -31,11 +33,42 @@ function parseMoneyToken(token: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-const VALID_UNITS = new Set(['EA', 'FRT', 'SRV', 'LF', 'FT', 'SF', 'LS', 'LOT', 'SET', 'HR']);
+const VALID_UNITS = new Set([
+  'EA',
+  'EACH',
+  'PCS',
+  'PC',
+  'PR',
+  'FRT',
+  'SRV',
+  'LF',
+  'FT',
+  'SF',
+  'SY',
+  'LS',
+  'LOT',
+  'SET',
+  'HR',
+  'BOX',
+  'GAL',
+  'QT',
+  'SHT',
+  'ROLL',
+  'PKG',
+]);
+
+function normalizeUnitToken(token: string): string {
+  const unit = String(token || '').trim().toUpperCase();
+  if (unit === 'EACH') return 'EA';
+  if (unit === 'SERVICE') return 'SRV';
+  if (unit === 'FREIGHT') return 'FRT';
+  if (unit === 'SQ' || unit === 'SQFT' || unit === 'SQFT.') return 'SF';
+  return unit;
+}
 
 function isValidUnitToken(token: string): boolean {
-  const unit = String(token || '').trim().toUpperCase();
-  return VALID_UNITS.has(unit);
+  const unit = normalizeUnitToken(token);
+  return VALID_UNITS.has(unit) || VALID_UNITS.has(String(token || '').trim().toUpperCase());
 }
 
 function parseQtyToken(token: string): number | null {
@@ -84,17 +117,17 @@ type ParsedTail = {
   lineNumber: string | null;
 };
 
-function parsePricedTailFromText(text: string): ParsedTail | null {
+function parsePricedTailFromText(text: string, options?: { allowPriceOnly?: boolean }): ParsedTail | null {
   const tokens = String(text || '').split(/\s+/).filter(Boolean);
-  if (tokens.length < 5) return null;
+  if (tokens.length < 4) return null;
 
   const totalCost = parseMoneyToken(tokens[tokens.length - 1]);
   const unitCost = parseMoneyToken(tokens[tokens.length - 2]);
-  const unit = String(tokens[tokens.length - 3] || '').toUpperCase();
+  const unit = normalizeUnitToken(tokens[tokens.length - 3] || '');
   const qty = parseQtyToken(tokens[tokens.length - 4]);
 
   if (qty == null || unitCost == null || totalCost == null) return null;
-  if (!isValidUnitToken(unit)) return null;
+  if (!isValidUnitToken(tokens[tokens.length - 3] || '')) return null;
 
   const descriptionTokens = tokens.slice(0, Math.max(0, tokens.length - 4));
   let lineNumber: string | null = null;
@@ -102,7 +135,7 @@ function parsePricedTailFromText(text: string): ParsedTail | null {
     lineNumber = descriptionTokens.shift() || null;
   }
   const descriptionText = descriptionTokens.join(' ').trim();
-  if (!descriptionText) return null;
+  if (!descriptionText && !options?.allowPriceOnly) return null;
 
   return {
     qty,
@@ -111,6 +144,28 @@ function parsePricedTailFromText(text: string): ParsedTail | null {
     totalCost,
     descriptionText,
     lineNumber,
+  };
+}
+
+function tryParseInlinePricedLine(line: string): ParsedTail | null {
+  const trimmed = normalizePdfLine(line);
+  const m = trimmed.match(
+    /^(.+?)\s+(\d+(?:\.\d+)?)\s+([A-Za-z]{2,6})\s+\$?\s*([\d,]+(?:\.\d{2,4})?)\s+\$?\s*([\d,]+(?:\.\d{2,4})?)\s*$/i,
+  );
+  if (!m) return null;
+  const unit = normalizeUnitToken(m[3] || '');
+  if (!isValidUnitToken(m[3] || '')) return null;
+  const qty = parseQtyToken(m[2]);
+  const unitCost = parseMoneyToken(m[4]);
+  const totalCost = parseMoneyToken(m[5]);
+  if (qty == null || unitCost == null || totalCost == null) return null;
+  return {
+    qty,
+    unit,
+    unitCost,
+    totalCost,
+    descriptionText: String(m[1] || '').trim(),
+    lineNumber: null,
   };
 }
 
@@ -264,8 +319,10 @@ export function extractRowsFromPdfPages(pageTexts: string[]): QuoteStagedRowDraf
       return !(repeatedNoise || shouldIgnoreLineAsNoise(line));
     });
 
+    const hasDescriptionHeader = filteredLines.some((line) => /^description$/i.test(line.trim()));
     const blockRows = parseColumnBlockRows(filteredLines);
-    if (blockRows.length > 0) {
+    // Column-vector PDFs label a Description block; POs with inline SKUs must use line stitching below.
+    if (hasDescriptionHeader && blockRows.length > 0) {
       rows.push(...blockRows);
       return;
     }
@@ -276,28 +333,52 @@ export function extractRowsFromPdfPages(pageTexts: string[]): QuoteStagedRowDraf
       const primary = filteredLines[index] || '';
       if (!primary) continue;
 
-      let tail: ParsedTail | null = null;
+      let tail: ParsedTail | null = tryParseInlinePricedLine(primary);
       let consumedTo = index;
-      for (let end = index; end <= Math.min(filteredLines.length - 1, index + 2); end += 1) {
-        const candidate = filteredLines.slice(index, end + 1).join(' ');
-        const parsed = parsePricedTailFromText(candidate);
-        if (parsed) {
-          tail = parsed;
-          consumedTo = end;
+
+      if (!tail) {
+        for (let end = index; end <= Math.min(filteredLines.length - 1, index + 8); end += 1) {
+          const candidate = filteredLines.slice(index, end + 1).join(' ');
+          const parsed =
+            parsePricedTailFromText(candidate) ||
+            parsePricedTailFromText(candidate, { allowPriceOnly: true });
+          if (parsed) {
+            tail = parsed;
+            consumedTo = end;
+            break;
+          }
         }
       }
 
       if (!tail) continue;
 
       const prelude: string[] = [];
-      if (index > 0) {
+      if (!tail.descriptionText) {
+        for (let back = index - 1; back >= Math.max(0, index - 6); back -= 1) {
+          const prev = filteredLines[back] || '';
+          if (!prev) continue;
+          if (
+            parsePricedTailFromText(prev, { allowPriceOnly: true }) ||
+            tryParseInlinePricedLine(prev)
+          ) {
+            break;
+          }
+          if (isLikelySkuLine(prev)) continue;
+          if (isLikelyDescriptionContinuation(prev)) prelude.unshift(prev);
+          else if (prelude.length > 0) break;
+        }
+      } else if (index > 0) {
         const prev = filteredLines[index - 1] || '';
-        if (isLikelyDescriptionContinuation(prev) && !parsePricedTailFromText(prev)) {
+        if (
+          isLikelyDescriptionContinuation(prev) &&
+          !parsePricedTailFromText(prev, { allowPriceOnly: true }) &&
+          !tryParseInlinePricedLine(prev)
+        ) {
           prelude.push(prev);
         }
       }
 
-      const stitchedDescription = [...prelude, tail.descriptionText].join(' ').replace(/\s+/g, ' ').trim();
+      const stitchedDescription = [...prelude, tail.descriptionText].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
       if (!stitchedDescription) continue;
 
       const rowType = classifyQuoteRow({
@@ -363,13 +444,38 @@ function parseQuoteRowsFromFile(input: { fileName: string; mimeType: string; dat
   if (lowerName.endsWith('.pdf') || lowerMime.includes('pdf')) {
     return parsePdfUpload(input).then((pdf) => {
       const pageTexts = pdf.document.pages.map((page) => page.text);
-      const rows = extractRowsFromPdfPages(pageTexts);
-      const header = extractQuoteHeaderFromText(pdf.document.documentText);
-      return {
-        rows,
-        header,
-        warnings: [...pdf.warnings, ...pdf.document.extractionWarnings],
-      };
+      let rows = extractRowsFromPdfPages(pageTexts);
+      const docText = String(pdf.document.documentText || '').trim();
+      const warnings = [...pdf.warnings, ...pdf.document.extractionWarnings];
+
+      if (rows.length === 0 && docText.length > 20) {
+        const docLineRows = extractRowsFromPdfPages([docText]);
+        if (docLineRows.length > 0) {
+          rows = docLineRows;
+          warnings.push('Parsed priced lines from full document text (page layout was not tabular).');
+        } else {
+          const freeformRows = parseFreeformPricedQuoteLines(docText);
+          const pasteRows =
+            freeformRows.length > 0
+              ? freeformRows
+              : parseQuotePasteText(docText).filter((row) => shouldImportRowType(row.rowType));
+          if (pasteRows.length > 0) {
+            rows = pasteRows;
+            warnings.push('PDF table layout was not detected; parsed priced lines from extracted document text.');
+          } else {
+            warnings.push(
+              `PDF text was extracted (${docText.length} chars, provider=${resolveUploadPdfProvider()}) but no priced rows matched. Check qty/unit/price columns or paste rows manually.`,
+            );
+          }
+        }
+      } else if (rows.length === 0) {
+        warnings.push(
+          'PDF produced little or no text. Confirm Document AI env vars (GOOGLE_CLOUD_PROJECT_ID, DOCUMENT_AI_PROCESSOR_ID) and UPLOAD_PDF_PROVIDER=google-document-ai.',
+        );
+      }
+
+      const header = extractQuoteHeaderFromText(docText);
+      return { rows, header, warnings };
     });
   }
 
